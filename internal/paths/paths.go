@@ -156,8 +156,10 @@ func moveDir(from, to string) error {
 	if from == to {
 		return nil
 	}
-	if _, err := os.Stat(from); err != nil {
+	if _, err := os.Stat(from); errors.Is(err, os.ErrNotExist) {
 		return nil
+	} else if err != nil {
+		return err
 	}
 	if _, err := os.Stat(to); err == nil {
 		return nil
