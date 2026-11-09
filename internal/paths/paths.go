@@ -71,7 +71,7 @@ func configDir(appName string) string {
 	}
 }
 
-// DataDir is where Lookout keeps its database, backups, reviews and logs.
+// DataDir is where Lookout keeps its database, limits, backups and logs.
 func DataDir() string {
 	if d := os.Getenv("LOOKOUT_DATA_DIR"); d != "" {
 		return d
@@ -115,20 +115,8 @@ func HistoryFile() string { return filepath.Join(DataDir(), "history.json") }
 // AlertsFile records which limit alerts were already shown.
 func AlertsFile() string { return filepath.Join(DataDir(), "alerts.json") }
 
-// LogDir holds hook and worker logs.
+// LogDir holds the status line log.
 func LogDir() string { return filepath.Join(DataDir(), "logs") }
-
-// CrossCheckDir holds the cross-check flag, jobs and reviews.
-func CrossCheckDir() string { return filepath.Join(DataDir(), "crosscheck") }
-
-// CrossCheckFlag exists when cross-check mode is on.
-func CrossCheckFlag() string { return filepath.Join(CrossCheckDir(), "enabled") }
-
-// ReviewsDir holds one JSON file per Codex review.
-func ReviewsDir() string { return filepath.Join(CrossCheckDir(), "reviews") }
-
-// JobsDir holds pending review jobs written by the hook.
-func JobsDir() string { return filepath.Join(CrossCheckDir(), "jobs") }
 
 // legacyName is the project's former name. Its directories are moved to the
 // new ones the first time Lookout runs.

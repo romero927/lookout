@@ -4,7 +4,6 @@ package ui
 import (
 	"fmt"
 	"os/exec"
-	"path/filepath"
 	"strings"
 	"time"
 
@@ -14,7 +13,6 @@ import (
 
 	"github.com/romero927/lookout/internal/app"
 	"github.com/romero927/lookout/internal/configfiles"
-	"github.com/romero927/lookout/internal/crosscheck"
 	"github.com/romero927/lookout/internal/limits"
 	"github.com/romero927/lookout/internal/paths"
 	"github.com/romero927/lookout/internal/store"
@@ -49,10 +47,9 @@ const (
 	tabUsage = iota
 	tabModels
 	tabFiles
-	tabCrossCheck
 )
 
-var tabNames = []string{"Usage", "Models", "Files", "Cross-check"}
+var tabNames = []string{"Usage", "Models", "Files"}
 
 // Options configure the model.
 type Options struct {
@@ -96,24 +93,12 @@ type Model struct {
 	gLoaded  string // path currently in the viewer
 	gReadErr string
 
-	// Cross-check
-	reviews []crosscheck.Review
-	rSel    int
-	rFocus  bool
-	rView   viewport.Model
-	rShown  string
-	crossOn bool
-
 	// Limits (from the status line)
 	limits       limits.State
 	limitsMod    time.Time
 	limitsPath   string
 	slConfigured bool
 	slOurs       bool
-	codexPath    string
-	codexErr     string
-	hookOK       bool
-	lastReview   time.Time
 	history      limits.History
 	histMod      time.Time
 	fired        limits.Fired
@@ -131,8 +116,7 @@ type Model struct {
 
 // New creates the model.
 func New(o Options) Model {
-	m := Model{o: o, now: time.Now(), gView: viewport.New(40, 10), rView: viewport.New(40, 10)}
-	m.refreshCrossCheck()
+	m := Model{o: o, now: time.Now(), gView: viewport.New(40, 10)}
 	m.refreshLimits(true)
 	m.fired = limits.LoadFired(paths.AlertsFile())
 	m.checkBuild()
@@ -180,9 +164,6 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.loaded {
 			m.refresh()
 		}
-		if m.now.Sub(m.lastReview) >= 2*time.Second {
-			m.refreshCrossCheck()
-		}
 		return m, tea.Batch(tick(), m.checkAlerts())
 
 	case editorDoneMsg:
@@ -217,26 +198,13 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "esc", "left", "h", "enter":
 			m.gFocus = false
 			return m, nil
-		case "q", "ctrl+c", "x", "e", "1", "2", "3", "4", "tab", "shift+tab", "?":
+		case "q", "ctrl+c", "e", "1", "2", "3", "tab", "shift+tab", "?":
 		default:
 			var cmd tea.Cmd
 			m.gView, cmd = m.gView.Update(k)
 			return m, cmd
 		}
 	}
-	if m.tab == tabCrossCheck && m.rFocus {
-		switch key {
-		case "esc", "left", "h", "enter":
-			m.rFocus = false
-			return m, nil
-		case "q", "ctrl+c", "x", "1", "2", "3", "4", "tab", "shift+tab", "?":
-		default:
-			var cmd tea.Cmd
-			m.rView, cmd = m.rView.Update(k)
-			return m, cmd
-		}
-	}
-
 	switch key {
 	case "q", "ctrl+c":
 		return m, tea.Quit
@@ -246,7 +214,7 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "?":
 		m.help = true
 		return m, nil
-	case "1", "2", "3", "4":
+	case "1", "2", "3":
 		m.tab = int(key[0] - '1')
 		return m, nil
 	case "tab":
@@ -255,29 +223,10 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "shift+tab":
 		m.tab = (m.tab + len(tabNames) - 1) % len(tabNames)
 		return m, nil
-	case "x":
-		on, err := crosscheck.Toggle(paths.CrossCheckFlag())
-		switch {
-		case err != nil:
-			m.setFlash("cross-check: "+err.Error(), sRed, 6*time.Second)
-		case on:
-			msg := "cross-check ON — Claude's replies will be sent to Codex"
-			if !m.hookOK {
-				msg += " (hook not installed: lookout hook install --print)"
-			}
-			m.setFlash(msg, sGreen, 6*time.Second)
-		default:
-			m.setFlash("cross-check OFF", sMuted, 4*time.Second)
-		}
-		m.refreshCrossCheck()
-		return m, nil
 	}
 
-	switch m.tab {
-	case tabFiles:
+	if m.tab == tabFiles {
 		return m.filesKey(key)
-	case tabCrossCheck:
-		return m.crossCheckKey(key)
 	}
 	return m, nil
 }
@@ -334,25 +283,6 @@ func (m Model) editSelected() (tea.Model, tea.Cmd) {
 	return m, tea.ExecProcess(cmd, func(err error) tea.Msg {
 		return editorDoneMsg{path: f.Path, backup: backup, err: err}
 	})
-}
-
-func (m Model) crossCheckKey(key string) (tea.Model, tea.Cmd) {
-	switch key {
-	case "up", "k":
-		if m.rSel > 0 {
-			m.rSel--
-		}
-	case "down", "j":
-		if m.rSel < len(m.reviews)-1 {
-			m.rSel++
-		}
-	case "enter", "right", "l":
-		if len(m.reviews) > 0 {
-			m.rFocus = true
-		}
-	}
-	m.loadReview()
-	return m, nil
 }
 
 // refresh recomputes telemetry and strategy.
@@ -429,42 +359,14 @@ func numbered(s string) string {
 	return b.String()
 }
 
-func (m *Model) refreshCrossCheck() {
-	m.lastReview = time.Now()
-	m.crossOn = crosscheck.Enabled(paths.CrossCheckFlag())
-	m.codexPath, m.codexErr = "", ""
-	if p, err := crosscheck.FindCodex(m.o.Core.Cfg.CrossCheck.CodexPath); err != nil {
-		m.codexErr = err.Error()
-	} else {
-		m.codexPath = p
-	}
-	m.hookOK = crosscheck.HookInstalled(filepath.Join(paths.ClaudeDir(), "settings.json"))
-	rs, _ := crosscheck.List(paths.ReviewsDir(), 100)
-	selID := ""
-	if m.rSel < len(m.reviews) {
-		selID = m.reviews[m.rSel].ID
-	}
-	m.reviews = rs
-	m.rSel = 0
-	for i, r := range rs {
-		if r.ID == selID {
-			m.rSel = i
-		}
-	}
-	m.rShown = "" // force re-render: status may have changed
-	m.loadReview()
-}
-
 // layoutViewports sizes the viewers for the current window.
 func (m *Model) layoutViewports() {
 	bodyH := max(5, m.height-5)
 	listW := m.listWidth()
 	viewW := max(20, m.width-listW-3)
 	m.gView.Width, m.gView.Height = viewW, max(3, bodyH-2)
-	m.rView.Width, m.rView.Height = viewW, max(3, bodyH-2)
-	m.gLoaded, m.rShown = "", ""
+	m.gLoaded = ""
 	m.loadSelectedFile()
-	m.loadReview()
 }
 
 func (m Model) listWidth() int {
@@ -493,8 +395,6 @@ func (m Model) View() string {
 			body = m.viewModels()
 		case tabFiles:
 			body = m.viewFiles(bodyH)
-		case tabCrossCheck:
-			body = m.viewCrossCheck(bodyH)
 		}
 	}
 	body = lipgloss.NewStyle().MaxHeight(bodyH).Height(bodyH).Render(body)
@@ -529,11 +429,6 @@ func (m Model) viewHeader() string {
 		right = append(right, sGreen.Bold(true).Render("↻ R restart"))
 	}
 	right = append(right, m.limitBadges()...)
-	if m.crossOn {
-		right = append(right, sGreen.Render("● X-CHECK ON"))
-	} else {
-		right = append(right, sMuted.Render("○ x-check off"))
-	}
 
 	// Prefer full tab names; fall back to short tabs, then fewer badges.
 	fits := func(left string, r []string) bool {
@@ -564,13 +459,9 @@ func (m Model) viewFooter() string {
 	case m.tab == tabFiles && m.gFocus:
 		keys = "↑↓/pgup/pgdn scroll · esc back · e edit · q quit"
 	case m.tab == tabFiles:
-		keys = "↑↓ select · enter view · e edit · r rescan · x cross-check · ? help · q quit"
-	case m.tab == tabCrossCheck && m.rFocus:
-		keys = "↑↓ scroll · esc back · x cross-check · q quit"
-	case m.tab == tabCrossCheck:
-		keys = "↑↓ select · enter read · x cross-check · ? help · q quit"
+		keys = "↑↓ select · enter view · e edit · r rescan · ? help · q quit"
 	default:
-		keys = "1-4/tab panels · x cross-check · ? help · q quit"
+		keys = "1-3/tab panels · ? help · q quit"
 	}
 	if m.newBuild {
 		keys = "R restart into new build · " + keys
@@ -588,12 +479,10 @@ func (m Model) viewHelp() string {
 		sBold.Render("Panels"),
 		"  1 Usage       limits, token usage for the session, today and the last 5h, and limit use per day",
 		"  2 Models      rules-based model suggestion; switch yourself with /model",
-		"  3 Files       Claude Code / Codex config and memory files (read-only by default)",
-		"  4 Cross-check Codex cross-check reviews of Claude's replies",
+		"  3 Files       Claude Code (and Codex) config and memory files, read-only by default",
 		"",
 		sBold.Render("Keys"),
-		"  1-4, tab      switch panel",
-		"  x             toggle cross-check (Stop hook sends Claude's last reply to codex exec)",
+		"  1-3, tab      switch panel",
 		"  ↑↓ / j k      move · enter to focus the viewer · esc to go back",
 		"  e             edit the selected file in $EDITOR (needs [files] allow_edit = true)",
 		"  r             rescan the file list",
@@ -609,7 +498,7 @@ func (m Model) viewHelp() string {
 		"  data     " + ShortPath(paths.DataDir()),
 		"",
 		sMuted.Render("Lookout only reads what Claude Code writes to disk. It never calls Claude."),
-		sMuted.Render("Unofficial. Not affiliated with Anthropic or OpenAI. " + m.o.Version),
+		sMuted.Render("Unofficial. Not affiliated with Anthropic. " + m.o.Version),
 		"",
 		sMuted.Render("press any key"),
 	}

@@ -4,7 +4,6 @@ package main
 
 import (
 	"context"
-	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -21,7 +20,6 @@ import (
 
 	"github.com/romero927/lookout/internal/app"
 	"github.com/romero927/lookout/internal/config"
-	"github.com/romero927/lookout/internal/crosscheck"
 	"github.com/romero927/lookout/internal/limits"
 	"github.com/romero927/lookout/internal/paths"
 	"github.com/romero927/lookout/internal/store"
@@ -41,9 +39,6 @@ Usage:
   lookout stats [--cwd DIR]        print usage and the model suggestion once, then exit
   lookout statusline               status line entry point (Claude Code runs this)
   lookout statusline install --print   print the settings.json snippet for it
-  lookout hook stop                Stop hook entry point (Claude Code runs this)
-  lookout hook install --print     print the settings.json snippet for the hook
-  lookout crosscheck on|off|status turn Codex cross-check reviews on or off
   lookout config init|path         write the default config / show its path
   lookout paths                    show every directory Lookout uses
   lookout version
@@ -55,7 +50,7 @@ Flags for the dashboard and stats:
 Environment:
   LOOKOUT_THEME=dark|light   skip terminal background detection
 
-Keys: 1-4 or tab switch panels · x toggle cross-check · ? help · q quit
+Keys: 1-3 or tab switch panels · R restart · ? help · q quit
 `
 
 // appVersion is the release version, or the module version for builds made
@@ -90,16 +85,10 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	}
 	if len(args) > 0 {
 		switch args[0] {
-		case "hook":
-			return cmdHook(args[1:], stdin, stdout, stderr)
 		case "statusline":
 			return cmdStatusLine(args[1:], stdin, stdout, stderr)
-		case "review-run": // internal: the detached review worker
-			return cmdReviewRun(args[1:])
 		case "stats":
 			return cmdStats(args[1:], stdout, stderr)
-		case "crosscheck":
-			return cmdCrossCheck(args[1:], stdout, stderr)
 		case "config":
 			return cmdConfig(args[1:], stdout, stderr)
 		case "paths":
@@ -311,40 +300,6 @@ func printLimits(w io.Writer, st limits.State, now time.Time) {
 	}
 }
 
-func cmdCrossCheck(args []string, stdout, stderr io.Writer) int {
-	flagPath := paths.CrossCheckFlag()
-	sub := "status"
-	if len(args) > 0 {
-		sub = args[0]
-	}
-	var err error
-	switch sub {
-	case "on":
-		err = crosscheck.SetEnabled(flagPath, true)
-	case "off":
-		err = crosscheck.SetEnabled(flagPath, false)
-	case "toggle":
-		_, err = crosscheck.Toggle(flagPath)
-	case "status":
-	default:
-		fmt.Fprintln(stderr, "usage: lookout crosscheck on|off|toggle|status")
-		return 2
-	}
-	if err != nil {
-		fmt.Fprintf(stderr, "lookout: %v\n", err)
-		return 1
-	}
-	state := "OFF"
-	if crosscheck.Enabled(flagPath) {
-		state = "ON"
-	}
-	fmt.Fprintf(stdout, "Cross-check is %s (flag file: %s)\n", state, flagPath)
-	if !crosscheck.HookInstalled(filepath.Join(paths.ClaudeDir(), "settings.json")) {
-		fmt.Fprintln(stdout, "Note: the Stop hook isn't installed. See: lookout hook install --print")
-	}
-	return 0
-}
-
 func cmdConfig(args []string, stdout, stderr io.Writer) int {
 	sub := "path"
 	if len(args) > 0 {
@@ -381,8 +336,8 @@ func cmdPaths(stdout io.Writer) int {
 		{"config", paths.ConfigFile()},
 		{"database", paths.DBFile()},
 		{"backups", paths.BackupDir()},
-		{"reviews", paths.ReviewsDir()},
-		{"cross-check flag", paths.CrossCheckFlag()},
+		{"limits", paths.LimitsDir()},
+		{"limit history", paths.HistoryFile()},
 		{"logs", paths.LogDir()},
 	} {
 		fmt.Fprintf(tw, "%s\t%s\n", kv[0], kv[1])
@@ -391,12 +346,8 @@ func cmdPaths(stdout io.Writer) int {
 	return 0
 }
 
-func crossCheckDirs() crosscheck.Dirs {
-	return crosscheck.Dirs{Flag: paths.CrossCheckFlag(), Reviews: paths.ReviewsDir(), Jobs: paths.JobsDir()}
-}
-
-// hookLog appends a line to the hook log. Hooks must stay silent on
-// stdout/stderr, so problems go here.
+// hookLog appends a line to the log. Commands Claude Code runs (the status
+// line) must stay quiet on stderr, so problems go here.
 func hookLog(format string, a ...any) {
 	_ = os.MkdirAll(paths.LogDir(), 0o700)
 	f, err := os.OpenFile(filepath.Join(paths.LogDir(), "hook.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
@@ -405,59 +356,6 @@ func hookLog(format string, a ...any) {
 	}
 	defer f.Close()
 	fmt.Fprintf(f, "%s %s\n", time.Now().Format(time.RFC3339), fmt.Sprintf(format, a...))
-}
-
-func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
-	if len(args) == 0 {
-		fmt.Fprintln(stderr, "usage: lookout hook stop | lookout hook install --print")
-		return 2
-	}
-	switch args[0] {
-	case "stop":
-		// Always exit 0: a non-zero exit (2 in particular) would interfere
-		// with Claude Code. Errors go to the hook log.
-		defer func() {
-			if r := recover(); r != nil {
-				hookLog("panic: %v", r)
-			}
-		}()
-		cfg, err := config.Load(paths.ConfigFile())
-		if err != nil {
-			hookLog("config: %v", err)
-		}
-		exe, err := os.Executable()
-		if err != nil {
-			hookLog("executable: %v", err)
-			return 0
-		}
-		id, err := crosscheck.HandleStop(stdin, crosscheck.HookOptions{
-			Dirs:        crossCheckDirs(),
-			MaxChars:    cfg.CrossCheck.MaxChars,
-			MaxParallel: cfg.CrossCheck.MaxParallel,
-			Timeout:     time.Duration(cfg.CrossCheck.TimeoutSeconds) * time.Second,
-			Spawn:       func(id string) error { return crosscheck.SpawnDetached(exe, "review-run", id) },
-		})
-		if err != nil {
-			hookLog("stop: %v", err)
-		} else if id != "" {
-			hookLog("queued review %s", id)
-		}
-		return 0
-	case "install":
-		exe := selfPath()
-		settings := filepath.Join(paths.ClaudeDir(), "settings.json")
-		fmt.Fprintf(stdout, "Lookout never edits your settings. To install the Stop hook, merge this into\n%s (or a project's .claude/settings.json):\n\n", settings)
-		fmt.Fprintln(stdout, crosscheck.HookSnippet(exe))
-		fmt.Fprintln(stdout, "\nIf you already have a \"hooks\" section, add the Stop entry to it rather than replacing it.")
-		fmt.Fprintln(stdout, "The hook does nothing until you turn cross-check on (x in the dashboard, or `lookout crosscheck on`).")
-		if crosscheck.HookInstalled(settings) {
-			fmt.Fprintln(stdout, "\nStatus: an Lookout Stop hook already appears in that file.")
-		}
-		return 0
-	default:
-		fmt.Fprintf(stderr, "lookout: unknown hook %q\n", args[0])
-		return 2
-	}
 }
 
 func cmdStatusLine(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
@@ -519,27 +417,4 @@ func selfPath() string {
 		exe = resolved
 	}
 	return exe
-}
-
-func cmdReviewRun(args []string) int {
-	if len(args) != 1 {
-		return 2
-	}
-	cfg, err := config.Load(paths.ConfigFile())
-	if err != nil {
-		hookLog("worker config: %v", err)
-	}
-	err = crosscheck.Run(args[0], crosscheck.WorkerOptions{
-		Dirs:       crossCheckDirs(),
-		CodexPath:  cfg.CrossCheck.CodexPath,
-		Model:      cfg.CrossCheck.Model,
-		Prompt:     cfg.CrossCheck.Prompt,
-		Timeout:    time.Duration(cfg.CrossCheck.TimeoutSeconds) * time.Second,
-		RepoAccess: cfg.CrossCheck.RepoAccess,
-	})
-	if err != nil && !errors.Is(err, os.ErrNotExist) {
-		hookLog("worker %s: %v", args[0], err)
-		return 1
-	}
-	return 0
 }

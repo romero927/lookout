@@ -93,6 +93,3 @@ func clip(s string, w int) string {
 	}
 	return string(r) + "…"
 }
-
-// oneLine collapses whitespace.
-func oneLine(s string) string { return strings.Join(strings.Fields(s), " ") }

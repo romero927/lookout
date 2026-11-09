@@ -4,13 +4,10 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"time"
 
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/romero927/lookout/internal/configfiles"
-	"github.com/romero927/lookout/internal/crosscheck"
-	"github.com/romero927/lookout/internal/paths"
 )
 
 func removeFile(p string) error { return os.Remove(p) }
@@ -96,135 +93,4 @@ func sizeStr(n int64) string {
 	default:
 		return fmt.Sprintf("%.1f MB", float64(n)/(1<<20))
 	}
-}
-
-// ---- Cross-check ----
-
-func (m Model) viewCrossCheck(h int) string {
-	w := m.width
-	var top []string
-	state := sMuted.Render("○ OFF")
-	if m.crossOn {
-		state = sGreen.Bold(true).Render("● ON")
-	}
-	top = append(top, fmt.Sprintf("%s %s  %s", sSection.Render("CROSS-CHECK"), state, sMuted.Render("(x to toggle · off by default)")))
-	codex := sGreen.Render(ShortPath(m.codexPath))
-	if m.codexErr != "" {
-		codex = sYellow.Render(m.codexErr)
-	}
-	hook := sGreen.Render("installed")
-	if !m.hookOK {
-		hook = sYellow.Render("not installed — run: lookout hook install --print")
-	}
-	top = append(top, clip(sLabel.Render("codex ")+codex, w+40), clip(sLabel.Render("hook  ")+hook, w+40))
-	if m.crossOn {
-		access := "an empty temp dir"
-		if m.o.Core.Cfg.CrossCheck.RepoAccess {
-			access = "the session's project dir (read-only sandbox)"
-		}
-		top = append(top, sMuted.Render(clip(fmt.Sprintf("On each Stop, Claude's last reply (≤%d chars) + review prompt → codex exec, run in %s.", m.o.Core.Cfg.CrossCheck.MaxChars, access), w)))
-	}
-	topS := strings.Join(top, "\n")
-	bodyH := max(3, h-lipgloss.Height(topS)-1)
-
-	lw := m.listWidth()
-	var list []string
-	if len(m.reviews) == 0 {
-		list = append(list, sMuted.Render("no reviews yet"))
-	}
-	for i, r := range m.reviews {
-		badge := verdictBadge(r)
-		line := fmt.Sprintf("%s %s", r.CreatedAt.Local().Format("01-02 15:04"), badge)
-		if i == m.rSel {
-			line = sSelected.Render(pad("▸ "+line, lw-1))
-		} else {
-			line = "  " + line
-		}
-		list = append(list, line)
-		if ex := clip(oneLine(r.Excerpt), lw-5); ex != "" {
-			list = append(list, sMuted.Render("    "+ex))
-		}
-	}
-	left := lipgloss.NewStyle().Width(lw).MaxHeight(bodyH).Render(strings.Join(scrollTo(list, m.rSel*2+1, bodyH), "\n"))
-	border := cFaint
-	if m.rFocus {
-		border = cRed
-	}
-	vh := m.rView.Height
-	m.rView.Height = min(vh, bodyH)
-	right := lipgloss.NewStyle().BorderStyle(lipgloss.NormalBorder()).BorderLeft(true).BorderForeground(border).PaddingLeft(1).Render(m.rView.View())
-	return topS + "\n\n" + lipgloss.JoinHorizontal(lipgloss.Top, left, right)
-}
-
-func verdictBadge(r crosscheck.Review) string {
-	switch {
-	case r.Status == crosscheck.StatusDone && r.Verdict == "OK":
-		return sGreen.Render("■ OK")
-	case r.Status == crosscheck.StatusDone && r.Verdict == "CONCERNS":
-		return sYellow.Render("■ CONCERNS")
-	case r.Status == crosscheck.StatusDone && r.Verdict == "PROBLEMS":
-		return sRed.Render("■ PROBLEMS")
-	case r.Status == crosscheck.StatusDone:
-		return sBlue.Render("■ REVIEWED")
-	case r.Status == crosscheck.StatusError:
-		return sRed.Render("✗ error")
-	case r.Status == crosscheck.StatusSkipped:
-		return sMuted.Render("– skipped")
-	case r.Status == crosscheck.StatusRunning:
-		return sPurple.Render("◌ reviewing…")
-	default:
-		return sMuted.Render("◌ queued")
-	}
-}
-
-func (m *Model) loadReview() {
-	if m.rSel >= len(m.reviews) {
-		if m.rShown != "-" {
-			m.rShown = "-"
-			txt := "Reviews appear here when cross-check is on and Claude finishes a reply.\n\n" +
-				"1. Install the hook:   lookout hook install --print   (paste into settings.json)\n" +
-				"2. Turn cross-check on: press x\n\n" +
-				"Reviews are stored in " + ShortPath(paths.ReviewsDir())
-			m.rView.SetContent(lipgloss.NewStyle().Width(m.rView.Width).Render(sMuted.Render(txt)))
-		}
-		return
-	}
-	r := m.reviews[m.rSel]
-	key := r.ID + r.Status
-	if m.rShown == key {
-		return
-	}
-	m.rShown = key
-	ww := max(20, m.rView.Width)
-	var b []string
-	b = append(b, verdictBadge(r)+"  "+sMuted.Render(r.CreatedAt.Local().Format("2006-01-02 15:04:05")))
-	var parts []string
-	if r.SessionID != "" {
-		parts = append(parts, "session "+ShortID(r.SessionID))
-	}
-	if r.Cwd != "" {
-		parts = append(parts, ShortPath(r.Cwd))
-	}
-	sent := fmt.Sprintf("sent %d chars", r.SentChars)
-	if r.Truncated {
-		sent += " (truncated)"
-	}
-	parts = append(parts, sent)
-	meta := strings.Join(parts, " · ")
-	if !r.FinishedAt.IsZero() && !r.StartedAt.IsZero() {
-		meta += " · took " + r.FinishedAt.Sub(r.StartedAt).Round(time.Second).String()
-	}
-	if r.Usage != nil {
-		meta += fmt.Sprintf(" · codex %s in / %s out", Tokens(r.Usage.Input), Tokens(r.Usage.Output))
-	}
-	b = append(b, sMuted.Render(meta), "")
-	if r.Error != "" {
-		b = append(b, sRed.Render(r.Error), "")
-	}
-	if r.Summary != "" {
-		b = append(b, sSection.Render("SUMMARY"), r.Summary, "")
-	}
-	b = append(b, sSection.Render("REVIEWED REPLY (excerpt)"), sMuted.Render(r.Excerpt))
-	m.rView.SetContent(lipgloss.NewStyle().Width(ww).Render(strings.Join(b, "\n")))
-	m.rView.GotoTop()
 }

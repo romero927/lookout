@@ -14,12 +14,11 @@ import (
 
 // Config is the full set of tunables.
 type Config struct {
-	UI         UI         `toml:"ui"`
-	Usage      Usage      `toml:"usage"`
-	Files      Files      `toml:"files"`
-	Alerts     Alerts     `toml:"alerts"`
-	Models     Models     `toml:"models"`
-	CrossCheck CrossCheck `toml:"crosscheck"`
+	UI     UI     `toml:"ui"`
+	Usage  Usage  `toml:"usage"`
+	Files  Files  `toml:"files"`
+	Alerts Alerts `toml:"alerts"`
+	Models Models `toml:"models"`
 }
 
 // UI controls appearance.
@@ -97,25 +96,6 @@ type Models struct {
 	FreshSessionAtPercent int `toml:"fresh_session_at_percent"`
 }
 
-// CrossCheck controls the Codex cross-check.
-type CrossCheck struct {
-	// CodexPath overrides looking up "codex" on PATH.
-	CodexPath string `toml:"codex_path"`
-	// Model is passed to codex exec -m when set.
-	Model string `toml:"model"`
-	// TimeoutSeconds kills a review that runs too long.
-	TimeoutSeconds int `toml:"timeout_seconds"`
-	// MaxChars truncates Claude's response before it is sent.
-	MaxChars int `toml:"max_chars"`
-	// MaxParallel caps concurrently running reviews; extra ones are skipped.
-	MaxParallel int `toml:"max_parallel"`
-	// RepoAccess runs Codex (read-only sandbox) in the session's working
-	// directory so it can read project files. Off: an empty temp directory.
-	RepoAccess bool `toml:"repo_access"`
-	// Prompt replaces the default review instructions.
-	Prompt string `toml:"prompt"`
-}
-
 // Default returns the built-in configuration.
 func Default() Config {
 	return Config{
@@ -143,12 +123,6 @@ func Default() Config {
 			ContextWindowTokens:   200000,
 			CompactAtPercent:      60,
 			FreshSessionAtPercent: 85,
-		},
-		CrossCheck: CrossCheck{
-			TimeoutSeconds: 300,
-			MaxChars:       20000,
-			MaxParallel:    2,
-			RepoAccess:     false,
 		},
 	}
 }
@@ -206,9 +180,6 @@ func (c *Config) fill() {
 	pos(&s.ContextWindowTokens, ds.ContextWindowTokens)
 	pos(&s.CompactAtPercent, ds.CompactAtPercent)
 	pos(&s.FreshSessionAtPercent, ds.FreshSessionAtPercent)
-	pos(&c.CrossCheck.TimeoutSeconds, d.CrossCheck.TimeoutSeconds)
-	pos(&c.CrossCheck.MaxChars, d.CrossCheck.MaxChars)
-	pos(&c.CrossCheck.MaxParallel, d.CrossCheck.MaxParallel)
 }
 
 // WriteDefault writes a commented default config to path if none exists.
@@ -260,12 +231,4 @@ context_window_tokens = 200000
 compact_at_percent = 60       # suggest /compact
 fresh_session_at_percent = 85 # suggest a fresh session (/clear)
 
-[crosscheck]
-codex_path = ""        # empty: look up "codex" on PATH
-model = ""             # passed to codex exec -m when set
-timeout_seconds = 300
-max_chars = 20000      # Claude's response is truncated to this many characters
-max_parallel = 2       # extra reviews are skipped while this many are running
-repo_access = false    # true: Codex runs (read-only sandbox) in the session's working directory
-prompt = ""            # custom review instructions; empty uses the built-in prompt
 `

@@ -12,7 +12,6 @@ import (
 
 	"github.com/romero927/lookout/internal/app"
 	"github.com/romero927/lookout/internal/config"
-	"github.com/romero927/lookout/internal/crosscheck"
 	"github.com/romero927/lookout/internal/limits"
 	"github.com/romero927/lookout/internal/paths"
 	"github.com/romero927/lookout/internal/store"
@@ -52,10 +51,6 @@ func setup(t *testing.T) (*app.Core, *store.Store) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { db.Close() })
-	_ = crosscheck.Save(filepath.Join(root, "data", "crosscheck", "reviews"), crosscheck.Review{
-		ID: crosscheck.NewID(now), Status: crosscheck.StatusDone, Verdict: "CONCERNS", CreatedAt: now,
-		Summary: "VERDICT: CONCERNS\n- tests were not run", Excerpt: "All fixed and tested.",
-	})
 	core.Load()
 	return core, db
 }
@@ -94,7 +89,6 @@ func TestPanelsRender(t *testing.T) {
 			{"1", []string{"LOOKOUT", "LIMITS", "not connected", "SESSION", "sess-ui", "TOKENS", "burn"}},
 			{"2", []string{"RECOMMENDATION", "Upgrade to opus", "frustration", "/model opus"}},
 			{"3", []string{"FILES", "settings.json"}},
-			{"4", []string{"CROSS-CHECK", "CONCERNS"}},
 		}
 		for _, p := range panels {
 			m = drive(m, key(p.key))
@@ -114,7 +108,7 @@ func TestPanelsRender(t *testing.T) {
 			if n := strings.Count(v, "\n") + 1; n > size.Height {
 				t.Errorf("%dx%d panel %s is %d lines tall", size.Width, size.Height, p.key, n)
 			}
-			if os.Getenv("LOOKOUT_SHOW") != "" && (size.Width == 70 || p.key == "4") {
+			if os.Getenv("LOOKOUT_SHOW") != "" && size.Width == 70 {
 				t.Logf("panel %s:\n%s", p.key, v)
 			}
 		}
@@ -132,23 +126,6 @@ func TestFilesMasksSecretsAndBlocksEditByDefault(t *testing.T) {
 	m = drive(m, key("esc"), key("e"))
 	if v := plain(m.View()); !strings.Contains(v, "read-only") {
 		t.Fatalf("edit not refused:\n%s", v)
-	}
-}
-
-func TestCrossCheckToggleKey(t *testing.T) {
-	core, db := setup(t)
-	var m tea.Model = New(Options{Core: core, Store: db})
-	m = drive(m, tea.WindowSizeMsg{Width: 120, Height: 40}, LoadedMsg{})
-	if !strings.Contains(plain(m.View()), "x-check off") {
-		t.Fatal("cross-check should start off")
-	}
-	m = drive(m, key("x"))
-	if !strings.Contains(plain(m.View()), "X-CHECK ON") {
-		t.Fatal("x did not turn cross-check on")
-	}
-	m = drive(m, key("x"))
-	if !strings.Contains(plain(m.View()), "x-check off") {
-		t.Fatal("x did not turn cross-check off")
 	}
 }
 
