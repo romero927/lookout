@@ -643,11 +643,11 @@ func (m Model) viewFooter() string {
 	case m.tab == tabCheatsheet:
 		keys = "↑↓ select · enter/c copy · ? help · q quit"
 	case m.tab == tabContext && m.xFocus:
-		keys = "c copy the /compact line · esc back · q quit"
+		keys = "esc back · q quit"
 	case m.tab == tabContext && m.xAll:
-		keys = "↑↓ select · enter details · c copy /compact · a largest only · ? help · q quit"
+		keys = "↑↓ select · enter details · a largest only · ? help · q quit"
 	case m.tab == tabContext:
-		keys = "↑↓ select · enter details · c copy /compact · a see all · ? help · q quit"
+		keys = "↑↓ select · enter details · a see all · ? help · q quit"
 	default:
 		keys = "1-8/tab panels · s sessions · ? help · q quit"
 	}
@@ -676,7 +676,7 @@ func (m Model) viewHelp() string {
 		"",
 		sBold.Render("Keys"),
 		"  1-8, tab      switch panel",
-		"  c             copy (Context: a /compact line · Skills: how to run it · Cheatsheet: the command)",
+		"  c             copy (Skills: how to run it · Cheatsheet: the command)",
 		"  a             Context: see all items / only the largest",
 		"  y             copy an ID (Changes: the file's commit · session picker: the session)",
 		"  s             pick which session to show (a: follow the latest again)",

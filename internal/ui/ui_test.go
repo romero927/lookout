@@ -347,16 +347,13 @@ func TestContextItemsSeeAllAndDetail(t *testing.T) {
 	}
 	m = drive(m, key("enter"))
 	v = plain(m.View())
-	for _, want := range []string{"TO FREE UP THIS ROOM", "/compact Don't keep", "/rewind", "c copies"} {
+	for _, want := range []string{"TO FREE UP ROOM", "/rewind", "/compact"} {
 		if !strings.Contains(v, want) {
 			t.Errorf("detail missing %q\n%s", want, v)
 		}
 	}
-	if _, cmd := m.Update(key("c")); cmd == nil {
-		t.Error("c should copy the /compact line")
-	}
 	m = drive(m, key("esc"))
-	if strings.Contains(plain(m.View()), "TO FREE UP") {
+	if strings.Contains(plain(m.View()), "TO FREE UP ROOM") {
 		t.Error("esc should return to the list")
 	}
 }
