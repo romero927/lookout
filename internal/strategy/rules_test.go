@@ -203,11 +203,17 @@ func TestEvaluate(t *testing.T) {
 			action: Keep,
 		},
 		{
-			name: "short simple prompt on opus downgrades",
+			name: "two short simple prompts on opus downgrade",
 			st: state(opus,
 				turn(opus, "what's 2+2?"),
+				turn(opus, "and 3+3?"),
 			),
 			action: Downgrade, suggested: "sonnet", signal: "short-prompt",
+		},
+		{
+			name:   "one short prompt alone keeps",
+			st:     state(opus, turn(opus, "please write the whole migration plan for the database layer"), turn(opus, "thanks")),
+			action: Keep,
 		},
 		{
 			name: "short prompt on sonnet doesn't push to haiku",
@@ -235,7 +241,7 @@ func TestEvaluate(t *testing.T) {
 		},
 		{
 			name:   "custom tiers",
-			st:     state("claude-fable-test", turn("claude-fable-test", "what's 2+2?")),
+			st:     state("claude-fable-test", turn("claude-fable-test", "what's 2+2?"), turn("claude-fable-test", "and 3+3?")),
 			cfg:    func(c *config.Models) { c.ModelTiers = []string{"haiku", "sonnet", "opus", "fable"} },
 			action: Downgrade, suggested: "opus",
 		},

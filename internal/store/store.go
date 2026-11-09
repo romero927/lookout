@@ -55,7 +55,81 @@ func Open(path string) (*Store, error) {
 		db.Close()
 		return nil, fmt.Errorf("init %s: %w", path, err)
 	}
+	if err := migrate(db); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("update %s: %w", path, err)
+	}
 	return &Store{db: db, last: map[string]string{}}, nil
+}
+
+// migrate adds columns introduced after the first release.
+func migrate(db *sql.DB) error {
+	rows, err := db.Query(`PRAGMA table_info(suggestions)`)
+	if err != nil {
+		return err
+	}
+	have := map[string]bool{}
+	for rows.Next() {
+		var cid, notnull, pk int
+		var name, typ string
+		var def sql.NullString
+		if err := rows.Scan(&cid, &name, &typ, &notnull, &def, &pk); err != nil {
+			rows.Close()
+			return err
+		}
+		have[name] = true
+	}
+	rows.Close()
+	if !have["outcome"] {
+		if _, err := db.Exec(`ALTER TABLE suggestions ADD COLUMN outcome TEXT`); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// Outcomes of a followed suggestion, judged on the turns after the switch.
+const (
+	OutcomeSmooth = "smooth"
+	OutcomeRough  = "rough"
+)
+
+// Followed is a followed upgrade/downgrade whose outcome isn't known yet.
+type Followed struct {
+	ID        int64
+	NextModel string
+	NextAt    time.Time
+}
+
+// AwaitingOutcome lists followed upgrade/downgrade suggestions in a session
+// that have no outcome yet.
+func (s *Store) AwaitingOutcome(sessionID string) ([]Followed, error) {
+	rows, err := s.db.Query(`SELECT id, current_model, suggested_model, action, next_model, next_ts_ms FROM suggestions
+		WHERE session_id = ? AND action != 'keep' AND next_model IS NOT NULL AND outcome IS NULL`, sessionID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []Followed
+	for rows.Next() {
+		var o Followed
+		var r Row
+		var ms int64
+		if err := rows.Scan(&o.ID, &r.Current, &r.Suggested, &r.Action, &r.NextModel, &ms); err != nil {
+			return nil, err
+		}
+		if f := r.Followed(); f != nil && *f {
+			o.NextModel, o.NextAt = r.NextModel, time.UnixMilli(ms)
+			out = append(out, o)
+		}
+	}
+	return out, rows.Err()
+}
+
+// SetOutcome records how a followed suggestion went.
+func (s *Store) SetOutcome(id int64, outcome string) error {
+	_, err := s.db.Exec(`UPDATE suggestions SET outcome = ? WHERE id = ?`, outcome, id)
+	return err
 }
 
 // Close closes the database.
@@ -120,6 +194,7 @@ type Row struct {
 	Action    string
 	Reason    string
 	NextModel string
+	Outcome   string // OutcomeSmooth, OutcomeRough, or "" while unknown
 }
 
 // Followed reports whether the next model matches the suggestion
@@ -139,7 +214,7 @@ func (r Row) Followed() *bool {
 
 // Recent returns the latest suggestions, newest first.
 func (s *Store) Recent(limit int) ([]Row, error) {
-	rows, err := s.db.Query(`SELECT ts_ms, session_id, current_model, suggested_model, action, reason, COALESCE(next_model, '')
+	rows, err := s.db.Query(`SELECT ts_ms, session_id, current_model, suggested_model, action, reason, COALESCE(next_model, ''), COALESCE(outcome, '')
 		FROM suggestions ORDER BY ts_ms DESC, id DESC LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
@@ -149,7 +224,7 @@ func (s *Store) Recent(limit int) ([]Row, error) {
 	for rows.Next() {
 		var r Row
 		var ms int64
-		if err := rows.Scan(&ms, &r.SessionID, &r.Current, &r.Suggested, &r.Action, &r.Reason, &r.NextModel); err != nil {
+		if err := rows.Scan(&ms, &r.SessionID, &r.Current, &r.Suggested, &r.Action, &r.Reason, &r.NextModel, &r.Outcome); err != nil {
 			return nil, err
 		}
 		r.At = time.UnixMilli(ms)
@@ -158,23 +233,27 @@ func (s *Store) Recent(limit int) ([]Row, error) {
 	return out, rows.Err()
 }
 
-// Adherence counts resolved non-keep suggestions and how many were followed.
-func (s *Store) Adherence() (resolved, followed int, err error) {
-	rows, err := s.db.Query(`SELECT current_model, suggested_model, action, next_model FROM suggestions
+// Adherence counts resolved non-keep suggestions, how many were followed,
+// and how many of those went smoothly afterwards.
+func (s *Store) Adherence() (resolved, followed, smooth int, err error) {
+	rows, err := s.db.Query(`SELECT current_model, suggested_model, action, next_model, COALESCE(outcome, '') FROM suggestions
 		WHERE next_model IS NOT NULL AND action != 'keep'`)
 	if err != nil {
-		return 0, 0, err
+		return 0, 0, 0, err
 	}
 	defer rows.Close()
 	for rows.Next() {
 		var r Row
-		if err := rows.Scan(&r.Current, &r.Suggested, &r.Action, &r.NextModel); err != nil {
-			return 0, 0, err
+		if err := rows.Scan(&r.Current, &r.Suggested, &r.Action, &r.NextModel, &r.Outcome); err != nil {
+			return 0, 0, 0, err
 		}
 		resolved++
 		if f := r.Followed(); f != nil && *f {
 			followed++
+			if r.Outcome == OutcomeSmooth {
+				smooth++
+			}
 		}
 	}
-	return resolved, followed, rows.Err()
+	return resolved, followed, smooth, rows.Err()
 }

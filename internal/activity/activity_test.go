@@ -56,7 +56,7 @@ func TestEngineTracksFilesAndTurns(t *testing.T) {
 			tools = append(tools, c)
 		}
 	}
-	if len(tools) != 4 || t1.Tools != 4 || t1.Failed != 2 || !tools[1].Fail || tools[1].Summary != "go test ./..." || !tools[3].Subagent {
+	if len(tools) != 4 || t1.Tools != 3 || t1.SubTools != 1 || t1.Failed != 2 || !tools[1].Fail || tools[1].Summary != "go test ./..." || !tools[3].Subagent || tools[3].Agent == "" {
 		t.Errorf("calls: %+v failed %d", t1.Calls, t1.Failed)
 	}
 	if texts != 2 || t1.Calls[0].Text != "done m1" {
@@ -187,5 +187,49 @@ func TestContextBreakdown(t *testing.T) {
 	v = e.Context("c", 5)
 	if !v.Compacted || v.Startup != 25010 || len(v.Parts) != 0 {
 		t.Errorf("after compact: %+v", v)
+	}
+}
+
+func TestQueuedMessagesAndSubagentOrder(t *testing.T) {
+	e := New()
+	at := time.Date(2026, 11, 9, 10, 0, 0, 0, time.UTC)
+	main := transcript.Source{SessionID: "q", Path: "/p/q.jsonl"}
+	sub := transcript.Source{SessionID: "q", Path: "/p/q/subagents/agent-abc123.jsonl", IsSubagent: true}
+
+	e.Observe(transcript.Record{Kind: transcript.KindUser, SessionID: "q", Timestamp: at, Prompt: "build it"}, main)
+	e.Observe(transcript.Record{Kind: transcript.KindAssistant, SessionID: "q", Timestamp: at.Add(time.Minute), MessageID: "m1", Model: "claude-x",
+		ToolUses: []transcript.ToolUse{{ID: "a1", Name: "Agent", Detail: "explore the repo"}}}, main)
+	e.Observe(transcript.Record{Kind: transcript.KindQueued, SessionID: "q", Timestamp: at.Add(4 * time.Minute), Prompt: "also check the tests"}, main)
+	e.Observe(transcript.Record{Kind: transcript.KindAssistant, SessionID: "q", Timestamp: at.Add(5 * time.Minute), MessageID: "m2", Model: "claude-x", Text: "All done."}, main)
+	// The subagent's file is read afterwards, but its work happened in between.
+	e.Observe(transcript.Record{Kind: transcript.KindUser, SessionID: "q", Sidechain: true, Timestamp: at.Add(2 * time.Minute), Prompt: "Explore the repo and list packages"}, sub)
+	e.Observe(transcript.Record{Kind: transcript.KindAssistant, SessionID: "q", Sidechain: true, Timestamp: at.Add(3 * time.Minute), MessageID: "s1", Model: "claude-haiku",
+		Text: "Looking around.", ToolUses: []transcript.ToolUse{{ID: "g1", Name: "Glob", Detail: "**/*.go"}}}, sub)
+
+	s := e.Session("q")
+	if len(s.Turns) != 1 {
+		t.Fatalf("queued message must not start a turn: %d turns", len(s.Turns))
+	}
+	tr := s.Turns[0]
+	var order []string
+	for _, c := range tr.Calls {
+		switch {
+		case c.User:
+			order = append(order, "you:"+c.Text)
+		case c.Name == "":
+			order = append(order, c.Agent+":"+c.Text)
+		default:
+			order = append(order, c.Agent+":"+c.Name)
+		}
+	}
+	want := []string{":Agent", "abc123:Looking around.", "abc123:Glob", "you:also check the tests", ":All done."}
+	if strings.Join(order, "|") != strings.Join(want, "|") {
+		t.Errorf("steps:\n got %v\nwant %v", order, want)
+	}
+	if tr.Tools != 1 || tr.SubTools != 1 {
+		t.Errorf("tools %d sub %d", tr.Tools, tr.SubTools)
+	}
+	if s.AgentTasks["abc123"] != "Explore the repo and list packages" {
+		t.Errorf("agent task: %v", s.AgentTasks)
 	}
 }

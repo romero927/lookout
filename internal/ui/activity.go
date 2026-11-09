@@ -2,7 +2,6 @@ package ui
 
 import (
 	"fmt"
-	"sort"
 	"strings"
 	"time"
 
@@ -49,6 +48,12 @@ func (m Model) turnStats(t activity.Turn, newest bool) string {
 	}
 	if t.Tools > 0 {
 		parts = append(parts, plural(t.Tools, "tool"))
+	}
+	if t.SubTools > 0 {
+		parts = append(parts, fmt.Sprintf("%d by subagents", t.SubTools))
+	}
+	if t.Queued > 0 {
+		parts = append(parts, fmt.Sprintf("+%d from you", t.Queued))
 	}
 	if len(t.Files) > 0 {
 		parts = append(parts, plural(len(t.Files), "file"))
@@ -151,79 +156,136 @@ func (m *Model) loadTurn() {
 }
 
 func (m Model) renderTurn(t activity.Turn, w int) string {
-	wrap := lipgloss.NewStyle().Width(w)
 	var b []string
-	if t.Prompt != "" {
-		b = append(b, sSection.Render("PROMPT"), wrap.Render(sText.Render(t.Prompt)), "")
-	} else if t.Command != "" {
-		b = append(b, sSection.Render("COMMAND"), t.Command, "")
+	at := func(tm time.Time) string {
+		if tm.IsZero() {
+			return ""
+		}
+		return " · " + tm.Local().Format("15:04")
+	}
+	quote := func(st lipgloss.Style, text string, indent string) {
+		for _, l := range markdown(text, max(10, w-len(indent)-2)) {
+			b = append(b, indent+st.Render("│ ")+l)
+		}
 	}
 
-	if t.Reply != "" {
-		b = append(b, sSection.Render("CLAUDE'S LAST MESSAGE"), wrap.Render(sText.Render(t.Reply)), "")
+	// What you asked.
+	switch {
+	case t.Prompt != "":
+		b = append(b, sYellow.Bold(true).Render("You"+at(t.Start)))
+		quote(sYellow, t.Prompt, "")
+	case t.Command != "":
+		b = append(b, sYellow.Bold(true).Render("You ran "+t.Command+at(t.Start)))
 	}
 
+	// Summary.
+	var sum []string
+	if t.Tools > 0 {
+		f := plural(t.Tools, "tool call")
+		if t.Failed > 0 {
+			f += fmt.Sprintf(" (%d failed)", t.Failed)
+		}
+		sum = append(sum, f)
+	}
+	if t.SubTools > 0 {
+		sum = append(sum, fmt.Sprintf("%d by subagents", t.SubTools))
+	}
 	if len(t.Files) > 0 {
-		b = append(b, sSection.Render(fmt.Sprintf("FILES EDITED (%d)", len(t.Files))))
+		sum = append(sum, plural(len(t.Files), "file")+" edited")
+	}
+	if t.Queued > 0 {
+		sum = append(sum, plural(t.Queued, "extra message")+" from you")
+	}
+	if t.Output > 0 {
+		sum = append(sum, Tokens(t.Output)+" output tokens")
+	}
+	if len(sum) > 0 {
+		b = append(b, "", sMuted.Render(lipgloss.NewStyle().Width(max(10, w)).Render(strings.Join(sum, " · "))))
+	}
+
+	// Where it ended up.
+	if t.Reply != "" {
+		b = append(b, "", sSection.Render("CLAUDE'S FINAL MESSAGE"))
+		quote(sBlue, t.Reply, "")
+	}
+	if len(t.Files) > 0 {
+		b = append(b, "", sSection.Render("FILES EDITED"))
 		for _, f := range t.Files {
 			b = append(b, "  "+clip(m.relPath(f), w-2))
 		}
-		b = append(b, "")
 	}
 
+	// Everything in order.
 	if len(t.Calls) > 0 {
-		counts := map[string]int{}
-		for _, c := range t.Calls {
-			if c.Name != "" {
-				counts[c.Name]++
-			}
+		b = append(b, "", sSection.Render("STEP BY STEP"))
+	}
+	agent, lastReply := "", -1
+	for i, c := range t.Calls {
+		if c.Name == "" && !c.User && c.Agent == "" {
+			lastReply = i
 		}
-		names := make([]string, 0, len(counts))
-		for k := range counts {
-			names = append(names, k)
-		}
-		sort.Slice(names, func(i, j int) bool {
-			if counts[names[i]] != counts[names[j]] {
-				return counts[names[i]] > counts[names[j]]
-			}
-			return names[i] < names[j]
-		})
-		var tally []string
-		for _, k := range names {
-			tally = append(tally, fmt.Sprintf("%s %d", k, counts[k]))
-		}
-		head := "STEPS"
-		if t.Tools > 0 {
-			head += " · " + plural(t.Tools, "tool call")
-		}
-		if t.Failed > 0 {
-			head += fmt.Sprintf(" · %d FAILED", t.Failed)
-		}
-		b = append(b, sSection.Render(head))
-		if len(tally) > 0 {
-			b = append(b, sMuted.Render(wrap.Render(strings.Join(tally, " · "))))
-		}
-		msgWrap := lipgloss.NewStyle().Width(max(10, w-2))
-		for _, c := range t.Calls {
-			if c.Name == "" {
-				for _, l := range strings.Split(msgWrap.Render(c.Text), "\n") {
-					b = append(b, sBlue.Render("│ ")+sText.Render(l))
+	}
+	speaker := "" // who the last message header was for
+	for i, c := range t.Calls {
+		if c.Agent != agent {
+			if c.Agent != "" {
+				task := m.act.AgentTasks[c.Agent]
+				if task == "" {
+					task = "subagent " + shortAgent(c.Agent)
 				}
+				b = append(b, "", sPurple.Bold(true).Render(clip("↳ Subagent: "+task+at(c.At), w)))
+			} else {
+				b = append(b, "", sMuted.Render("↩ back in the main conversation"))
+			}
+			agent, speaker = c.Agent, ""
+		}
+		indent := ""
+		if c.Agent != "" {
+			indent = "  "
+		}
+		switch {
+		case c.User:
+			b = append(b, "", sYellow.Bold(true).Render("You, while Claude was working"+at(c.At)))
+			quote(sYellow, c.Text, "")
+			speaker = ""
+		case c.Name == "":
+			if i == lastReply && t.Reply != "" {
+				b = append(b, "", sBlue.Bold(true).Render("Claude"+at(c.At))+sMuted.Render("  (final message, shown above)"))
+				speaker = ""
 				continue
 			}
+			st, who := sBlue, "Claude"
+			if c.Agent != "" {
+				st, who = sPurple, "Subagent"
+			}
+			if speaker != who {
+				b = append(b, "", indent+st.Bold(true).Render(who+at(c.At)))
+			}
+			quote(st, c.Text, indent)
+			speaker = who
+		default:
 			mark := sGreen.Render("✓")
 			if c.Fail {
 				mark = sRed.Render("✗")
 			}
-			name := c.Name
-			if c.Subagent {
-				name = "↳" + name
+			name := sBold.Render(pad(clip(c.Name, 12), 12))
+			if c.Agent != "" {
+				name = sPurple.Render(pad(clip(c.Name, 12), 12))
 			}
-			b = append(b, clip(fmt.Sprintf("%s %s %s", mark, sBold.Render(pad(clip(name, 12), 12)), sMuted.Render(c.Summary)), w+40))
+			detail := c.Summary
+			if c.Added > 0 || c.Removed > 0 {
+				detail += sGreen.Render(fmt.Sprintf("  +%d", c.Added)) + sRed.Render(fmt.Sprintf(" -%d", c.Removed))
+			}
+			b = append(b, clip(fmt.Sprintf("%s  %s %s %s", indent, mark, name, sMuted.Render(detail)), w+60))
+			if c.Fail && c.Error != "" {
+				for _, l := range strings.Split(c.Error, "\n") {
+					b = append(b, indent+"     "+sRed.Render(clip(l, max(10, w-len(indent)-5))))
+				}
+			}
 		}
-		if t.Dropped > 0 {
-			b = append(b, sMuted.Render(fmt.Sprintf("… and %d more", t.Dropped)))
-		}
+	}
+	if t.Dropped > 0 {
+		b = append(b, sMuted.Render(fmt.Sprintf("… and %d more steps not kept", t.Dropped)))
 	}
 	return strings.Join(b, "\n")
 }
@@ -234,4 +296,11 @@ func plural(n int, word string) string {
 		return "1 " + word
 	}
 	return fmt.Sprintf("%d %ss", n, word)
+}
+
+func shortAgent(id string) string {
+	if len(id) > 8 {
+		return id[:8]
+	}
+	return id
 }

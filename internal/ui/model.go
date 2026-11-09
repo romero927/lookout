@@ -16,6 +16,7 @@ import (
 	"github.com/romero927/lookout/internal/configfiles"
 	"github.com/romero927/lookout/internal/limits"
 	"github.com/romero927/lookout/internal/paths"
+	"github.com/romero927/lookout/internal/skills"
 	"github.com/romero927/lookout/internal/store"
 	"github.com/romero927/lookout/internal/strategy"
 	"github.com/romero927/lookout/internal/telemetry"
@@ -44,17 +45,21 @@ type UsageRow struct {
 	N int
 }
 
+// Panels, in order: watching the session first (usage, what Claude is
+// doing, what changed, what's in context), then choices (model, skills,
+// commands), then configuration.
 const (
 	tabUsage = iota
-	tabChanges
 	tabActivity
+	tabChanges
 	tabContext
 	tabModels
-	tabFiles
+	tabSkills
 	tabCheatsheet
+	tabFiles
 )
 
-var tabNames = []string{"Usage", "Changes", "Activity", "Context", "Models", "Files", "Cheatsheet"}
+var tabNames = []string{"Usage", "Activity", "Changes", "Context", "Models", "Skills", "Cheatsheet", "Files"}
 
 // Options configure the model.
 type Options struct {
@@ -84,6 +89,9 @@ type Model struct {
 
 	// Models
 	sugg      strategy.Suggestion
+	pending   *strategy.Suggestion // a new suggestion still settling
+	stab      *strategy.Stabilizer
+	smooth    int // followed suggestions that went smoothly
 	sstate    strategy.SessionState
 	logRows   []store.Row
 	resolved  int
@@ -122,6 +130,13 @@ type Model struct {
 	pSel    int
 	pList   []telemetry.Session
 
+	// Skills
+	skills []skills.Item
+	sSel   int
+	sFocus bool
+	sView  viewport.Model
+	sShown string
+
 	// Files
 	files    []configfiles.File
 	gSel     int
@@ -153,7 +168,7 @@ type Model struct {
 
 // New creates the model.
 func New(o Options) Model {
-	m := Model{o: o, now: time.Now(), gView: viewport.New(40, 10), cView: viewport.New(40, 10), aView: viewport.New(40, 10)}
+	m := Model{o: o, now: time.Now(), stab: &strategy.Stabilizer{}, gView: viewport.New(40, 10), cView: viewport.New(40, 10), aView: viewport.New(40, 10), sView: viewport.New(40, 10)}
 	m.refreshLimits(true)
 	m.fired = limits.LoadFired(paths.AlertsFile())
 	m.checkBuild()
@@ -186,6 +201,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.loaded = true
 		m.refresh()
 		m.refreshFiles()
+		m.refreshSkills()
 		return m, nil
 
 	case DataMsg:
@@ -263,13 +279,15 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		focus, view = &m.cFocus, &m.cView
 	case m.tab == tabActivity && m.aFocus:
 		focus, view = &m.aFocus, &m.aView
+	case m.tab == tabSkills && m.sFocus:
+		focus, view = &m.sFocus, &m.sView
 	}
 	if focus != nil {
 		switch key {
 		case "esc", "left", "h", "enter":
 			*focus = false
 			return m, nil
-		case "q", "ctrl+c", "e", "1", "2", "3", "4", "5", "6", "7", "tab", "shift+tab", "?", "s", "R":
+		case "q", "ctrl+c", "e", "c", "1", "2", "3", "4", "5", "6", "7", "8", "tab", "shift+tab", "?", "s", "R":
 		default:
 			var cmd tea.Cmd
 			*view, cmd = view.Update(k)
@@ -285,7 +303,7 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "?":
 		m.help = true
 		return m, nil
-	case "1", "2", "3", "4", "5", "6", "7":
+	case "1", "2", "3", "4", "5", "6", "7", "8":
 		m.tab = int(key[0] - '1')
 		if m.loaded {
 			m.refresh()
@@ -318,6 +336,8 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.contextKey(key)
 	case tabCheatsheet:
 		return m.cheatsheetKey(key)
+	case tabSkills:
+		return m.skillsKey(key)
 	}
 	return m, nil
 }
@@ -381,7 +401,9 @@ func (m *Model) refresh() {
 	now := time.Now()
 	m.snap, m.sess, m.hasSess = m.o.Core.Snapshot(now)
 	m.health = m.o.Core.Watcher.Health()
-	m.sugg, m.sstate = m.o.Core.Suggest(now, SuggestExtra(m.limits, m.limitsExact(), now))
+	raw, st := m.o.Core.Suggest(now, SuggestExtra(m.limits, m.limitsExact(), now))
+	m.sstate = st
+	m.sugg, m.pending = m.stab.Update(raw, st.TurnCount, now)
 	prev := m.act.ID
 	m.act = activity.Session{}
 	if m.hasSess {
@@ -414,7 +436,8 @@ func (m *Model) refresh() {
 		_ = db.ResolveNext(m.sstate.ID, m.sstate.Model, m.sstate.LastAssistant)
 		if now.Sub(m.lastLogAt) > 3*time.Second {
 			m.logRows, _ = db.Recent(8)
-			m.resolved, m.followed, _ = db.Adherence()
+			m.judgeOutcomes(db)
+			m.resolved, m.followed, m.smooth, _ = db.Adherence()
 			m.lastLogAt = now
 		}
 	}
@@ -456,11 +479,11 @@ func (m *Model) loadSelectedFile() {
 		m.gView.SetContent(sRed.Render(err.Error()))
 		return
 	}
-	m.gView.SetContent(numbered(s))
+	m.gView.SetContent(numbered(f.Path, s))
 	m.gView.GotoTop()
 }
 
-func numbered(s string) string {
+func numbered(path, s string) string {
 	s = strings.ReplaceAll(s, "\t", "    ")
 	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
 	w := len(fmt.Sprint(len(lines)))
@@ -468,7 +491,7 @@ func numbered(s string) string {
 	for i, l := range lines {
 		b.WriteString(sMuted.Render(lpad(fmt.Sprint(i+1), w)))
 		b.WriteString("  ")
-		b.WriteString(l)
+		b.WriteString(highlightLine(path, l))
 		b.WriteByte('\n')
 	}
 	return b.String()
@@ -479,10 +502,11 @@ func (m *Model) layoutViewports() {
 	bodyH := max(5, m.height-5)
 	listW := m.listWidth()
 	viewW := max(20, m.width-listW-3)
-	for _, v := range []*viewport.Model{&m.gView, &m.cView, &m.aView} {
+	for _, v := range []*viewport.Model{&m.gView, &m.cView, &m.aView, &m.sView} {
 		v.Width, v.Height = viewW, max(3, bodyH-2)
 	}
-	m.gLoaded, m.aShown = "", ""
+	m.gLoaded, m.aShown, m.sShown = "", "", ""
+	m.loadSkill()
 	m.loadSelectedFile()
 	m.loadTurn()
 }
@@ -519,6 +543,8 @@ func (m Model) View() string {
 			body = m.viewContext(bodyH)
 		case tabCheatsheet:
 			body = m.viewCheatsheet(bodyH)
+		case tabSkills:
+			body = m.viewSkills(bodyH)
 		case tabModels:
 			body = m.viewModels()
 		case tabFiles:
@@ -599,6 +625,10 @@ func (m Model) viewFooter() string {
 		keys = "↑↓ select · enter read diff · y copy commit ID · s sessions · ? help · q quit"
 	case m.tab == tabActivity:
 		keys = "↑↓ select · enter details · s sessions · ? help · q quit"
+	case m.tab == tabSkills && m.sFocus:
+		keys = "↑↓/pgup/pgdn scroll · c copy · esc back · q quit"
+	case m.tab == tabSkills:
+		keys = "↑↓ select · enter read · c copy how to use it · r rescan · ? help · q quit"
 	case m.tab == tabCheatsheet:
 		keys = "↑↓ select · enter/c copy · ? help · q quit"
 	case m.tab == tabContext && m.xFocus:
@@ -608,7 +638,7 @@ func (m Model) viewFooter() string {
 	case m.tab == tabContext:
 		keys = "↑↓ select · enter details · c copy /compact · a see all · ? help · q quit"
 	default:
-		keys = "1-7/tab panels · s sessions · ? help · q quit"
+		keys = "1-8/tab panels · s sessions · ? help · q quit"
 	}
 	if m.newBuild {
 		keys = "R restart into new build · " + keys
@@ -625,16 +655,17 @@ func (m Model) viewHelp() string {
 		"",
 		sBold.Render("Panels"),
 		"  1 Usage       limits, token usage for the session, today and the last 5h, and limit use per day",
-		"  2 Changes     every file changed this session (Claude's edits, uncommitted, committed), with diffs",
-		"  3 Activity    one entry per prompt: tools used, failures, files edited, Claude's last message",
+		"  2 Activity    one entry per prompt: Claude's messages and tool calls in order, files edited",
+		"  3 Changes     every file changed this session (Claude's edits, uncommitted, committed), with diffs",
 		"  4 Context     what fills the context window, by kind and largest items",
-		"  5 Models      rules-based model suggestion; switch yourself with /model",
-		"  6 Files       Claude Code config and memory files, read-only by default",
+		"  5 Models      model suggestion and what each model is for; switch yourself with /model",
+		"  6 Skills      skills, custom commands and subagents Claude can use, and how to run them",
 		"  7 Cheatsheet  Claude Code commands to copy and paste, incl. ones for this session",
+		"  8 Files       Claude Code config and memory files, read-only by default",
 		"",
 		sBold.Render("Keys"),
-		"  1-7, tab      switch panel",
-		"  c             copy (Context: a /compact line · Cheatsheet: the command)",
+		"  1-8, tab      switch panel",
+		"  c             copy (Context: a /compact line · Skills: how to run it · Cheatsheet: the command)",
 		"  a             Context: see all items / only the largest",
 		"  y             copy an ID (Changes: the file's commit · session picker: the session)",
 		"  s             pick which session to show (a: follow the latest again)",

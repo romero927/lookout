@@ -28,11 +28,17 @@ type FileChange struct {
 // Call is one step in a turn: a tool call, or (when Name is empty) a
 // message Claude wrote.
 type Call struct {
-	Name     string
-	Summary  string // command, file or pattern
-	Text     string // Claude's message, for message steps
-	Fail     bool
-	Subagent bool
+	Name    string
+	Summary string // command, file or pattern
+	Text    string // the message, for message steps
+	User    bool   // a message you sent while Claude was working
+	Agent   string // the subagent that made this step, if any
+	At      time.Time
+	Error   string // the start of a failed call's output
+	// Added / Removed are the estimated lines an edit changed.
+	Added, Removed int
+	Fail           bool
+	Subagent       bool
 }
 
 // Turn is everything between two prompts you typed.
@@ -43,7 +49,9 @@ type Turn struct {
 	Model      string
 	Calls      []Call
 	Dropped    int // steps beyond maxCalls, not kept
-	Tools      int // tool calls (Calls also holds messages)
+	Tools      int // tool calls in the main conversation (Calls also holds messages)
+	Queued     int // messages you sent while Claude was working
+	SubTools   int // tool calls made by subagents
 	Failed     int
 	Files      []string // files edited, in first-edit order
 	Output     int64    // output tokens
@@ -52,16 +60,20 @@ type Turn struct {
 
 // Session is one session's activity.
 type Session struct {
-	ID    string
-	Turns []Turn       // newest first
-	Files []FileChange // most recently edited first
+	ID string
+	// AgentTasks maps a subagent's ID to the first line of the task it
+	// was given.
+	AgentTasks map[string]string
+	Turns      []Turn       // newest first
+	Files      []FileChange // most recently edited first
 }
 
 const (
 	maxTurns  = 100
 	maxCalls  = 300
-	maxPrompt = 2000
-	maxReply  = 2000
+	maxPrompt = 8000
+	maxReply  = 8000 // Claude's final message in a turn
+	maxStep   = 4000 // each message along the way
 )
 
 var editTools = map[string]bool{"Edit": true, "Write": true, "MultiEdit": true, "NotebookEdit": true}
@@ -85,6 +97,7 @@ type session struct {
 	pending map[string]pending // tool_use id -> call
 	tools   map[string]bool    // tool_use ids already counted
 	ctx     ctxState
+	agents  map[string]string // subagent ID -> task
 }
 
 // Engine tracks every session. Safe for concurrent use.
@@ -110,13 +123,30 @@ func (e *Engine) Observe(r transcript.Record, src transcript.Source) {
 	defer e.mu.Unlock()
 	s := e.sessions[sid]
 	if s == nil {
-		s = &session{files: map[string]*FileChange{}, pending: map[string]pending{}, tools: map[string]bool{}}
+		s = &session{files: map[string]*FileChange{}, pending: map[string]pending{}, tools: map[string]bool{}, agents: map[string]string{}}
 		e.sessions[sid] = s
 	}
 	if !sub {
 		s.ctx.observe(r)
 	}
+	agent := ""
+	if sub {
+		agent = agentID(r, src)
+		if r.Kind == transcript.KindUser && r.Prompt != "" && s.agents[agent] == "" {
+			line, _, _ := strings.Cut(strings.TrimSpace(r.Prompt), "\n")
+			s.agents[agent] = clip(line, 200)
+		}
+	}
 	switch r.Kind {
+	case transcript.KindQueued:
+		if t := s.current(sub); t != nil && !sub {
+			if len(t.Calls) < maxCalls {
+				t.Calls = append(t.Calls, Call{Text: clip(r.Prompt, maxPrompt), User: true, At: r.Timestamp})
+				t.Queued++
+			} else {
+				t.Dropped++
+			}
+		}
 	case transcript.KindUser:
 		if r.IsHumanPrompt() && !sub {
 			s.newTurn(r)
@@ -135,6 +165,7 @@ func (e *Engine) Observe(r transcript.Record, src transcript.Source) {
 				p.turn.Failed++
 				if p.call >= 0 && p.call < len(p.turn.Calls) {
 					p.turn.Calls[p.call].Fail = true
+					p.turn.Calls[p.call].Error = errorExcerpt(tr.Text)
 				}
 			}
 			if f := s.files[p.file]; f != nil {
@@ -149,6 +180,17 @@ func (e *Engine) Observe(r transcript.Record, src transcript.Source) {
 			return
 		}
 		t := s.current(sub)
+		if t != nil && sub && r.Text != "" {
+			textKey := fmt.Sprintf("t:%s:%d:%.64s", r.UsageKey(), len(r.Text), r.Text)
+			if !t.seen[textKey] {
+				t.seen[textKey] = true
+				if len(t.Calls) < maxCalls {
+					t.Calls = append(t.Calls, Call{Text: clip(r.Text, maxStep), Agent: agent, Subagent: true, At: r.Timestamp})
+				} else {
+					t.Dropped++
+				}
+			}
+		}
 		if t != nil && !sub {
 			if key := r.UsageKey(); !t.seen[key] {
 				t.seen[key] = true
@@ -162,7 +204,7 @@ func (e *Engine) Observe(r transcript.Record, src transcript.Source) {
 				t.seen[textKey] = true
 				t.Reply = clip(r.Text, maxReply)
 				if len(t.Calls) < maxCalls {
-					t.Calls = append(t.Calls, Call{Text: clip(r.Text, maxReply)})
+					t.Calls = append(t.Calls, Call{Text: clip(r.Text, maxStep), At: r.Timestamp})
 				} else {
 					t.Dropped++
 				}
@@ -180,10 +222,14 @@ func (e *Engine) Observe(r transcript.Record, src transcript.Source) {
 			}
 			p := pending{turn: t, call: -1}
 			if t != nil {
-				t.Tools++
+				if sub {
+					t.SubTools++
+				} else {
+					t.Tools++
+				}
 				if len(t.Calls) < maxCalls {
 					p.call = len(t.Calls)
-					t.Calls = append(t.Calls, Call{Name: tu.Name, Summary: summary(tu), Subagent: sub})
+					t.Calls = append(t.Calls, Call{Name: tu.Name, Summary: summary(tu), Subagent: sub, Agent: agent, At: r.Timestamp, Added: tu.Added, Removed: tu.Removed})
 				} else {
 					t.Dropped++
 				}
@@ -245,14 +291,20 @@ func (s *session) current(sub bool) *turn {
 func (e *Engine) Session(id string) Session {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	out := Session{ID: id}
+	out := Session{ID: id, AgentTasks: map[string]string{}}
 	s := e.sessions[id]
 	if s == nil {
 		return out
 	}
+	for k, v := range s.agents {
+		out.AgentTasks[k] = v
+	}
 	for i := len(s.turns) - 1; i >= 0; i-- {
 		t := s.turns[i].Turn
 		t.Calls = append([]Call(nil), t.Calls...)
+		// Subagent transcripts are separate files, read after the main
+		// one: put every step back in time order.
+		sort.SliceStable(t.Calls, func(a, b int) bool { return t.Calls[a].At.Before(t.Calls[b].At) })
 		t.Files = append([]string(nil), t.Files...)
 		out.Turns = append(out.Turns, t)
 	}
@@ -289,4 +341,29 @@ func clip(s string, n int) string {
 		return s
 	}
 	return s[:n] + "…"
+}
+
+// agentID names the subagent a record came from: its agentId, or the
+// transcript file name (agent-<id>.jsonl).
+func agentID(r transcript.Record, src transcript.Source) string {
+	if r.AgentID != "" {
+		return r.AgentID
+	}
+	base := strings.TrimSuffix(filepath.Base(src.Path), ".jsonl")
+	if id := strings.TrimPrefix(base, "agent-"); id != "" && id != "." {
+		return id
+	}
+	return "subagent"
+}
+
+// errorExcerpt keeps the most telling lines of a failed call's output.
+func errorExcerpt(s string) string {
+	s = strings.TrimSpace(s)
+	s = strings.TrimPrefix(s, "<tool_use_error>")
+	s = strings.TrimSuffix(s, "</tool_use_error>")
+	lines := strings.Split(strings.TrimSpace(s), "\n")
+	if len(lines) > 4 {
+		lines = append(lines[:3], "…")
+	}
+	return clip(strings.Join(lines, "\n"), 400)
 }

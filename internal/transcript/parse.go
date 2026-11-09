@@ -26,7 +26,7 @@ func ParseLine(line []byte) (rec Record, st Status) {
 
 	degraded := false
 	var typ, subtype, ts []byte
-	var message, compact []byte
+	var message, compact, attachment []byte
 	setStr := func(dst *string, v []byte) {
 		s, ok := str(v)
 		if !ok && string(v) != "null" {
@@ -53,6 +53,8 @@ func ParseLine(line []byte) (rec Record, st Status) {
 			message = v
 		case "compactMetadata":
 			compact = v
+		case "attachment":
+			attachment = v
 		case "uuid":
 			setStr(&rec.UUID, v)
 		case "sessionId":
@@ -110,6 +112,8 @@ func ParseLine(line []byte) (rec Record, st Status) {
 				})
 			}
 		}
+	case "attachment":
+		parseQueued(&rec, attachment)
 	case "":
 		degraded = true
 	}
@@ -403,3 +407,47 @@ func splitLines(s string) []string {
 }
 
 func countLines(s string) int { return len(splitLines(s)) }
+
+// parseQueued recognises a message the user typed while Claude was working.
+// Claude Code records it as an attachment of type "queued_command"; other
+// attachments (reminders, file notices) are left as KindOther.
+func parseQueued(rec *Record, att []byte) {
+	if att == nil {
+		return
+	}
+	var typ, prompt, origin []byte
+	eachField(att, func(k, v []byte) {
+		switch string(k) {
+		case "type":
+			typ = v
+		case "prompt":
+			prompt = v
+		case "origin":
+			origin = v
+		}
+	})
+	if t, _ := str(typ); t != "queued_command" {
+		return
+	}
+	if origin != nil {
+		var kind []byte
+		eachField(origin, func(k, v []byte) {
+			if string(k) == "kind" {
+				kind = v
+			}
+		})
+		if k, _ := str(kind); k != "" && k != "human" {
+			return // queued by a tool or a notification, not typed
+		}
+	}
+	text := ""
+	if len(prompt) > 0 && prompt[0] == '"' {
+		text, _ = str(prompt)
+	} else {
+		text = contentText(prompt, 1<<16)
+	}
+	if text = strings.TrimSpace(text); text == "" {
+		return
+	}
+	rec.Kind, rec.Prompt, rec.Size = KindQueued, text, len(prompt)
+}

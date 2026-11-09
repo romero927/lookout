@@ -400,3 +400,19 @@ func TestToolUseLineCounts(t *testing.T) {
 		t.Errorf("detail %q", rec.ToolUses[3].Detail)
 	}
 }
+
+func TestQueuedCommand(t *testing.T) {
+	line := `{"type":"attachment","sessionId":"s","timestamp":"2026-01-01T00:00:00Z","attachment":{"type":"queued_command","prompt":"also do X","origin":{"kind":"human"}}}`
+	rec, st := ParseLine([]byte(line))
+	if st != StatusOK || rec.Kind != KindQueued || rec.Prompt != "also do X" || rec.IsHumanPrompt() {
+		t.Fatalf("queued: %v %+v", st, rec)
+	}
+	other := `{"type":"attachment","sessionId":"s","timestamp":"2026-01-01T00:00:00Z","attachment":{"type":"queued_command","prompt":"task done","origin":{"kind":"task-notification"}}}`
+	if rec, _ := ParseLine([]byte(other)); rec.Kind != KindOther {
+		t.Errorf("non-human queued command should be ignored: %v", rec.Kind)
+	}
+	reminder := `{"type":"attachment","sessionId":"s","timestamp":"2026-01-01T00:00:00Z","attachment":{"type":"file","content":"x"}}`
+	if rec, _ := ParseLine([]byte(reminder)); rec.Kind != KindOther {
+		t.Errorf("other attachments stay KindOther: %v", rec.Kind)
+	}
+}

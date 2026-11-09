@@ -73,6 +73,9 @@ func (c *ctxState) observe(r transcript.Record) {
 	switch r.Kind {
 	case transcript.KindCompact:
 		*c = ctxState{compacted: true, since: r.Timestamp, calls: map[string]CtxItem{}}
+	case transcript.KindQueued:
+		line, _, _ := strings.Cut(r.Prompt, "\n")
+		c.add(CtxItem{Kind: KindPrompt, Label: line, Bytes: r.Size, At: r.Timestamp, Preview: preview(r.Prompt)})
 	case transcript.KindUser:
 		if c.since.IsZero() {
 			c.since = r.Timestamp

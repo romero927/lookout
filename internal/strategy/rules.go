@@ -108,7 +108,7 @@ func Evaluate(s SessionState, c config.Models, now time.Time, x Extra) Suggestio
 	if x.Pressure >= PressureWatch {
 		c.SimpleTurnStreak = 1
 	}
-	down := downgradeSignals(s, active, cur == top, c)
+	down := downgradeSignals(active, cur == top, c)
 	if x.Pressure == PressureOver && x.PressureDetail != "" {
 		down = append([]Signal{{Downgrade, "limits", x.PressureDetail}}, down...)
 	} else if x.Pressure == PressureWatch && x.PressureDetail != "" {
@@ -226,7 +226,7 @@ func (c simpleCfg) simple(t *Turn) bool {
 
 type simpleCfg struct{ config.Models }
 
-func downgradeSignals(s SessionState, active []*Turn, onTop bool, c config.Models) []Signal {
+func downgradeSignals(active []*Turn, onTop bool, c config.Models) []Signal {
 	var sig []Signal
 	sc := simpleCfg{c}
 	streak := 0
@@ -240,10 +240,16 @@ func downgradeSignals(s SessionState, active []*Turn, onTop bool, c config.Model
 	if onTop && streak >= c.SimpleTurnStreak {
 		sig = append(sig, Signal{Downgrade, "simple-streak", fmt.Sprintf("%d simple, successful turns in a row on the top model", streak)})
 	}
-	if len(active) > 0 && sc.simple(active[len(active)-1]) {
-		p := strings.TrimSpace(s.LastPrompt())
-		if p != "" && len(p) <= c.ShortPromptChars && onTop {
-			sig = append(sig, Signal{Downgrade, "short-prompt", fmt.Sprintf("Short, simple request (%q)", p)})
+	// Two short, simple turns in a row: one short message alone doesn't
+	// mean the work got simpler.
+	if n := len(active); n >= 2 && onTop {
+		a, b := active[n-2], active[n-1]
+		short := func(t *Turn) bool {
+			p := strings.TrimSpace(t.Prompt)
+			return p != "" && len(p) <= c.ShortPromptChars
+		}
+		if sc.simple(a) && sc.simple(b) && short(a) && short(b) {
+			sig = append(sig, Signal{Downgrade, "short-prompt", fmt.Sprintf("Two short, simple requests in a row (latest: %q)", strings.TrimSpace(b.Prompt))})
 		}
 	}
 	return sig

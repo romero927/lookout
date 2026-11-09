@@ -86,11 +86,12 @@ func TestPanelsRender(t *testing.T) {
 			want []string
 		}{
 			{"1", []string{"LOOKOUT", "LIMITS", "not connected", "SESSION", "sess-ui", "TOKENS", "last 10 min"}},
-			{"2", []string{"CHANGES", "1 edited file no longer"}},
-			{"3", []string{"ACTIVITY", "this still doesn't work", "STEPS", "Edit"}},
+			{"2", []string{"ACTIVITY", "this still doesn't work", "STEP BY STEP", "Edit"}},
+			{"3", []string{"CHANGES", "1 edited file no longer"}},
 			{"4", []string{"CONTEXT", "Startup", "LARGEST ITEMS"}},
 			{"5", []string{"RECOMMENDATION", "Upgrade to opus", "frustration", "/model opus", "MODELS YOU CAN SWITCH TO", "Fastest for quick answers"}},
-			{"6", []string{"FILES", "settings.json"}},
+			{"6", []string{"SKILLS"}},
+			{"8", []string{"FILES", "settings.json"}},
 		}
 		for _, p := range panels {
 			m = drive(m, key(p.key))
@@ -120,7 +121,7 @@ func TestPanelsRender(t *testing.T) {
 func TestFilesMasksSecretsAndBlocksEditByDefault(t *testing.T) {
 	core, db := setup(t)
 	var m tea.Model = New(Options{Core: core, Store: db})
-	m = drive(m, tea.WindowSizeMsg{Width: 120, Height: 40}, LoadedMsg{}, key("6"), key("enter"))
+	m = drive(m, tea.WindowSizeMsg{Width: 120, Height: 40}, LoadedMsg{}, key("8"), key("enter"))
 	v := plain(m.View())
 	if strings.Contains(v, "sk-secret") || !strings.Contains(v, "••••••") {
 		t.Fatalf("secret not masked:\n%s", v)
@@ -259,9 +260,9 @@ func TestHistoryAlertsAndRestart(t *testing.T) {
 func TestActivityDetailAndSessionPicker(t *testing.T) {
 	core, db := setup(t)
 	var m tea.Model = New(Options{Core: core, Store: db, Version: "test"})
-	m = drive(m, tea.WindowSizeMsg{Width: 120, Height: 40}, LoadedMsg{}, key("3"), key("enter"))
+	m = drive(m, tea.WindowSizeMsg{Width: 120, Height: 40}, LoadedMsg{}, key("2"), key("enter"))
 	v := plain(m.View())
-	for _, want := range []string{"PROMPT", "this still doesn't work", "FILES EDITED (1)", "STEPS · 1 tool call", "Edit", "CLAUDE'S LAST MESSAGE", "│ done", "1 tool · 1 file"} {
+	for _, want := range []string{"You · ", "│ this still doesn't work", "1 tool call", "FILES EDITED", "STEP BY STEP", "Edit", "CLAUDE'S FINAL MESSAGE", "│ done", "(final message, shown above)"} {
 		if !strings.Contains(v, want) {
 			t.Errorf("activity detail missing %q\n%s", want, v)
 		}
@@ -298,7 +299,7 @@ func TestChangesListsExistingFiles(t *testing.T) {
 	core.Load()
 	core.Pinned = "sess-x"
 	var m tea.Model = New(Options{Core: core, Store: db, Version: "test"})
-	m = drive(m, tea.WindowSizeMsg{Width: 120, Height: 30}, LoadedMsg{}, key("2"))
+	m = drive(m, tea.WindowSizeMsg{Width: 120, Height: 30}, LoadedMsg{}, key("3"))
 	v := plain(m.View())
 	for _, want := range []string{"main.go", "+1 -0", "written"} {
 		if !strings.Contains(v, want) {
@@ -378,5 +379,26 @@ func TestCheatsheet(t *testing.T) {
 	}
 	if got := shellQuote("/work/demo"); got != "/work/demo" {
 		t.Errorf("shellQuote = %q", got)
+	}
+}
+
+func TestMarkdownAndJSONHighlight(t *testing.T) {
+	got := plain(strings.Join(markdown("# Title\nSome **bold** and `code`.\n- one\n- two that is long enough to wrap onto the next line here\n```\nraw *text*\n```", 30), "\n"))
+	for _, want := range []string{"Title", "Some bold and code.", "• one", "• two that", "  raw *text*"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("markdown missing %q in:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, "**") || strings.Contains(got, "```") {
+		t.Errorf("markup left in output:\n%s", got)
+	}
+	// Wrapped bullet lines are indented under the text.
+	for _, l := range strings.Split(got, "\n") {
+		if strings.HasPrefix(l, "wrap") {
+			t.Errorf("wrapped bullet line not indented: %q", l)
+		}
+	}
+	if got := plain(highlightLine("x.json", `  "model": "opus",`)); got != `  "model": "opus",` {
+		t.Errorf("json highlight changed text: %q", got)
 	}
 }

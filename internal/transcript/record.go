@@ -30,6 +30,7 @@ const (
 	KindAssistant             // a model response line (carries usage)
 	KindUser                  // a human prompt or a tool result
 	KindCompact               // a compaction boundary
+	KindQueued                // a message you sent while Claude was working
 )
 
 func (k Kind) String() string {
@@ -40,6 +41,8 @@ func (k Kind) String() string {
 		return "user"
 	case KindCompact:
 		return "compact"
+	case KindQueued:
+		return "queued"
 	default:
 		return "other"
 	}

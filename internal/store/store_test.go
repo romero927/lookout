@@ -1,6 +1,7 @@
 package store
 
 import (
+	"database/sql"
 	"path/filepath"
 	"testing"
 	"time"
@@ -55,7 +56,7 @@ func TestSuggestionLog(t *testing.T) {
 			t.Fatalf("s2 resolved: %+v", r)
 		}
 	}
-	resolved, followed, err := s.Adherence()
+	resolved, followed, _, err := s.Adherence()
 	if err != nil || resolved != 1 || followed != 1 {
 		t.Fatalf("adherence %d/%d err=%v", followed, resolved, err)
 	}
@@ -99,3 +100,48 @@ func withSession(s strategy.Suggestion, id string) strategy.Suggestion {
 func ptr(b bool) *bool { return &b }
 
 func withReason(s strategy.Suggestion, r string) strategy.Suggestion { s.Reason = r; return s }
+
+func TestOutcomesAndMigration(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "old.db")
+	// A database from before the outcome column existed.
+	old, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := old.Exec(schema); err != nil { // the original schema, without outcome
+		t.Fatal(err)
+	}
+	old.Close()
+
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	at := time.Now().Add(-time.Hour)
+	sg := strategy.Suggestion{SessionID: "s", Current: "claude-opus-x", Suggested: "sonnet", Action: strategy.Downgrade, At: at}
+	if _, err := s.LogSuggestion(sg); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.ResolveNext("s", "claude-sonnet-x", at.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	open, err := s.AwaitingOutcome("s")
+	if err != nil || len(open) != 1 {
+		t.Fatalf("awaiting: %v %v", open, err)
+	}
+	if err := s.SetOutcome(open[0].ID, OutcomeSmooth); err != nil {
+		t.Fatal(err)
+	}
+	if open, _ := s.AwaitingOutcome("s"); len(open) != 0 {
+		t.Error("outcome should be recorded")
+	}
+	resolved, followed, smooth, err := s.Adherence()
+	if err != nil || resolved != 1 || followed != 1 || smooth != 1 {
+		t.Errorf("adherence %d %d %d %v", resolved, followed, smooth, err)
+	}
+	rows, _ := s.Recent(5)
+	if len(rows) != 1 || rows[0].Outcome != OutcomeSmooth {
+		t.Errorf("rows: %+v", rows)
+	}
+}

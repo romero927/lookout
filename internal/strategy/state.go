@@ -51,6 +51,7 @@ type SessionState struct {
 	Context       int64
 	MaxContext    int64 // largest context seen, including pre-compaction size
 	Compactions   int
+	TurnCount     int // turns seen in total (Turns keeps only the latest)
 }
 
 // LastPrompt returns the most recent typed prompt.
@@ -143,6 +144,7 @@ func (s *SessionState) current() *Turn {
 }
 
 func (s *SessionState) newTurn(r transcript.Record) {
+	s.TurnCount++
 	s.Turns = append(s.Turns, &Turn{Start: r.Timestamp, Prompt: r.Prompt, Command: r.Command,
 		Edits: map[string]int{}, seen: map[string]bool{}, callIdx: map[string]int{}})
 	if len(s.Turns) > maxTurns {

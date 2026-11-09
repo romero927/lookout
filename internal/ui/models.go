@@ -3,9 +3,11 @@ package ui
 import (
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/romero927/lookout/internal/store"
 	"github.com/romero927/lookout/internal/strategy"
 )
 
@@ -30,6 +32,17 @@ func (m Model) viewModels() string {
 	out = append(out, lipgloss.JoinHorizontal(lipgloss.Top, sLabel.Render("REASON  ")+"  ", sText.Render(reason)))
 	if sg.Action != strategy.Keep {
 		out = append(out, fmt.Sprintf("%s  %s", sLabel.Render("        "), sMuted.Render("switch in Claude Code with: ")+sBold.Render("/model "+sg.Suggested)))
+	}
+	if p := m.pending; p != nil {
+		what := "keep " + ShortModel(p.Current)
+		switch p.Action {
+		case strategy.Upgrade:
+			what = "upgrade to " + p.Suggested
+		case strategy.Downgrade:
+			what = "downgrade to " + p.Suggested
+		}
+		out = append(out, fmt.Sprintf("%s  %s", sLabel.Render("WATCHING"),
+			sMuted.Render(clip(fmt.Sprintf("may change to %s if that holds for %d minutes or %d turns", what, int(strategy.SettleTime.Minutes()), strategy.SettleTurns), max(10, w-10)))))
 	}
 
 	// Signals.
@@ -65,7 +78,12 @@ func (m Model) viewModels() string {
 		out = append(out, sRed.Render(msg))
 	} else {
 		if m.resolved > 0 {
-			out = append(out, sMuted.Render(fmt.Sprintf("You followed %d of %d upgrade/downgrade suggestions.", m.followed, m.resolved)))
+			line := fmt.Sprintf("You followed %d of %d upgrade/downgrade suggestions.", m.followed, m.resolved)
+			if m.followed > 0 {
+				line += fmt.Sprintf(" %d of those went smoothly (fewer than %d failing tool calls in the next %d turns).",
+					m.smooth, m.o.Core.Cfg.Models.ToolErrorThreshold, outcomeTurns)
+			}
+			out = append(out, sMuted.Render(clip(line, w+60)))
 		}
 		for _, r := range m.logRows {
 			mark := sMuted.Render("…")
@@ -86,6 +104,12 @@ func (m Model) viewModels() string {
 			}
 			line := fmt.Sprintf("%s %s %-9s %s  next: %s",
 				sMuted.Render(r.At.Local().Format("01-02 15:04")), mark, strings.ToUpper(r.Action), call, ShortModel(next))
+			switch r.Outcome {
+			case store.OutcomeSmooth:
+				line += sGreen.Render("  → went smoothly")
+			case store.OutcomeRough:
+				line += sRed.Render("  → rough")
+			}
 			out = append(out, clip(line, w+40))
 		}
 		if len(m.logRows) == 0 {
@@ -129,4 +153,37 @@ func (m Model) modelGuide(w int) []string {
 		out = append(out, clip(line, w+40))
 	}
 	return out
+}
+
+// outcomeTurns is how many turns after a switch are judged.
+const outcomeTurns = 3
+
+// judgeOutcomes records how followed suggestions went: smooth when the
+// first turns on the new model had fewer failing tool calls than the
+// upgrade threshold.
+func (m *Model) judgeOutcomes(db *store.Store) {
+	open, err := db.AwaitingOutcome(m.sstate.ID)
+	if err != nil {
+		return
+	}
+	for _, o := range open {
+		var errs, n int
+		for _, t := range m.sstate.Turns {
+			if n == outcomeTurns {
+				break
+			}
+			if t.Active() && !t.Start.Before(o.NextAt.Add(-time.Minute)) {
+				errs += t.ToolErrors
+				n++
+			}
+		}
+		if n < outcomeTurns {
+			continue
+		}
+		outcome := store.OutcomeSmooth
+		if errs >= m.o.Core.Cfg.Models.ToolErrorThreshold {
+			outcome = store.OutcomeRough
+		}
+		_ = db.SetOutcome(o.ID, outcome)
+	}
 }
