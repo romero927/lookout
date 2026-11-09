@@ -242,7 +242,7 @@ func (m Model) renderTurn(t activity.Turn, prev string, w int) string {
 
 	// Where it ended up.
 	if t.Reply != "" {
-		b = append(b, "", section("Claude's final message", w))
+		b = append(b, "", section("Claude's latest message", w))
 		quote(sBlue, t.Reply, "")
 	}
 	if len(t.Files) > 0 {
@@ -256,19 +256,14 @@ func (m Model) renderTurn(t activity.Turn, prev string, w int) string {
 	if len(t.Calls) > 0 {
 		b = append(b, "", section("Step by step", w))
 	}
-	agent, lastReply := "", -1
-	for i, c := range t.Calls {
-		if c.Name == "" && !c.User && c.Agent == "" {
-			lastReply = i
-		}
-	}
+	agent := ""
 	speaker := "" // who the last message header was for
 	divider := func() {
 		if len(b) > 0 && !strings.HasSuffix(b[len(b)-1], "─") {
 			b = append(b, sFaint.Render(strings.Repeat("┄", max(4, w))))
 		}
 	}
-	for i, c := range t.Calls {
+	for _, c := range t.Calls {
 		if c.Agent != agent {
 			if c.Agent != "" {
 				task := m.act.AgentTasks[c.Agent]
@@ -294,12 +289,6 @@ func (m Model) renderTurn(t activity.Turn, prev string, w int) string {
 			quote(sYellow, c.Text, "")
 			speaker = ""
 		case c.Name == "":
-			if i == lastReply && t.Reply != "" {
-				divider()
-				b = append(b, sBlue.Bold(true).Render("Claude"+at(c.At))+sMuted.Render("  (final message, shown above)"))
-				speaker = ""
-				continue
-			}
 			st, who := sBlue, "Claude"
 			if c.Agent != "" {
 				st, who = sPurple, "Subagent"

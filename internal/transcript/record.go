@@ -147,7 +147,7 @@ type Record struct {
 	Usage      Usage
 	HasUsage   bool
 	StopReason string
-	Text       string // text content blocks (not thinking)
+	Text       string // text blocks, plus narration shown to the user (not hidden thinking)
 	ToolUses   []ToolUse
 
 	// User fields.

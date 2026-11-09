@@ -72,6 +72,16 @@ func TestParseLine(t *testing.T) {
 			},
 		},
 		{
+			name:   "narration is kept, hidden thinking is not",
+			line:   `{"type":"assistant","timestamp":"2026-01-10T10:00:00Z","message":{"id":"m","model":"claude-x","content":[{"type":"thinking","thinking":"secret plan","signature":"CAQSrAsKEAgTGAI4AUIIdGhpbmtpbmcSDCZ1DP4m"},{"type":"thinking","thinking":"Checking the tests.\n\n","signature":"CAQSlgkKEQgTGAI4AUIJbmFycmF0aW9uEgxWsvDM"},{"type":"thinking","thinking":"bad sig","signature":"!!not base64!!"},{"type":"tool_use","id":"t1","name":"Bash","input":{}}],"usage":{"input_tokens":1,"output_tokens":1}}}`,
+			status: StatusOK,
+			check: func(t *testing.T, r Record) {
+				if r.Text != "Checking the tests." {
+					t.Fatalf("text = %q", r.Text)
+				}
+			},
+		},
+		{
 			name:   "numbers as strings and nulls are tolerated",
 			line:   `{"type":"assistant","timestamp":"2026-01-10T10:00:00Z","message":{"id":"m","model":"claude-x","usage":{"input_tokens":"12","output_tokens":3.0,"cache_read_input_tokens":null,"cache_creation_input_tokens":"n/a"}}}`,
 			status: StatusOK,

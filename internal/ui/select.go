@@ -173,7 +173,19 @@ func (m Model) wheel(x, dir int) (tea.Model, tea.Cmd) {
 // click handles a click without a drag: a tab in the header; a row in a
 // list, which opens it as enter does; or the reader beside the list.
 func (m Model) click(x, y int) (tea.Model, tea.Cmd) {
-	if m.help || m.picking || !m.loaded {
+	if m.picking {
+		// A click on a session shows it, as enter does.
+		top := lipgloss.Height(m.viewHeader())
+		h := max(3, m.height-top-lipgloss.Height(m.viewFooter()))
+		if y >= top && y < top+h {
+			if row := m.pickerRowAt(y-top, h); row >= 0 {
+				m.pSel = row
+				return m.pickerKey("enter")
+			}
+		}
+		return m, nil
+	}
+	if m.help || !m.loaded {
 		return m, nil
 	}
 	if y == 0 {

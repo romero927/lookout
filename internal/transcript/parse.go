@@ -2,6 +2,7 @@ package transcript
 
 import (
 	"bytes"
+	"encoding/base64"
 	"regexp"
 	"strings"
 	"time"
@@ -180,13 +181,17 @@ func parseAssistant(rec *Record, msg []byte) bool {
 
 	var texts []string
 	eachElem(content, func(b []byte) {
-		var typ, text, id, name, input []byte
+		var typ, text, thinking, sig, id, name, input []byte
 		if !eachField(b, func(k, v []byte) {
 			switch string(k) {
 			case "type":
 				typ = v
 			case "text":
 				text = v
+			case "thinking":
+				thinking = v
+			case "signature":
+				sig = v
 			case "id":
 				id = v
 			case "name":
@@ -201,6 +206,14 @@ func parseAssistant(rec *Record, msg []byte) bool {
 		case "text":
 			if s, _ := str(text); s != "" {
 				texts = append(texts, s)
+			}
+		case "thinking":
+			// The short updates Claude Code shows while Claude works are
+			// stored as thinking blocks marked as narration.
+			if g, _ := str(sig); isNarration(g) {
+				if s, _ := str(thinking); strings.TrimSpace(s) != "" {
+					texts = append(texts, strings.TrimSpace(s))
+				}
 			}
 		case "tool_use":
 			tu := ToolUse{}
@@ -452,4 +465,17 @@ func parseQueued(rec *Record, att []byte) {
 		return
 	}
 	rec.Kind, rec.Prompt, rec.Size = KindQueued, text, len(prompt)
+}
+
+// isNarration reports whether a thinking block's signature marks it as
+// narration: text Claude Code shows the user, unlike hidden thinking. The
+// signature is otherwise opaque; only its start is decoded to find the mark.
+// An unrecognised format counts as hidden.
+func isNarration(sig string) bool {
+	if len(sig) < 8 {
+		return false
+	}
+	n := min(len(sig), 64) / 4 * 4
+	b, err := base64.StdEncoding.DecodeString(sig[:n])
+	return err == nil && bytes.Contains(b, []byte("narration"))
 }

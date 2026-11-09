@@ -270,22 +270,63 @@ func TestActivityDetailAndSessionPicker(t *testing.T) {
 	var m tea.Model = New(Options{Core: core, Store: db, Version: "test"})
 	m = drive(m, tea.WindowSizeMsg{Width: 120, Height: 40}, LoadedMsg{}, key("2"), key("enter"))
 	v := plain(m.View())
-	for _, want := range []string{"│ this still doesn't work", "1 tool call", "FILES EDITED ─", "STEP BY STEP ─", "Edit", "CLAUDE'S FINAL MESSAGE ─", "┄┄┄", "│ done", "(final message, shown above)"} {
+	for _, want := range []string{"│ this still doesn't work", "1 tool call", "FILES EDITED ─", "STEP BY STEP ─", "Edit", "CLAUDE'S LATEST MESSAGE ─", "┄┄┄", "│ done"} {
 		if !strings.Contains(v, want) {
 			t.Errorf("activity detail missing %q\n%s", want, v)
 		}
 	}
+	// The latest message is at the top and also in full in the step-by-step list.
+	if n := strings.Count(v, "│ done"); n < 2 {
+		t.Errorf("latest message shown %d times, want it in both places\n%s", n, v)
+	}
+	// An older second session, so the picker has one to pin.
+	old := time.Now().UTC().Add(-2 * time.Hour).Format(time.RFC3339Nano)
+	_ = os.WriteFile(filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "projects", "-work-demo", "sess-old.jsonl"),
+		[]byte(`{"type":"user","sessionId":"sess-old","cwd":"/work/demo","timestamp":"`+old+`","message":{"content":"older"}}`+"\n"), 0o644)
+	core.Load()
+
 	m = drive(m, key("esc"), key("s"))
-	if v := plain(m.View()); !strings.Contains(v, "SESSIONS") || !strings.Contains(v, "Following the latest") {
+	if v := plain(m.View()); !strings.Contains(v, "SESSIONS") || !strings.Contains(v, "Following the latest") || !strings.Contains(v, "latest") {
 		t.Fatalf("picker not shown:\n%s", v)
 	}
+	// Picking the latest session keeps following, not pinning.
 	m = drive(m, key("enter"))
-	if v := plain(m.View()); !strings.Contains(v, "pinned") || core.Pinned != "sess-ui" {
-		t.Errorf("enter should pin the session (pinned=%q)\n%s", core.Pinned, v)
+	if core.Pinned != "" || m.(Model).picking {
+		t.Errorf("enter on the latest session should follow it, not pin it (pinned=%q)", core.Pinned)
+	}
+	m = drive(m, key("s"), key("down"), key("enter"))
+	if v := plain(m.View()); !strings.Contains(v, "pinned") || core.Pinned != "sess-old" {
+		t.Errorf("enter should pin an older session (pinned=%q)\n%s", core.Pinned, v)
 	}
 	m = drive(m, key("s"), tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
 	if core.Pinned != "" || strings.Contains(plain(m.View()), "◆ pinned") {
 		t.Error("a should go back to following the latest session")
+	}
+
+	// Clicking a session in the picker does what enter does.
+	rowOf := func(id string) int {
+		for y, l := range strings.Split(plain(m.View()), "\n") {
+			if strings.Contains(l, ShortID(id)) && strings.Contains(l, "ago") {
+				return y
+			}
+		}
+		t.Fatalf("row for %s not found:\n%s", id, plain(m.View()))
+		return -1
+	}
+	m = drive(m, key("s"))
+	y := rowOf("sess-ui")
+	m = drive(m, click(10, y-2)...) // the help line above the list
+	if core.Pinned != "" || !m.(Model).picking {
+		t.Fatal("clicking outside the list should do nothing")
+	}
+	m = drive(m, click(10, rowOf("sess-old"))...)
+	if core.Pinned != "sess-old" || m.(Model).picking {
+		t.Errorf("click should pin the session and close the picker (pinned=%q)", core.Pinned)
+	}
+	m = drive(m, key("s"))
+	m = drive(m, click(10, rowOf("sess-ui"))...)
+	if core.Pinned != "" {
+		t.Errorf("clicking the latest session should follow it (pinned=%q)", core.Pinned)
 	}
 }
 

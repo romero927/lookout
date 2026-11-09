@@ -50,6 +50,11 @@ func (m Model) pickerKey(key string) (tea.Model, tea.Cmd) {
 	case "enter":
 		if m.pSel < len(m.pList) {
 			s := m.pList[m.pSel]
+			if latest, ok := m.o.Core.Agg.Current(m.o.Core.CwdFilter); ok && latest.ID == s.ID {
+				// The latest session: follow it rather than pin it, so a
+				// newer session still takes over.
+				return m.pickerKey("a")
+			}
 			m.o.Core.Pinned = s.ID
 			m.picking = false
 			m.setFlash("showing session "+ShortID(s.ID)+" · s then a to follow the latest again", sGreen, 4*time.Second)
@@ -57,6 +62,22 @@ func (m Model) pickerKey(key string) (tea.Model, tea.Cmd) {
 		}
 	}
 	return m, nil
+}
+
+// pickerHead is the number of lines above the first session in the picker.
+const pickerHead = 3
+
+// pickerRowAt returns the session on body line y of a picker h lines tall,
+// or -1. It mirrors the scrolling in viewPicker.
+func (m Model) pickerRowAt(y, h int) int {
+	start := 0
+	if total := pickerHead + len(m.pList); total > h {
+		start = max(0, m.pSel+pickerHead-h+2)
+	}
+	if i := start + y - pickerHead; i >= 0 && i < len(m.pList) {
+		return i
+	}
+	return -1
 }
 
 func (m Model) viewPicker(h int) string {
@@ -68,10 +89,11 @@ func (m Model) viewPicker(h int) string {
 	if m.o.Core.Pinned != "" {
 		mode = "Pinned to session " + ShortID(m.o.Core.Pinned)
 	}
-	out := []string{section("Sessions", w), sMuted.Render(clip(mode+" · enter show this one · a follow the latest · y copy ID · esc close", w)), ""}
+	out := []string{section("Sessions", w), sMuted.Render(clip(mode+" · enter or click to show one · a follow the latest · y copy ID · esc close", w)), ""}
 	if len(m.pList) == 0 {
 		out = append(out, sMuted.Render("No sessions found."))
 	}
+	latest, _ := m.o.Core.Agg.Current(m.o.Core.CwdFilter)
 	for i, s := range m.pList {
 		live := sMuted.Render("○")
 		if m.now.Sub(s.LastActivity) < 2*time.Minute {
@@ -83,11 +105,14 @@ func (m Model) viewPicker(h int) string {
 		}
 		line := fmt.Sprintf("%s %s  %s  %s  %s", live, ShortID(s.ID), pad(clip(proj, 22), 22),
 			pad(ShortModel(s.Model), 12), Ago(s.LastActivity, m.now))
+		if s.ID == latest.ID {
+			line += "  latest"
+		}
 		if i == m.pSel {
 			out = append(out, sSelected.Render(pad("▸ "+line, w-1)))
 		} else {
 			out = append(out, "  "+line)
 		}
 	}
-	return strings.Join(scrollTo(out, m.pSel+3, h), "\n")
+	return strings.Join(scrollTo(out, m.pSel+pickerHead, h), "\n")
 }
