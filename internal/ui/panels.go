@@ -34,7 +34,7 @@ func (m Model) viewFiles(h int) string {
 		case i == m.gSel:
 			line = sSelected.Render(pad("▸ "+label, lw-1))
 		case !f.Exists:
-			line = sMuted.Render("  " + label + " ·")
+			line = sMuted.Render("  " + clip(label, lw-14) + " (not created)")
 		default:
 			line = "  " + label
 		}

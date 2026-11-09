@@ -204,9 +204,12 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(tick(), m.checkAlerts(), m.changesCmd())
 
 	case copiedMsg:
-		if msg.err != "" {
+		switch {
+		case msg.err != "":
 			m.setFlash("copy failed: "+msg.err+" (select the text on screen instead)", sRed, 6*time.Second)
-		} else {
+		case msg.warn:
+			m.setFlash(msg.how, sYellow, 8*time.Second)
+		default:
 			m.setFlash(msg.how, sGreen, 6*time.Second)
 		}
 		return m, nil
@@ -585,7 +588,7 @@ func (m Model) viewFooter() string {
 	var keys string
 	switch {
 	case m.picking:
-		keys = "↑↓ select · enter show · a follow latest · esc close"
+		keys = "↑↓ select · enter show · a follow latest · y copy ID · esc close"
 	case m.tab == tabFiles && m.gFocus:
 		keys = "↑↓/pgup/pgdn scroll · esc back · e edit · q quit"
 	case m.tab == tabFiles:
@@ -593,7 +596,7 @@ func (m Model) viewFooter() string {
 	case (m.tab == tabChanges && m.cFocus) || (m.tab == tabActivity && m.aFocus):
 		keys = "↑↓/pgup/pgdn scroll · esc back · q quit"
 	case m.tab == tabChanges:
-		keys = "↑↓ select · enter read diff · s sessions · ? help · q quit"
+		keys = "↑↓ select · enter read diff · y copy commit ID · s sessions · ? help · q quit"
 	case m.tab == tabActivity:
 		keys = "↑↓ select · enter details · s sessions · ? help · q quit"
 	case m.tab == tabCheatsheet:
@@ -622,7 +625,7 @@ func (m Model) viewHelp() string {
 		"",
 		sBold.Render("Panels"),
 		"  1 Usage       limits, token usage for the session, today and the last 5h, and limit use per day",
-		"  2 Changes     files Claude edited this session, with the uncommitted git diff",
+		"  2 Changes     every file changed this session (Claude's edits, uncommitted, committed), with diffs",
 		"  3 Activity    one entry per prompt: tools used, failures, files edited, Claude's last message",
 		"  4 Context     what fills the context window, by kind and largest items",
 		"  5 Models      rules-based model suggestion; switch yourself with /model",
@@ -633,6 +636,7 @@ func (m Model) viewHelp() string {
 		"  1-7, tab      switch panel",
 		"  c             copy (Context: a /compact line · Cheatsheet: the command)",
 		"  a             Context: see all items / only the largest",
+		"  y             copy an ID (Changes: the file's commit · session picker: the session)",
 		"  s             pick which session to show (a: follow the latest again)",
 		"  ↑↓ / j k      move · enter to focus the viewer · esc to go back",
 		"  e             edit the selected file in $EDITOR (needs [files] allow_edit = true)",
@@ -649,7 +653,7 @@ func (m Model) viewHelp() string {
 		"  data     " + ShortPath(paths.DataDir()),
 		"",
 		sMuted.Render("Lookout only reads what Claude Code writes to disk. It never calls Claude."),
-		sMuted.Render("Git is run read-only (diff, status) for the Changes panel."),
+		sMuted.Render("Git is run read-only (diff, status, log) for the Changes panel."),
 		sMuted.Render("Unofficial. Not affiliated with Anthropic. " + m.o.Version),
 		"",
 		sMuted.Render("press any key"),

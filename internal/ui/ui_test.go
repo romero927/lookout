@@ -85,11 +85,11 @@ func TestPanelsRender(t *testing.T) {
 			key  string
 			want []string
 		}{
-			{"1", []string{"LOOKOUT", "LIMITS", "not connected", "SESSION", "sess-ui", "TOKENS", "burn"}},
+			{"1", []string{"LOOKOUT", "LIMITS", "not connected", "SESSION", "sess-ui", "TOKENS", "last 10 min"}},
 			{"2", []string{"CHANGES", "1 edited file no longer"}},
-			{"3", []string{"ACTIVITY", "this still doesn't work", "1 tools", "1 files"}},
+			{"3", []string{"ACTIVITY", "this still doesn't work", "STEPS", "Edit"}},
 			{"4", []string{"CONTEXT", "Startup", "LARGEST ITEMS"}},
-			{"5", []string{"RECOMMENDATION", "Upgrade to opus", "frustration", "/model opus"}},
+			{"5", []string{"RECOMMENDATION", "Upgrade to opus", "frustration", "/model opus", "MODELS YOU CAN SWITCH TO", "Fastest for quick answers"}},
 			{"6", []string{"FILES", "settings.json"}},
 		}
 		for _, p := range panels {
@@ -261,7 +261,7 @@ func TestActivityDetailAndSessionPicker(t *testing.T) {
 	var m tea.Model = New(Options{Core: core, Store: db, Version: "test"})
 	m = drive(m, tea.WindowSizeMsg{Width: 120, Height: 40}, LoadedMsg{}, key("3"), key("enter"))
 	v := plain(m.View())
-	for _, want := range []string{"PROMPT", "this still doesn't work", "FILES EDITED (1)", "TOOLS (1)", "Edit", "CLAUDE'S LAST MESSAGE", "done"} {
+	for _, want := range []string{"PROMPT", "this still doesn't work", "FILES EDITED (1)", "STEPS · 1 tool call", "Edit", "CLAUDE'S LAST MESSAGE", "│ done", "1 tool · 1 file"} {
 		if !strings.Contains(v, want) {
 			t.Errorf("activity detail missing %q\n%s", want, v)
 		}

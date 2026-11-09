@@ -54,6 +54,7 @@ func (m Model) cheats() []cheat {
 		out = append(out, cheat{"For this session", "/compact", fmt.Sprintf("Context is %.0f%% full", c.Percent)})
 	}
 	if m.hasSess {
+		out = append(out, cheat{"For this session", m.sess.ID, "This session's ID"})
 		cmd := "claude --resume " + m.sess.ID
 		if m.sess.Cwd != "" {
 			cmd = fmt.Sprintf("cd %s && %s", shellQuote(m.sess.Cwd), cmd)

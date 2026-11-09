@@ -71,6 +71,9 @@ func (m Model) viewContext(h int) string {
 	}
 	out = append(out, "")
 	out = append(out, parts...)
+	if tip := contextTip(v); tip != "" {
+		out = append(out, sYellow.Render(clip("Tip: "+tip, w)))
+	}
 
 	// Items: a list, or one item's details.
 	title := fmt.Sprintf("Largest items (%d of %d)", len(v.Largest), v.Items)
@@ -218,4 +221,29 @@ func (m *Model) refreshContext() {
 	if n := len(m.ctxView.Largest); m.xSel >= n {
 		m.xSel = max(0, n-1)
 	}
+}
+
+// contextTip suggests one way to keep the context smaller, based on what
+// takes the most room.
+func contextTip(v activity.ContextView) string {
+	if len(v.Parts) == 0 || v.Total == 0 {
+		return ""
+	}
+	p := v.Parts[0]
+	if float64(p.Tokens)/float64(v.Total) < 0.25 {
+		return ""
+	}
+	switch p.Name {
+	case "Read output":
+		return "file reads fill the most room. Pointing Claude at specific functions or line ranges keeps it smaller."
+	case "Bash output":
+		return "command output fills the most room. Quieter commands (no -v, | tail, | head) keep it smaller."
+	case "Grep output", "Glob output":
+		return "search results fill the most room. Narrower patterns or paths keep it smaller."
+	case "Tool inputs (commands, files Claude wrote)":
+		return "files Claude wrote stay in the context. /compact drops them and keeps a summary."
+	case "Claude's replies":
+		return "long replies fill the most room. Asking for brief answers keeps it smaller."
+	}
+	return ""
 }

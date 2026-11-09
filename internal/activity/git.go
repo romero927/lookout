@@ -89,19 +89,24 @@ func CommittedSince(top string, t time.Time) ([]WorkChange, error) {
 	if top == "" || t.IsZero() {
 		return nil, nil
 	}
-	out, err := git(top, "log", "--since="+t.Format(time.RFC3339), "--name-status", "--no-renames", "--format=")
+	out, err := git(top, "log", "--since="+t.Format(time.RFC3339), "--name-status", "--no-renames", "--format=commit %H")
 	if err != nil {
 		return nil, err
 	}
 	seen := map[string]bool{}
 	var res []WorkChange
+	commit := ""
 	for _, line := range strings.Split(out, "\n") {
+		if h, ok := strings.CutPrefix(line, "commit "); ok {
+			commit = h
+			continue
+		}
 		code, name, ok := strings.Cut(line, "\t")
 		if !ok || name == "" || seen[name] {
 			continue
 		}
 		seen[name] = true
-		res = append(res, WorkChange{Path: filepath.Join(top, name), Status: code})
+		res = append(res, WorkChange{Path: filepath.Join(top, name), Status: code, Commit: commit})
 	}
 	return res, nil
 }
@@ -110,6 +115,7 @@ func CommittedSince(top string, t time.Time) ([]WorkChange, error) {
 type WorkChange struct {
 	Path   string // absolute
 	Status string // porcelain XY code, e.g. " M", "??"
+	Commit string // for committed changes: the latest commit's full hash
 }
 
 // WorkingTree lists uncommitted changes in the repository containing dir.

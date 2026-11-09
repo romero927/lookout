@@ -100,7 +100,7 @@ func (m Model) viewUsage() string {
 			{"cache write", func(r UsageRow) string { return Tokens(r.U.CacheCreate) }, sText},
 			{"cache read", func(r UsageRow) string { return Tokens(r.U.CacheRead) }, sText},
 			{"total", func(r UsageRow) string { return Tokens(r.U.Total()) }, sBold},
-			{"msgs", func(r UsageRow) string { return fmt.Sprint(r.N) }, sMuted},
+			{"responses", func(r UsageRow) string { return fmt.Sprint(r.N) }, sMuted},
 		}
 		for _, row := range rows {
 			line := sMuted.Render(pad(row.label, 12))
@@ -121,11 +121,11 @@ func (m Model) viewUsage() string {
 	}
 
 	// Burn rate.
-	out = append(out, fmt.Sprintf("%s %s %s %s %s %s",
-		sMuted.Render(fmt.Sprintf("burn (%dm)", m.o.Core.Cfg.Usage.BurnWindowMinutes)),
-		sBold.Render(Rate(m.snap.FreshPerMin)+"/min"),
-		sMuted.Render("· with cache reads"), sBold.Render(Rate(m.snap.BurnPerMin)),
-		sMuted.Render("· output"), sBold.Render(Rate(m.snap.OutputPerMin))))
+	out = append(out, clip(fmt.Sprintf("%s %s %s %s %s",
+		sMuted.Render(fmt.Sprintf("last %d min:", m.o.Core.Cfg.Usage.BurnWindowMinutes)),
+		sBold.Render(Rate(m.snap.FreshPerMin)+" tokens/min"),
+		sMuted.Render("("+Rate(m.snap.BurnPerMin)+"/min incl. cache reads) ·"),
+		sBold.Render(Rate(m.snap.OutputPerMin)), sMuted.Render("output/min")), w+60))
 
 	// Models today + last 7 days, side by side when wide.
 	models := m.viewModelsToday(min(w, 48))
@@ -175,7 +175,7 @@ func card(title string, r UsageRow, note string, width int, hot bool) string {
 		sMuted.Render(strings.Repeat("─", inner)),
 		row("total", r.U.Total(), sBold),
 	}
-	left := fmt.Sprintf("%d msgs", r.N)
+	left := fmt.Sprintf("%d responses", r.N)
 	right := clip(note, max(0, inner-len(left)-1))
 	foot := left + strings.Repeat(" ", max(1, inner-len(left)-lipgloss.Width(right))) + right
 	lines = append(lines, sMuted.Render(foot))

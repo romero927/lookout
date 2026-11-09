@@ -194,7 +194,7 @@ func (m *Model) refreshHistory() {
 // DayNote describes one day's limit use, e.g. "+6% of weekly · hit 5h limit".
 func DayNote(d limits.DayUse) string {
 	if d.Weekly == 0 && d.FiveHourPeak == 0 {
-		return "—"
+		return "no use"
 	}
 	s := fmt.Sprintf("+%.0f%% of weekly", d.Weekly)
 	if d.FiveHourPeak >= 100 {
@@ -217,7 +217,12 @@ func (m Model) viewHistory(w int) []string {
 		peak = max(peak, d.Weekly)
 	}
 	today := m.now.Local().Format("2006-01-02")
+	first := m.history.Days[0].Day
 	for _, d := range days {
+		if d.Day < first {
+			out = append(out, sMuted.Render(d.Date().Format("Mon 01-02")+" "+strings.Repeat(" ", 12)+" not tracked yet"))
+			continue
+		}
 		st := sBlue
 		if d.Day == today {
 			st = sRed

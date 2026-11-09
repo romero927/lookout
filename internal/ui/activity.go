@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"sort"
 	"strings"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -14,13 +15,15 @@ import (
 // turnTitle is the first line of a turn's prompt, or its slash command.
 func turnTitle(t activity.Turn) string {
 	switch {
+	case strings.HasPrefix(t.Prompt, "This session is being continued from a previous conversation"):
+		return "(session resumed with a summary)"
 	case t.Prompt != "":
 		line, _, _ := strings.Cut(strings.TrimSpace(t.Prompt), "\n")
 		return line
 	case t.Command != "":
 		return t.Command
 	default:
-		return "(before the first prompt)"
+		return "(before the first prompt in this transcript)"
 	}
 }
 
@@ -35,13 +38,20 @@ func (m Model) turnTime(t activity.Turn) string {
 	return at.Format("15:04")
 }
 
-func turnStats(t activity.Turn) string {
-	parts := []string{Dur(t.End.Sub(t.Start))}
-	if n := len(t.Calls) + t.Dropped; n > 0 {
-		parts = append(parts, fmt.Sprintf("%d tools", n))
+func (m Model) turnStats(t activity.Turn, newest bool) string {
+	var parts []string
+	switch {
+	case t.Start.IsZero():
+	case newest && m.now.Sub(t.End) < 2*time.Minute:
+		parts = append(parts, Dur(m.now.Sub(t.Start))+" so far")
+	default:
+		parts = append(parts, Dur(t.End.Sub(t.Start)))
+	}
+	if t.Tools > 0 {
+		parts = append(parts, plural(t.Tools, "tool"))
 	}
 	if len(t.Files) > 0 {
-		parts = append(parts, fmt.Sprintf("%d files", len(t.Files)))
+		parts = append(parts, plural(len(t.Files), "file"))
 	}
 	if t.Output > 0 {
 		parts = append(parts, Tokens(t.Output)+" out")
@@ -58,7 +68,7 @@ func (m Model) viewActivity(h int) string {
 	selLine := 0
 	for i, t := range m.act.Turns {
 		head := m.turnTime(t) + " " + turnTitle(t)
-		stats := turnStats(t)
+		stats := m.turnStats(t, i == 0)
 		var fail string
 		if t.Failed > 0 {
 			fail = sMuted.Render(" · ") + sRed.Render(fmt.Sprintf("%d failed", t.Failed))
@@ -77,7 +87,14 @@ func (m Model) viewActivity(h int) string {
 	if m.aSel < len(m.act.Turns) {
 		t := m.act.Turns[m.aSel]
 		title = sBold.Render(clip(turnTitle(t), m.aView.Width))
-		meta = sMuted.Render(clip(fmt.Sprintf("%s · took %s · %s", m.turnTime(t), Dur(t.End.Sub(t.Start)), ShortModel(t.Model)), m.aView.Width))
+		took := "took " + Dur(t.End.Sub(t.Start))
+		switch {
+		case t.Start.IsZero():
+			took = "started before this transcript"
+		case m.aSel == 0 && m.now.Sub(t.End) < 2*time.Minute:
+			took = "in progress, " + Dur(m.now.Sub(t.Start)) + " so far"
+		}
+		meta = sMuted.Render(clip(fmt.Sprintf("%s · %s · %s", m.turnTime(t), took, ShortModel(t.Model)), m.aView.Width))
 	} else {
 		title = sMuted.Render("Each prompt you send becomes a turn here.")
 	}
@@ -142,6 +159,10 @@ func (m Model) renderTurn(t activity.Turn, w int) string {
 		b = append(b, sSection.Render("COMMAND"), t.Command, "")
 	}
 
+	if t.Reply != "" {
+		b = append(b, sSection.Render("CLAUDE'S LAST MESSAGE"), wrap.Render(sText.Render(t.Reply)), "")
+	}
+
 	if len(t.Files) > 0 {
 		b = append(b, sSection.Render(fmt.Sprintf("FILES EDITED (%d)", len(t.Files))))
 		for _, f := range t.Files {
@@ -150,10 +171,12 @@ func (m Model) renderTurn(t activity.Turn, w int) string {
 		b = append(b, "")
 	}
 
-	if n := len(t.Calls) + t.Dropped; n > 0 {
+	if len(t.Calls) > 0 {
 		counts := map[string]int{}
 		for _, c := range t.Calls {
-			counts[c.Name]++
+			if c.Name != "" {
+				counts[c.Name]++
+			}
 		}
 		names := make([]string, 0, len(counts))
 		for k := range counts {
@@ -169,12 +192,25 @@ func (m Model) renderTurn(t activity.Turn, w int) string {
 		for _, k := range names {
 			tally = append(tally, fmt.Sprintf("%s %d", k, counts[k]))
 		}
-		head := fmt.Sprintf("TOOLS (%d)", n)
+		head := "STEPS"
+		if t.Tools > 0 {
+			head += " · " + plural(t.Tools, "tool call")
+		}
 		if t.Failed > 0 {
 			head += fmt.Sprintf(" · %d FAILED", t.Failed)
 		}
-		b = append(b, sSection.Render(head), sMuted.Render(wrap.Render(strings.Join(tally, " · "))))
+		b = append(b, sSection.Render(head))
+		if len(tally) > 0 {
+			b = append(b, sMuted.Render(wrap.Render(strings.Join(tally, " · "))))
+		}
+		msgWrap := lipgloss.NewStyle().Width(max(10, w-2))
 		for _, c := range t.Calls {
+			if c.Name == "" {
+				for _, l := range strings.Split(msgWrap.Render(c.Text), "\n") {
+					b = append(b, sBlue.Render("│ ")+sText.Render(l))
+				}
+				continue
+			}
 			mark := sGreen.Render("✓")
 			if c.Fail {
 				mark = sRed.Render("✗")
@@ -188,11 +224,14 @@ func (m Model) renderTurn(t activity.Turn, w int) string {
 		if t.Dropped > 0 {
 			b = append(b, sMuted.Render(fmt.Sprintf("… and %d more", t.Dropped)))
 		}
-		b = append(b, "")
-	}
-
-	if t.Reply != "" {
-		b = append(b, sSection.Render("CLAUDE'S LAST MESSAGE"), wrap.Render(sText.Render(t.Reply)))
 	}
 	return strings.Join(b, "\n")
+}
+
+// plural is "1 tool" / "3 tools".
+func plural(n int, word string) string {
+	if n == 1 {
+		return "1 " + word
+	}
+	return fmt.Sprintf("%d %ss", n, word)
 }

@@ -47,8 +47,20 @@ func TestEngineTracksFilesAndTurns(t *testing.T) {
 		t.Fatalf("turns: %+v", s.Turns)
 	}
 	t1 := s.Turns[1]
-	if len(t1.Calls) != 4 || t1.Failed != 2 || !t1.Calls[1].Fail || t1.Calls[1].Summary != "go test ./..." || !t1.Calls[3].Subagent {
+	var tools []Call
+	texts := 0
+	for _, c := range t1.Calls {
+		if c.Name == "" {
+			texts++
+		} else {
+			tools = append(tools, c)
+		}
+	}
+	if len(tools) != 4 || t1.Tools != 4 || t1.Failed != 2 || !tools[1].Fail || tools[1].Summary != "go test ./..." || !tools[3].Subagent {
 		t.Errorf("calls: %+v failed %d", t1.Calls, t1.Failed)
+	}
+	if texts != 2 || t1.Calls[0].Text != "done m1" {
+		t.Errorf("messages in steps: %d, first %q", texts, t1.Calls[0].Text)
 	}
 	if t1.Output != 200 || t1.Reply != "done m2" || t1.End != at.Add(3*time.Minute) || len(t1.Files) != 2 {
 		t.Errorf("turn: output %d reply %q end %v files %v", t1.Output, t1.Reply, t1.End, t1.Files)
@@ -130,7 +142,7 @@ func TestGitDiffAndWorkingTree(t *testing.T) {
 	for _, c := range committed {
 		names[filepath.Base(c.Path)] = c.Status
 	}
-	if names["a.txt"] != "M" || names["new.txt"] != "A" {
+	if names["a.txt"] != "M" || names["new.txt"] != "A" || len(committed[0].Commit) != 40 {
 		t.Errorf("committed since: %v", names)
 	}
 	if _, note := Diff(filepath.Join(t.TempDir(), "x.txt"), time.Time{}); !strings.Contains(note, "Not in a git") {

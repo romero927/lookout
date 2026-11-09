@@ -255,7 +255,7 @@ func contextAdvice(s SessionState, c config.Models, reported *float64) ContextAd
 		// Claude Code knows the real window; derive it from the two figures.
 		a.Percent, a.Reported = *reported, true
 		if a.Tokens > 0 {
-			a.Window = int64(float64(a.Tokens) * 100 / a.Percent)
+			a.Window = snapWindow(int64(float64(a.Tokens) * 100 / a.Percent))
 		}
 	} else {
 		if s.MaxContext > a.Window || s.Context > a.Window {
@@ -301,3 +301,14 @@ func lowerFirst(s string) string {
 
 // maxFrustratedPrompt is the longest prompt checked for frustration phrases.
 const maxFrustratedPrompt = 300
+
+// snapWindow rounds a window size worked out from a rounded percentage to
+// the standard size it is close to (200k or 1M).
+func snapWindow(w int64) int64 {
+	for _, std := range []int64{200_000, largeWindow} {
+		if d := w - std; d > -std/20 && d < std/20 {
+			return std
+		}
+	}
+	return w
+}

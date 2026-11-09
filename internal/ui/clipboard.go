@@ -11,7 +11,10 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 )
 
-type copiedMsg struct{ how, err string }
+type copiedMsg struct {
+	how, err string
+	warn     bool // it didn't reach the OS clipboard
+}
 
 // copyText puts text on the clipboard, trying in order: a clipboard tool,
 // tmux's paste buffer (which tmux also forwards to the terminal's clipboard
@@ -37,12 +40,12 @@ func copyText(text string) tea.Cmd {
 		case os.Getenv("DISPLAY") != "" && (run("xclip", "-selection", "clipboard") || run("xsel", "--clipboard", "--input")):
 			return copiedMsg{how: "copied to the clipboard"}
 		case os.Getenv("TMUX") != "" && run("tmux", "load-buffer", "-w", "-"):
-			return copiedMsg{how: "copied to tmux's buffer: paste in Claude Code with your tmux prefix then ]"}
+			return copiedMsg{how: "copied to tmux's buffer only (paste: prefix then ]). For the OS clipboard, install xclip: sudo apt install xclip", warn: true}
 		}
 		seq := "\x1b]52;c;" + base64.StdEncoding.EncodeToString([]byte(text)) + "\a"
 		if _, err := os.Stdout.WriteString(seq); err != nil {
 			return copiedMsg{err: err.Error()}
 		}
-		return copiedMsg{how: "sent to the terminal's clipboard (if your terminal allows it)"}
+		return copiedMsg{how: "sent to the terminal's clipboard, if it allows that. For the OS clipboard, install xclip (or xsel, wl-copy)", warn: true}
 	}
 }

@@ -38,6 +38,10 @@ func (m Model) pickerKey(key string) (tea.Model, tea.Cmd) {
 		if m.pSel < len(m.pList)-1 {
 			m.pSel++
 		}
+	case "y":
+		if m.pSel < len(m.pList) {
+			return m, copyText(m.pList[m.pSel].ID)
+		}
 	case "a":
 		m.o.Core.Pinned = ""
 		m.picking = false
@@ -64,7 +68,7 @@ func (m Model) viewPicker(h int) string {
 	if m.o.Core.Pinned != "" {
 		mode = "Pinned to session " + ShortID(m.o.Core.Pinned)
 	}
-	out := []string{section("Sessions", w), sMuted.Render(clip(mode+" · enter show · a follow latest · esc close", w)), ""}
+	out := []string{section("Sessions", w), sMuted.Render(clip(mode+" · enter show this one · a follow the latest · y copy ID · esc close", w)), ""}
 	if len(m.pList) == 0 {
 		out = append(out, sMuted.Render("No sessions found."))
 	}

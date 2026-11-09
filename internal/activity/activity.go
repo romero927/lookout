@@ -4,6 +4,7 @@
 package activity
 
 import (
+	"fmt"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -24,10 +25,12 @@ type FileChange struct {
 	First, Last    time.Time
 }
 
-// Call is one tool call.
+// Call is one step in a turn: a tool call, or (when Name is empty) a
+// message Claude wrote.
 type Call struct {
 	Name     string
 	Summary  string // command, file or pattern
+	Text     string // Claude's message, for message steps
 	Fail     bool
 	Subagent bool
 }
@@ -39,7 +42,8 @@ type Turn struct {
 	Command    string // slash command that opened the turn
 	Model      string
 	Calls      []Call
-	Dropped    int // calls beyond maxCalls, not kept
+	Dropped    int // steps beyond maxCalls, not kept
+	Tools      int // tool calls (Calls also holds messages)
 	Failed     int
 	Files      []string // files edited, in first-edit order
 	Output     int64    // output tokens
@@ -153,8 +157,15 @@ func (e *Engine) Observe(r transcript.Record, src transcript.Source) {
 			if r.Model != "" {
 				t.Model = r.Model
 			}
-			if r.Text != "" {
+			textKey := fmt.Sprintf("t:%s:%d:%.64s", r.UsageKey(), len(r.Text), r.Text)
+			if r.Text != "" && !t.seen[textKey] {
+				t.seen[textKey] = true
 				t.Reply = clip(r.Text, maxReply)
+				if len(t.Calls) < maxCalls {
+					t.Calls = append(t.Calls, Call{Text: clip(r.Text, maxReply)})
+				} else {
+					t.Dropped++
+				}
 			}
 		}
 		if t != nil && r.Timestamp.After(t.End) {
@@ -169,6 +180,7 @@ func (e *Engine) Observe(r transcript.Record, src transcript.Source) {
 			}
 			p := pending{turn: t, call: -1}
 			if t != nil {
+				t.Tools++
 				if len(t.Calls) < maxCalls {
 					p.call = len(t.Calls)
 					t.Calls = append(t.Calls, Call{Name: tu.Name, Summary: summary(tu), Subagent: sub})

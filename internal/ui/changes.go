@@ -104,9 +104,9 @@ func (m *Model) refreshGone() {
 func (m Model) viewChanges(h int) string {
 	lw := m.listWidth()
 	items := m.changeItems()
-	list := []string{sSection.Render("CHANGES") + " " + sMuted.Render("this session")}
+	list := []string{sSection.Render("CHANGES") + " " + sMuted.Render("this session"), sLabel.Render("Edited by Claude")}
 	if len(items) == 0 || items[0].Group != grpClaude {
-		list = append(list, sMuted.Render("  no edits yet"))
+		list = append(list, sMuted.Render("  none yet"))
 	}
 	selLine, group := 0, grpClaude
 	for i, it := range items {
@@ -220,9 +220,26 @@ func (m Model) changesKey(key string) (tea.Model, tea.Cmd) {
 		if n > 0 {
 			m.cFocus = true
 		}
+	case "y":
+		if it, ok := m.selectedChange(); ok {
+			if h := m.commitOf(it.Path); h != "" {
+				return m, copyText(h)
+			}
+			m.setFlash("no commit of this file since the session started", sMuted, 3*time.Second)
+		}
 	}
 	m.showDiff()
 	return m, nil
+}
+
+// commitOf is the latest commit since the session start that touched path.
+func (m Model) commitOf(path string) string {
+	for _, c := range m.committed {
+		if c.Path == path {
+			return c.Commit
+		}
+	}
+	return ""
 }
 
 // showDiff puts the loaded diff (or a placeholder) in the viewer.

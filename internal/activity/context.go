@@ -228,7 +228,7 @@ func categoryName(it CtxItem) string {
 	case KindReply:
 		return "Claude's replies"
 	case KindCall:
-		return "Tool inputs (incl. files Claude wrote)"
+		return "Tool inputs (commands, files Claude wrote)"
 	case KindResult:
 		return it.Tool + " output"
 	default:

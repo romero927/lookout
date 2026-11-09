@@ -52,6 +52,9 @@ func (m Model) viewModels() string {
 		out = append(out, st.Render("! "+c.Message))
 	}
 
+	out = append(out, "")
+	out = append(out, m.modelGuide(w)...)
+
 	// Log.
 	out = append(out, "", section("Suggestion log", w))
 	if m.o.Store == nil {
@@ -62,7 +65,7 @@ func (m Model) viewModels() string {
 		out = append(out, sRed.Render(msg))
 	} else {
 		if m.resolved > 0 {
-			out = append(out, sMuted.Render(fmt.Sprintf("followed %d of %d resolved upgrade/downgrade calls", m.followed, m.resolved)))
+			out = append(out, sMuted.Render(fmt.Sprintf("You followed %d of %d upgrade/downgrade suggestions.", m.followed, m.resolved)))
 		}
 		for _, r := range m.logRows {
 			mark := sMuted.Render("…")
@@ -79,7 +82,7 @@ func (m Model) viewModels() string {
 			}
 			call := ShortModel(r.Current) + " → " + r.Suggested
 			if r.Action == string(strategy.Keep) {
-				call = "keep " + ShortModel(r.Current)
+				call = ShortModel(r.Current)
 			}
 			line := fmt.Sprintf("%s %s %-9s %s  next: %s",
 				sMuted.Render(r.At.Local().Format("01-02 15:04")), mark, strings.ToUpper(r.Action), call, ShortModel(next))
@@ -87,7 +90,43 @@ func (m Model) viewModels() string {
 		}
 		if len(m.logRows) == 0 {
 			out = append(out, sMuted.Render("no suggestions logged yet"))
+		} else {
+			out = append(out, sMuted.Render("✓ the model you used next matched · ✗ it didn't · … waiting for your next message"))
 		}
 	}
 	return strings.Join(out, "\n")
+}
+
+// modelGuide lists the /model choices. Descriptions follow Claude Code's own
+// model picker (2.1.x).
+var modelGuide = []struct{ alias, use, note string }{
+	{"fable", "For your toughest challenges", "may need usage credits, depending on your plan; has its own limit"},
+	{"opus", "For complex work and everyday tasks", "Claude Code's default"},
+	{"sonnet", "Most efficient for simpler tasks", "stretches your limits further than Opus"},
+	{"haiku", "Fastest for quick answers", "lookups, small edits, short questions"},
+	{"opusplan", "Opus while planning, Sonnet while doing the work", ""},
+	{"opus[1m]", "Opus with a 1M-token context window", "for long sessions and large codebases"},
+	{"sonnet[1m]", "Sonnet with a 1M-token context window", "for long sessions and large codebases"},
+}
+
+func (m Model) modelGuide(w int) []string {
+	out := []string{section("Models you can switch to", w),
+		sMuted.Render(clip("Switch with /model <name> in Claude Code. ● current · ▸ suggested", w))}
+	cur := strings.ToLower(m.sugg.Current)
+	for _, g := range modelGuide {
+		mark := "  "
+		base := strings.TrimSuffix(g.alias, "[1m]")
+		switch {
+		case m.sugg.Action != strategy.Keep && m.sugg.Suggested == g.alias:
+			mark = sYellow.Render("▸ ")
+		case cur != "" && g.alias == base && base != "opusplan" && strings.Contains(cur, base):
+			mark = sGreen.Render("● ")
+		}
+		line := mark + sBold.Render(pad(g.alias, 11)) + " " + sText.Render(g.use)
+		if g.note != "" {
+			line += sMuted.Render(" · " + g.note)
+		}
+		out = append(out, clip(line, w+40))
+	}
+	return out
 }
