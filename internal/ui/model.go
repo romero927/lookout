@@ -89,15 +89,17 @@ type Model struct {
 	health  transcript.Health
 
 	// Models
-	sugg      strategy.Suggestion
-	pending   *strategy.Suggestion // a new suggestion still settling
-	stab      *strategy.Stabilizer
-	smooth    int // followed suggestions that went smoothly
-	sstate    strategy.SessionState
-	logRows   []store.Row
-	resolved  int
-	followed  int
-	lastLogAt time.Time
+	sugg       strategy.Suggestion
+	pending    *strategy.Suggestion // a new suggestion still settling
+	stab       *strategy.Stabilizer
+	smooth     int // followed suggestions that went smoothly
+	sstate     strategy.SessionState
+	logRows    []store.Row
+	resolved   int
+	followed   int
+	lastLogAt  time.Time
+	shownKey   string // the suggestion on screen, and since when
+	shownSince time.Time
 
 	// Changes and Activity (from the activity engine)
 	act       activity.Session
@@ -422,6 +424,9 @@ func (m *Model) refresh() {
 	raw, st := m.o.Core.Suggest(now, SuggestExtra(m.limits, m.limitsExact(), now))
 	m.sstate = st
 	m.sugg, m.pending = m.stab.Update(raw, st.TurnCount, now)
+	if k := m.sugg.SessionID + "|" + string(m.sugg.Action) + "|" + m.sugg.Suggested; k != m.shownKey {
+		m.shownKey, m.shownSince = k, now
+	}
 	prev := m.act.ID
 	m.act = activity.Session{}
 	if m.hasSess {
@@ -448,8 +453,12 @@ func (m *Model) refresh() {
 	}
 	m.loadTurn()
 	if db := m.o.Store; db != nil && m.hasSess {
-		if _, err := db.LogSuggestion(m.sugg); err != nil {
-			m.setFlash("strategy log: "+err.Error(), sRed, 5*time.Second)
+		// Log a suggestion once it has been on screen for a minute, so the
+		// first moments after a start (before your pace is known) aren't logged.
+		if now.Sub(m.shownSince) >= time.Minute {
+			if _, err := db.LogSuggestion(m.sugg); err != nil {
+				m.setFlash("strategy log: "+err.Error(), sRed, 5*time.Second)
+			}
 		}
 		_ = db.ResolveNext(m.sstate.ID, m.sstate.Model, m.sstate.LastAssistant)
 		if now.Sub(m.lastLogAt) > 3*time.Second {

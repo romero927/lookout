@@ -188,8 +188,16 @@ func (m Model) click(x, y int) (tea.Model, tea.Cmd) {
 	if y < top || y >= top+h {
 		return m, nil
 	}
-	if m.tab == tabContext {
+	switch m.tab {
+	case tabContext:
 		return m.clickContext(y-top, h)
+	case tabCheatsheet:
+		// A click picks the command and copies it, as enter does.
+		if row := m.cheatList(m.width).rowAt(y-top, h); row >= 0 {
+			m.kSel = row
+			return m.cheatsheetKey("enter")
+		}
+		return m, nil
 	}
 	p, ok := m.split()
 	if !ok {

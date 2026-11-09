@@ -16,6 +16,7 @@ import (
 	"github.com/romero927/lookout/internal/limits"
 	"github.com/romero927/lookout/internal/paths"
 	"github.com/romero927/lookout/internal/store"
+	"github.com/romero927/lookout/internal/strategy"
 )
 
 var testANSI = regexp.MustCompile(`\x1b\[[0-9;?]*[a-zA-Z]`)
@@ -86,7 +87,7 @@ func TestPanelsRender(t *testing.T) {
 			key  string
 			want []string
 		}{
-			{"1", []string{"LOOKOUT", "LIMITS", "not connected", "SESSION", "sess-ui", "TOKENS", "last 10 min"}},
+			{"1", []string{"LOOKOUT", "LIMITS", "not connected", "THIS SESSION", "TOKENS", "last 10 min"}},
 			{"2", []string{"ACTIVITY", "this still doesn't work", "STEP BY STEP", "Edit"}},
 			{"3", []string{"CHANGES", "1 edited file no longer"}},
 			{"4", []string{"CONTEXT", "Startup", "LARGEST ITEMS"}},
@@ -136,7 +137,13 @@ func TestFilesMasksSecretsAndBlocksEditByDefault(t *testing.T) {
 func TestModelsLogsSuggestion(t *testing.T) {
 	core, db := setup(t)
 	var m tea.Model = New(Options{Core: core, Store: db})
-	_ = drive(m, tea.WindowSizeMsg{Width: 120, Height: 40}, LoadedMsg{})
+	m = drive(m, tea.WindowSizeMsg{Width: 120, Height: 40}, LoadedMsg{})
+	if rows, _ := db.Recent(5); len(rows) != 0 {
+		t.Fatalf("a suggestion shown for under a minute shouldn't be logged: %+v", rows)
+	}
+	mm := m.(Model)
+	mm.shownSince = time.Now().Add(-2 * time.Minute)
+	_ = drive(mm, DataMsg{})
 	rows, err := db.Recent(5)
 	if err != nil || len(rows) != 1 || rows[0].Action != "upgrade" || rows[0].Suggested != "opus" {
 		t.Fatalf("rows = %+v err = %v", rows, err)
@@ -225,7 +232,7 @@ func TestHistoryAlertsAndRestart(t *testing.T) {
 	var m tea.Model = New(Options{Core: core, Store: db, Version: "test", Exe: exe})
 	m = drive(m, tea.WindowSizeMsg{Width: 110, Height: 90}, LoadedMsg{}, tickMsg(now))
 	v := plain(m.View())
-	for _, want := range []string{"WEEKLY LIMIT BY DAY", "+9% of weekly · hit 5h limit", "5-hour limit at 85%"} {
+	for _, want := range []string{"LAST 7 DAYS", "+9% of weekly · 5h limit hit", "5-hour limit at 85%"} {
 		if !strings.Contains(v, want) {
 			t.Errorf("missing %q\n%s", want, v)
 		}
@@ -551,5 +558,39 @@ func TestClickRowOpensReaderAndContextItem(t *testing.T) {
 	}
 	if !m.(Model).xFocus || !strings.Contains(plain(m.View()), "TO FREE UP ROOM") {
 		t.Errorf("clicking an item should open its details\n%s", plain(m.View()))
+	}
+}
+
+func TestDeclinedSuggestionGoesQuiet(t *testing.T) {
+	m := Model{sugg: strategy.Suggestion{SessionID: "s", Action: strategy.Downgrade, Suggested: "sonnet", Current: "claude-opus-5-5"}}
+	no := store.Row{SessionID: "s", Action: "downgrade", Suggested: "sonnet", NextModel: "claude-opus-5-5"}
+	m.logRows = []store.Row{no}
+	if m.declined() != 1 {
+		t.Fatalf("declined = %d", m.declined())
+	}
+	m.logRows = append(m.logRows, no, store.Row{SessionID: "other", Action: "downgrade", Suggested: "sonnet", NextModel: "x"})
+	if m.declined() != 2 {
+		t.Fatalf("declined = %d", m.declined())
+	}
+}
+
+func TestClickCheatsheetCopies(t *testing.T) {
+	core, db := setup(t)
+	var m tea.Model = New(Options{Core: core, Store: db, Version: "test"})
+	m = drive(m, tea.WindowSizeMsg{Width: 120, Height: 40}, LoadedMsg{}, key("6"))
+	mm := m.(Model)
+	top := lipgloss.Height(mm.viewHeader())
+	l := mm.cheatList(mm.width)
+	y := -1
+	for i, r := range l.rows {
+		if r == 3 {
+			y = i
+			break
+		}
+	}
+	m, _ = m.Update(click(4, top+y)[0])
+	m, cmd := m.Update(click(4, top+y)[1])
+	if m.(Model).kSel != 3 || cmd == nil {
+		t.Errorf("click should select row 3 and copy it: sel=%d cmd=%v", m.(Model).kSel, cmd != nil)
 	}
 }

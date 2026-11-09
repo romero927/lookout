@@ -47,7 +47,7 @@ var staticCheats = []cheat{
 // cheats is the full list: suggestions for the session in view first.
 func (m Model) cheats() []cheat {
 	var out []cheat
-	if m.sugg.Action != strategy.Keep && m.sugg.Suggested != "" {
+	if m.sugg.Action != strategy.Keep && m.sugg.Suggested != "" && m.declined() < 2 {
 		out = append(out, cheat{"For this session", "/model " + m.sugg.Suggested, "Lookout's model suggestion: " + m.sugg.Reason})
 	}
 	if c := m.sugg.Context; c.Level >= strategy.ContextCompact {
@@ -76,33 +76,41 @@ func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
-func (m Model) viewCheatsheet(h int) string {
-	w := m.width
+// cheatList is the Cheatsheet as a list, one row per command.
+func (m Model) cheatList(w int) list {
 	items := m.cheats()
-	lines := []string{section("Cheatsheet", w), sMuted.Render(clip("enter or c copies the command; paste it into Claude Code yourself. Lookout never types into it.", w))}
-	sel := 0
+	var l list
+	l.add(section("Cheatsheet", w), -1)
+	l.add(sMuted.Render(clip("click, enter or c copies the command; paste it into Claude Code yourself. Lookout never types into it.", w)), -1)
 	group := ""
 	cmdW := min(44, max(16, w/2-4))
 	for i, c := range items {
 		if c.Group != group {
 			group = c.Group
-			lines = append(lines, "", sLabel.Render(strings.ToUpper(group)))
+			l.add("", -1)
+			l.add(sLabel.Render(strings.ToUpper(group)), -1)
 		}
 		cmd := pad(clip(c.Cmd, cmdW), cmdW)
 		desc := clip(c.Desc, max(10, w-cmdW-5))
 		if i == m.kSel {
-			sel = len(lines)
-			lines = append(lines, sSelected.Render(pad("▸ "+cmd+"  "+desc, w-1)))
+			l.sel = len(l.lines)
+			l.add(sSelected.Render(pad("▸ "+cmd+"  "+desc, w-1)), i)
 			continue
 		}
-		lines = append(lines, "  "+sGreen.Render(cmd)+"  "+sMuted.Render(desc))
+		l.add("  "+sGreen.Render(cmd)+"  "+sMuted.Render(desc), i)
 	}
 	if m.kSel < len(items) {
 		if full := items[m.kSel].Cmd; len(full) > cmdW {
-			lines = append(lines, "", sMuted.Render("selected: ")+clip(full, w-10))
+			l.add("", -1)
+			l.add(sMuted.Render("selected: ")+clip(full, w-10), -1)
 		}
 	}
-	return strings.Join(scrollTo(lines, sel, h), "\n")
+	return l
+}
+
+func (m Model) viewCheatsheet(h int) string {
+	l := m.cheatList(m.width)
+	return strings.Join(scrollTo(l.lines, l.sel, h), "\n")
 }
 
 func (m Model) cheatsheetKey(key string) (tea.Model, tea.Cmd) {

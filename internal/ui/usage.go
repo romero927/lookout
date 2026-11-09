@@ -8,6 +8,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/romero927/lookout/internal/limits"
 	"github.com/romero927/lookout/internal/transcript"
 )
 
@@ -16,27 +17,25 @@ func (m Model) viewUsage() string {
 	out := m.viewLimits(w)
 	out = append(out, "")
 
-	// Session line.
+	// This session.
+	out = append(out, section("This session", w))
 	if m.hasSess {
 		s := m.sess
 		live := sMuted.Render("○ idle")
 		if m.now.Sub(s.LastActivity) < 2*time.Minute {
 			live = sGreen.Render("● active")
 		}
-		line := fmt.Sprintf("%s %s  %s  %s  %s  %s",
-			sLabel.Render("SESSION"), sBold.Render(ShortID(s.ID)),
-			sText.Render(ShortPath(s.Cwd)), sPurple.Render(ShortModel(s.Model)),
-			sMuted.Render(Ago(s.LastActivity, m.now)), live)
-		out = append(out, clip(line, w+80))
+		out = append(out, clip(fmt.Sprintf("%s%s  %s  %s  %s",
+			sLabel.Render(pad("FOLDER", 9)), sText.Render(ShortPath(s.Cwd)), sPurple.Render(ShortModel(s.Model)),
+			live, sMuted.Render(Ago(s.LastActivity, m.now)+" · "+ShortID(s.ID))), w+80))
 	} else {
 		out = append(out, sMuted.Render("No Claude Code sessions found in "+ShortPath(m.o.Core.Watcher.Root)+" yet."))
 	}
 	if m.o.Core.CwdFilter != "" {
 		out = append(out, sMuted.Render("focused on "+ShortPath(m.o.Core.CwdFilter)))
 	}
-	// Context.
 	if c := m.sugg.Context; c.Tokens > 0 {
-		gw := max(10, min(40, w-46))
+		gw := max(10, min(40, w-28))
 		st := sGreen
 		switch {
 		case c.Level >= 2:
@@ -47,17 +46,17 @@ func (m Model) viewUsage() string {
 		auto := ""
 		switch {
 		case c.Reported:
-			auto = ""
 		case c.AutoWindow:
-			auto = sMuted.Render(" (1M assumed)")
+			auto = " (1M assumed)"
 		default:
-			auto = sMuted.Render(" (est.)")
+			auto = " (est.)"
 		}
 		out = append(out,
-			fmt.Sprintf("%s %s %s  %s of %s%s", sMuted.Render("context"), bar(c.Percent/100, gw, st), st.Render(fmt.Sprintf("%3.0f%%", c.Percent)),
-				sBold.Render(Tokens(c.Tokens)), Tokens(c.Window), auto))
+			fmt.Sprintf("%s%s  %s %s", sLabel.Render(pad("CONTEXT", 9)), bar(c.Percent/100, gw, st),
+				st.Bold(true).Render(fmt.Sprintf("%3.0f%% full", c.Percent)),
+				sMuted.Render("· "+Tokens(c.Tokens)+" of "+Tokens(c.Window)+auto)))
 		if c.Message != "" {
-			out = append(out, st.Render(c.Message))
+			out = append(out, strings.Repeat(" ", 9)+st.Render(clip(c.Message, w-9)))
 		}
 	}
 
@@ -75,8 +74,8 @@ func (m Model) viewUsage() string {
 		{"Today", UsageRow{m.snap.Today.Usage, m.snap.Today.Messages}, false, ""},
 		{fmt.Sprintf("Last %dh", hours), UsageRow{m.snap.Rolling.Usage, m.snap.Rolling.Messages}, false, "rolling"},
 	}
-	cardW := 24
-	if w >= len(cards)*(cardW+5) {
+	cardW := min(34, (w-2)/len(cards)-4) // each card adds a border and padding
+	if cardW >= 22 {
 		var rendered []string
 		for _, c := range cards {
 			rendered = append(rendered, card(c.title, c.row, c.note, cardW, c.hot))
@@ -120,24 +119,17 @@ func (m Model) viewUsage() string {
 		}
 	}
 
-	// Burn rate.
-	out = append(out, clip(fmt.Sprintf("%s %s %s %s %s",
-		sMuted.Render(fmt.Sprintf("last %d min:", m.o.Core.Cfg.Usage.BurnWindowMinutes)),
-		sBold.Render(Rate(m.snap.FreshPerMin)+" tokens/min"),
-		sMuted.Render("("+Rate(m.snap.BurnPerMin)+"/min incl. cache reads) ·"),
-		sBold.Render(Rate(m.snap.OutputPerMin)), sMuted.Render("output/min")), w+60))
+	// Pace.
+	out = append(out, clip(sMuted.Render(fmt.Sprintf("pace, last %d min: ", m.o.Core.Cfg.Usage.BurnWindowMinutes))+
+		sBold.Render(Rate(m.snap.OutputPerMin))+sMuted.Render(" output/min · ")+
+		sBold.Render(Rate(m.snap.FreshPerMin))+sMuted.Render(" new tokens/min (cache reads not counted)"), w+60))
 
 	// Models today + last 7 days, side by side when wide.
-	models := m.viewModelsToday(min(w, 48))
-	days := m.viewDays(min(w, 44))
-	if w >= 96 {
-		out = append(out, "", lipgloss.JoinHorizontal(lipgloss.Top, pad(models, 50), "  ", days))
+	if w >= 110 {
+		models := m.viewModelsToday(44)
+		out = append(out, "", lipgloss.JoinHorizontal(lipgloss.Top, pad(models, 46), "  ", m.viewDays(w-48)))
 	} else {
-		out = append(out, "", models, "", days)
-	}
-	if h := m.viewHistory(w); h != nil {
-		out = append(out, "")
-		out = append(out, h...)
+		out = append(out, "", m.viewModelsToday(min(w, 48)), "", m.viewDays(w))
 	}
 	return strings.Join(out, "\n")
 }
@@ -212,20 +204,56 @@ func (m Model) viewModelsToday(w int) string {
 	return strings.Join(lines, "\n")
 }
 
+// viewDays shows tokens per day for the last week and, once tracked, how
+// much of the weekly limit each day used.
 func (m Model) viewDays(w int) string {
 	lines := []string{section("Last 7 days", w)}
 	var peak int64
 	for _, d := range m.snap.Days {
 		peak = max(peak, d.Usage.Total())
 	}
+	limitUse := map[string]limits.DayUse{}
+	tracked := ""
+	if days := m.history.Last(7, m.now); days != nil {
+		tracked = m.history.Days[0].Day
+		for _, d := range days {
+			limitUse[d.Day] = d
+		}
+	}
 	for _, d := range m.snap.Days {
 		frac := float64(d.Usage.Total()) / float64(max(1, peak))
-		label := d.Day.Format("Mon 01-02")
+		day := d.Day.Format("2006-01-02")
 		st := sBlue
-		if d.Day.Format("2006-01-02") == m.now.Format("2006-01-02") {
+		if day == m.now.Format("2006-01-02") {
 			st = sRed
 		}
-		lines = append(lines, fmt.Sprintf("%s %s %s", sMuted.Render(label), bar(frac, 16, st), lpad(Tokens(d.Usage.Total()), 7)))
+		line := fmt.Sprintf("%s %s %s", sMuted.Render(d.Day.Format("Mon 01-02")), bar(frac, 10, st), lpad(Tokens(d.Usage.Total()), 7))
+		if u, ok := limitUse[day]; ok && tracked != "" && day >= tracked {
+			note := sMuted.Render("  " + shortDayNote(u))
+			if u.FiveHourPeak >= 100 {
+				note = sYellow.Render("  " + shortDayNote(u))
+			}
+			line += note
+		}
+		lines = append(lines, clip(line, w+40))
+	}
+	if tracked != "" {
+		lines = append(lines, sMuted.Render(clip("% of weekly = how much of your weekly limit that day used; tracked since "+tracked[5:], w)))
 	}
 	return strings.Join(lines, "\n")
+}
+
+// shortDayNote is DayNote sized for the Last 7 days chart.
+func shortDayNote(d limits.DayUse) string {
+	if d.Weekly == 0 && d.FiveHourPeak == 0 {
+		return "no use"
+	}
+	s := fmt.Sprintf("+%.0f%% of weekly", d.Weekly)
+	switch {
+	case d.FiveHourPeak >= 100:
+		s += " · 5h limit hit"
+	case d.FiveHourPeak > 0:
+		s += fmt.Sprintf(" · 5h %.0f%%", d.FiveHourPeak)
+	}
+	return s
 }

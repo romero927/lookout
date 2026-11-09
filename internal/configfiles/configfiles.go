@@ -83,20 +83,35 @@ func Discover(s Sources) []File {
 	for _, dir := range projects {
 		name := filepath.Base(dir)
 		for _, rel := range []string{"CLAUDE.md", "CLAUDE.local.md", ".claude/CLAUDE.md", ".claude/settings.json", ".claude/settings.local.json"} {
-			add(GroupProject, name+"/"+rel, filepath.Join(dir, rel), false)
+			add(GroupProject+Group(" · "+name), rel, filepath.Join(dir, rel), false)
 		}
 	}
 
 	// Auto-memory files: projects/<project>/memory/*.md
 	mems, _ := filepath.Glob(filepath.Join(cd, "projects", "*", "memory", "*.md"))
-	sort.Slice(mems, func(i, j int) bool { return modTime(mems[i]).After(modTime(mems[j])) })
+	// One heading per project, the most recently updated project first;
+	// newest files first within it.
+	projOf := func(m string) string { return filepath.Base(filepath.Dir(filepath.Dir(m))) }
+	latest := map[string]time.Time{}
 	for _, m := range mems {
-		proj := filepath.Base(filepath.Dir(filepath.Dir(m)))
+		if t := modTime(m); t.After(latest[projOf(m)]) {
+			latest[projOf(m)] = t
+		}
+	}
+	sort.SliceStable(mems, func(i, j int) bool {
+		pi, pj := projOf(mems[i]), projOf(mems[j])
+		if pi != pj {
+			return latest[pi].After(latest[pj])
+		}
+		return modTime(mems[i]).After(modTime(mems[j]))
+	})
+	for _, m := range mems {
+		proj := projOf(m)
 		name := s.ProjectNames[proj]
 		if name == "" {
 			name = shortProject(proj)
 		}
-		add(GroupMemory, name+"/"+filepath.Base(m), m, false)
+		add(GroupMemory+Group(" · "+name), filepath.Base(m), m, false)
 	}
 
 	for _, e := range s.Extra {

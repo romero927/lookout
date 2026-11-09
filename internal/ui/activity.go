@@ -13,6 +13,11 @@ import (
 )
 
 // turnTitle is the first line of a turn's prompt, or its slash command.
+// isCompact reports whether the turn is a /compact command.
+func isCompact(t activity.Turn) bool {
+	return t.Command == "/compact" || strings.HasPrefix(strings.TrimSpace(t.Prompt), "/compact")
+}
+
 func turnTitle(t activity.Turn) string {
 	switch {
 	case strings.HasPrefix(t.Prompt, "This session is being continued from a previous conversation"):
@@ -73,6 +78,20 @@ func (m Model) activityList(lw int) list {
 		l.add(sMuted.Render("  nothing yet"), -1)
 	}
 	for i, t := range m.act.Turns {
+		if isCompact(t) {
+			// A slim divider; back-to-back /compact entries show once.
+			if i > 0 && isCompact(m.act.Turns[i-1]) && i != m.aSel {
+				continue
+			}
+			label := m.turnTime(t) + " /compact: conversation summarized"
+			if i == m.aSel {
+				l.sel = len(l.lines)
+				l.add(sSelected.Render(pad("▸ "+clip(label, lw-3), lw-1)), i)
+			} else {
+				l.add(sMuted.Render("  ┄ "+clip(label, lw-5)), i)
+			}
+			continue
+		}
 		head := m.turnTime(t) + " " + turnTitle(t)
 		stats := m.turnStats(t, i == 0)
 		var fail string
@@ -304,7 +323,7 @@ func (m Model) renderTurn(t activity.Turn, prev string, w int) string {
 			if c.Agent != "" {
 				name = sPurple.Render(pad(clip(c.Name, 12), 12))
 			}
-			detail := c.Summary
+			detail := shortPaths(c.Summary)
 			if c.Added > 0 || c.Removed > 0 {
 				detail += sGreen.Render(fmt.Sprintf("  +%d", c.Added)) + sRed.Render(fmt.Sprintf(" -%d", c.Removed))
 			}

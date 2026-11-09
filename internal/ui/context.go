@@ -50,7 +50,7 @@ func (m Model) viewContext(h int) string {
 		return fmt.Sprintf("%s %s %s %s %s", pad(clip(name, labelW), labelW), bar(frac, gw, sBlue),
 			lpad(Tokens(tokens), 6), sMuted.Render(lpad(fmt.Sprintf("%.0f%%", frac*100), 4)), sMuted.Render(note))
 	}
-	parts := []string{row("Startup: system prompt, tools, CLAUDE.md, memory", v.Startup, "")}
+	parts := []string{row("Startup (system prompt, tools, memory)", v.Startup, "")}
 	for _, p := range v.Parts {
 		note := ""
 		if p.Count > 1 {
@@ -106,7 +106,7 @@ func (m Model) itemList(v activity.ContextView, w, room int) []string {
 	var lines []string
 	for i, it := range v.Largest {
 		line := fmt.Sprintf("%s  %s %s  %s", lpad("~"+Tokens(it.Tokens), 7), pad(clip(itemKind(it.CtxItem), 14), 14),
-			clip(it.Label, max(10, w-42)), Ago(it.At, m.now))
+			clip(shortPaths(it.Label), max(10, w-42)), Ago(it.At, m.now))
 		if i == m.xSel {
 			lines = append(lines, sSelected.Render(pad(clip("▸"+line, w), w)))
 		} else {
@@ -123,7 +123,7 @@ func (m Model) itemDetail(it activity.Sized, v activity.ContextView, w, room int
 	wrap := lipgloss.NewStyle().Width(max(20, w-2))
 	share := 100 * float64(it.Tokens) / float64(max(1, v.Total))
 	lines := []string{
-		sBold.Render(clip(itemKind(it.CtxItem)+" · "+it.Label, w)),
+		sBold.Render(clip(itemKind(it.CtxItem)+" · "+shortPaths(it.Label), w)),
 		sMuted.Render(fmt.Sprintf("~%s tokens · %.1f%% of the context · %s", Tokens(it.Tokens), share, Ago(it.At, m.now))),
 	}
 	if it.Images > 0 {

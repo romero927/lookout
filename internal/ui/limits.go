@@ -205,38 +205,6 @@ func DayNote(d limits.DayUse) string {
 	return s
 }
 
-// viewHistory is the "Weekly limit by day" chart.
-func (m Model) viewHistory(w int) []string {
-	days := m.history.Last(7, m.now)
-	if days == nil {
-		return nil
-	}
-	out := []string{section("Weekly limit by day", w)}
-	peak := 15.0 // so a light day doesn't fill the bar
-	for _, d := range days {
-		peak = max(peak, d.Weekly)
-	}
-	today := m.now.Local().Format("2006-01-02")
-	first := m.history.Days[0].Day
-	for _, d := range days {
-		if d.Day < first {
-			out = append(out, sMuted.Render(d.Date().Format("Mon 01-02")+" "+strings.Repeat(" ", 12)+" not tracked yet"))
-			continue
-		}
-		st := sBlue
-		if d.Day == today {
-			st = sRed
-		}
-		note := sMuted.Render(DayNote(d))
-		if d.FiveHourPeak >= 100 {
-			note = sYellow.Render(DayNote(d))
-		}
-		out = append(out, clip(fmt.Sprintf("%s %s %s", sMuted.Render(d.Date().Format("Mon 01-02")),
-			bar(d.Weekly/peak, 12, st), note), w+40))
-	}
-	return out
-}
-
 // checkAlerts fires limit alerts that haven't been shown yet.
 func (m *Model) checkAlerts() tea.Cmd {
 	cfg := m.o.Core.Cfg.Alerts

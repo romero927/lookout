@@ -5,6 +5,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 )
@@ -95,6 +96,19 @@ func ShortPath(p string) string {
 		}
 	}
 	return p
+}
+
+// scratchRe matches Claude Code's per-session temp folders.
+var scratchRe = regexp.MustCompile(`/tmp/claude-\d+/[^/\s'"]+/[0-9a-f-]{36}/scratchpad`)
+
+// shortPaths shortens paths inside a command or label: Claude Code's
+// session scratchpad becomes "scratchpad", your home folder "~".
+func shortPaths(s string) string {
+	s = scratchRe.ReplaceAllString(s, "scratchpad")
+	if h, err := os.UserHomeDir(); err == nil && len(h) > 1 {
+		s = strings.ReplaceAll(s, h+"/", "~/")
+	}
+	return s
 }
 
 // ShortID shortens a session id.

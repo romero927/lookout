@@ -30,7 +30,12 @@ func (m Model) viewModels() string {
 	out = append(out, fmt.Sprintf("%s  %s", sLabel.Render("SUGGEST "), call))
 	reason := lipgloss.NewStyle().Width(max(10, w-10)).Render(sg.Reason)
 	out = append(out, lipgloss.JoinHorizontal(lipgloss.Top, sLabel.Render("REASON  ")+"  ", sText.Render(reason)))
-	if sg.Action != strategy.Keep {
+	switch {
+	case sg.Action != strategy.Keep && m.declined() >= 2:
+		out = append(out, fmt.Sprintf("%s  %s", sLabel.Render("        "), sMuted.Render(clip(
+			fmt.Sprintf("You've stayed on %s after this suggestion %d times, so Lookout won't push it. /model %s if you change your mind.",
+				ShortModel(sg.Current), m.declined(), sg.Suggested), max(10, w-10)))))
+	case sg.Action != strategy.Keep:
 		out = append(out, fmt.Sprintf("%s  %s", sLabel.Render("        "), sMuted.Render("switch in Claude Code with: ")+sBold.Render("/model "+sg.Suggested)))
 	}
 	if p := m.pending; p != nil {
@@ -186,4 +191,19 @@ func (m *Model) judgeOutcomes(db *store.Store) {
 		}
 		_ = db.SetOutcome(o.ID, outcome)
 	}
+}
+
+// declined counts how often, in the recent log for this session, you kept
+// your model after the suggestion now shown.
+func (m Model) declined() int {
+	n := 0
+	for _, r := range m.logRows {
+		if r.SessionID != m.sugg.SessionID || r.Action != string(m.sugg.Action) || r.Suggested != m.sugg.Suggested {
+			continue
+		}
+		if f := r.Followed(); f != nil && !*f {
+			n++
+		}
+	}
+	return n
 }

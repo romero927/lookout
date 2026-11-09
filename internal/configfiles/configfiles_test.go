@@ -30,7 +30,7 @@ func TestDiscover(t *testing.T) {
 	files := Discover(Sources{ClaudeDir: claude, ProjectDirs: []string{proj, proj}})
 	byLabel := map[string]File{}
 	for _, f := range files {
-		byLabel[f.Label] = f
+		byLabel[string(f.Group)+"|"+f.Label] = f
 		if strings.Contains(f.Path, "credentials") || strings.Contains(f.Path, "auth.json") {
 			t.Fatalf("credential file listed: %s", f.Path)
 		}
@@ -40,12 +40,12 @@ func TestDiscover(t *testing.T) {
 		exists bool
 		listed bool
 	}{
-		{"settings.json", true, true},
-		{"CLAUDE.md (global)", false, true}, // missing globals are still shown
-		{"app/CLAUDE.md", true, true},
-		{"app/CLAUDE.local.md", false, false}, // missing project files are hidden
-		{"app/MEMORY.md", true, true},
-		{"settings.local.json", false, false},
+		{"Claude|settings.json", true, true},
+		{"Claude|CLAUDE.md (global)", false, true}, // missing globals are still shown
+		{"Project · app|CLAUDE.md", true, true},
+		{"Project · app|CLAUDE.local.md", false, false}, // missing project files are hidden
+		{"Memory · app|MEMORY.md", true, true},
+		{"Claude|settings.local.json", false, false},
 	}
 	for _, tt := range tests {
 		f, ok := byLabel[tt.label]
@@ -53,7 +53,7 @@ func TestDiscover(t *testing.T) {
 			t.Errorf("%s: listed=%v exists=%v; want listed=%v exists=%v", tt.label, ok, f.Exists, tt.listed, tt.exists)
 		}
 	}
-	if n := strings.Count(strings.Join(labels(files), ","), "app/CLAUDE.md"); n != 1 {
+	if n := strings.Count(strings.Join(labels(files), ","), "Project · app|CLAUDE.md,"); n != 1 {
 		t.Errorf("duplicate project listed %d times", n)
 	}
 }
@@ -61,7 +61,7 @@ func TestDiscover(t *testing.T) {
 func labels(fs []File) []string {
 	var out []string
 	for _, f := range fs {
-		out = append(out, f.Label)
+		out = append(out, string(f.Group)+"|"+f.Label)
 	}
 	return out
 }

@@ -26,7 +26,7 @@ func (m Model) filesList(lw int) list {
 	for i, f := range m.files {
 		if f.Group != group {
 			group = f.Group
-			l.add(sLabel.Render(string(group)), -1)
+			l.add(sLabel.Render(clip(string(group), lw)), -1)
 		}
 		label := clip(f.Label, lw-4)
 		switch {
