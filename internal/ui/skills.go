@@ -40,27 +40,34 @@ func skillGroup(it skills.Item) string {
 	return kind + " · " + src
 }
 
-func (m Model) viewSkills(h int) string {
-	lw := m.listWidth()
-	list := []string{sSection.Render("SKILLS") + " " + sMuted.Render(fmt.Sprintf("%d available", len(m.skills)))}
+// skillsList is the list of skills, commands and subagents, by group.
+func (m Model) skillsList(lw int) list {
+	var l list
+	l.add(sSection.Render("SKILLS")+" "+sMuted.Render(fmt.Sprintf("%d available", len(m.skills))), -1)
 	if len(m.skills) == 0 {
-		list = append(list, sMuted.Render("  none found"))
+		l.add(sMuted.Render("  none found"), -1)
 	}
-	group, selLine := "", 0
+	group := ""
 	for i, it := range m.skills {
 		if g := skillGroup(it); g != group {
 			group = g
-			list = append(list, sLabel.Render(clip(g, lw)))
+			l.add(sLabel.Render(clip(g, lw)), -1)
 		}
 		name := clip(it.Name, lw-4)
 		if i == m.sSel {
-			selLine = len(list)
-			list = append(list, sSelected.Render(pad("▸ "+name, lw-1)))
+			l.sel = len(l.lines)
+			l.add(sSelected.Render(pad("▸ "+name, lw-1)), i)
 		} else {
-			list = append(list, "  "+name)
+			l.add("  "+name, i)
 		}
 	}
-	left := lipgloss.NewStyle().Width(lw).MaxHeight(h).Render(strings.Join(scrollTo(list, selLine, h), "\n"))
+	return l
+}
+
+func (m Model) viewSkills(h int) string {
+	lw := m.listWidth()
+	l := m.skillsList(lw)
+	left := lipgloss.NewStyle().Width(lw).MaxHeight(h).Render(strings.Join(scrollTo(l.lines, l.sel, h), "\n"))
 
 	title := sMuted.Render("Skills, custom commands and subagents Claude Code can use appear here.")
 	meta := ""

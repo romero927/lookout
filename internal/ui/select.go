@@ -9,7 +9,7 @@ import (
 )
 
 // Mouse selection, like Claude Code's: drag to highlight text, and it's
-// copied when you let go. A drag stays inside the pane it starts in (the
+// copied when you let go. A click picks a tab, a list row, or the reader. A drag stays inside the pane it starts in (the
 // list or the reader in split panels). The wheel scrolls like ↑↓.
 
 type cell struct{ x, y int }
@@ -55,6 +55,10 @@ func (m Model) mouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		m.sel.to = m.sel.clamp(msg.X, msg.Y)
 	case msg.Action == tea.MouseActionRelease && m.sel.on:
 		m.sel.to = m.sel.clamp(msg.X, msg.Y)
+		if m.sel.from == m.sel.to {
+			m.sel = selection{}
+			return m.click(msg.X, msg.Y)
+		}
 		text := m.sel.text(strings.Split(m.render(), "\n"))
 		m.sel = selection{}
 		if strings.TrimSpace(text) != "" {
@@ -112,4 +116,50 @@ func (s selection) highlight(view string) string {
 		lines[y] = ansi.Truncate(line, a, "") + "\x1b[0;7m" + ansi.Cut(ansi.Strip(line), a, b) + "\x1b[0m" + ansi.TruncateLeft(line, b, "")
 	}
 	return strings.Join(lines, "\n")
+}
+
+// click handles a click without a drag: a tab in the header, a row in a
+// split panel's list, or the reader beside it.
+func (m Model) click(x, y int) (tea.Model, tea.Cmd) {
+	if m.help || m.picking || !m.loaded {
+		return m, nil
+	}
+	if y == 0 {
+		if t := m.tabAt(x); t >= 0 && t != m.tab {
+			m.tab = t
+			m.refresh()
+		}
+		return m, nil
+	}
+	top := lipgloss.Height(m.viewHeader())
+	h := max(3, m.height-top-lipgloss.Height(m.viewFooter()))
+	if y < top || y >= top+h {
+		return m, nil
+	}
+	lw := m.listWidth()
+	var l list
+	var focus *bool
+	var idx *int
+	var reload func(Model, string) (tea.Model, tea.Cmd)
+	switch m.tab {
+	case tabActivity:
+		l, idx, focus, reload = m.activityList(lw), &m.aSel, &m.aFocus, Model.activityKey
+	case tabChanges:
+		l, idx, focus, reload = m.changesList(lw), &m.cSel, &m.cFocus, Model.changesKey
+	case tabSkills:
+		l, idx, focus, reload = m.skillsList(lw), &m.sSel, &m.sFocus, Model.skillsKey
+	case tabFiles:
+		l, idx, focus, reload = m.filesList(lw), &m.gSel, &m.gFocus, Model.filesKey
+	default:
+		return m, nil
+	}
+	if x >= lw {
+		// The reader: focus it, as enter does, so the keys scroll it.
+		return reload(m, "enter")
+	}
+	*focus = false
+	if row := l.rowAt(y-top, h); row >= 0 {
+		*idx = row
+	}
+	return reload(m, "")
 }

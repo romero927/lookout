@@ -65,13 +65,13 @@ func (m Model) turnStats(t activity.Turn, newest bool) string {
 	return strings.Join(parts, " · ")
 }
 
-func (m Model) viewActivity(h int) string {
-	lw := m.listWidth()
-	list := []string{sSection.Render("ACTIVITY") + " " + sMuted.Render("newest first")}
+// activityList is the turn list: two lines per turn.
+func (m Model) activityList(lw int) list {
+	var l list
+	l.add(sSection.Render("ACTIVITY")+" "+sMuted.Render("newest first"), -1)
 	if len(m.act.Turns) == 0 {
-		list = append(list, sMuted.Render("  nothing yet"))
+		l.add(sMuted.Render("  nothing yet"), -1)
 	}
-	selLine := 0
 	for i, t := range m.act.Turns {
 		head := m.turnTime(t) + " " + turnTitle(t)
 		stats := m.turnStats(t, i == 0)
@@ -80,14 +80,20 @@ func (m Model) viewActivity(h int) string {
 			fail = sMuted.Render(" · ") + sRed.Render(fmt.Sprintf("%d failed", t.Failed))
 		}
 		if i == m.aSel {
-			selLine = len(list) + 1
-			list = append(list, sSelected.Render(pad("▸ "+clip(head, lw-3), lw-1)))
+			l.sel = len(l.lines) + 1
+			l.add(sSelected.Render(pad("▸ "+clip(head, lw-3), lw-1)), i)
 		} else {
-			list = append(list, "  "+sText.Render(clip(head, lw-3)))
+			l.add("  "+sText.Render(clip(head, lw-3)), i)
 		}
-		list = append(list, "  "+sMuted.Render(clip(stats, max(1, lw-3-lipgloss.Width(fail))))+fail)
+		l.add("  "+sMuted.Render(clip(stats, max(1, lw-3-lipgloss.Width(fail))))+fail, i)
 	}
-	left := lipgloss.NewStyle().Width(lw).MaxHeight(h).Render(strings.Join(scrollTo(list, selLine, h), "\n"))
+	return l
+}
+
+func (m Model) viewActivity(h int) string {
+	lw := m.listWidth()
+	l := m.activityList(lw)
+	left := lipgloss.NewStyle().Width(lw).MaxHeight(h).Render(strings.Join(scrollTo(l.lines, l.sel, h), "\n"))
 
 	var title, meta string
 	if m.aSel < len(m.act.Turns) {

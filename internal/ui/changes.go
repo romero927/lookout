@@ -101,14 +101,16 @@ func (m *Model) refreshGone() {
 	}
 }
 
-func (m Model) viewChanges(h int) string {
-	lw := m.listWidth()
+// changesList is the list of changed files, by group.
+func (m Model) changesList(lw int) list {
+	var l list
 	items := m.changeItems()
-	list := []string{sSection.Render("CHANGES") + " " + sMuted.Render("this session"), sLabel.Render("Edited by Claude")}
+	l.add(sSection.Render("CHANGES")+" "+sMuted.Render("this session"), -1)
+	l.add(sLabel.Render("Edited by Claude"), -1)
 	if len(items) == 0 || items[0].Group != grpClaude {
-		list = append(list, sMuted.Render("  none yet"))
+		l.add(sMuted.Render("  none yet"), -1)
 	}
-	selLine, group := 0, grpClaude
+	group := grpClaude
 	for i, it := range items {
 		if it.Group != group {
 			group = it.Group
@@ -116,7 +118,8 @@ func (m Model) viewChanges(h int) string {
 			if group == grpCommitted {
 				title = "Committed since the session started"
 			}
-			list = append(list, "", sLabel.Render(clip(title, lw)))
+			l.add("", -1)
+			l.add(sLabel.Render(clip(title, lw)), -1)
 		}
 		var stat string
 		switch {
@@ -128,24 +131,31 @@ func (m Model) viewChanges(h int) string {
 		nameW := max(4, lw-lipgloss.Width(stat)-4)
 		name := pad(clipLeft(m.relPath(it.Path), nameW), nameW)
 		if i == m.cSel {
-			selLine = len(list)
-			list = append(list, sSelected.Render("▸ "+name)+" "+stat)
+			l.sel = len(l.lines)
+			l.add(sSelected.Render("▸ "+name)+" "+stat, i)
 			continue
 		}
 		st := sText
 		if it.Group == grpGone || (it.F != nil && m.workTop != "" && it.Status == "" && strings.HasPrefix(it.Path, m.workTop)) {
 			st = sMuted // gone, committed, or changed back
 		}
-		list = append(list, "  "+st.Render(name)+" "+stat)
+		l.add("  "+st.Render(name)+" "+stat, i)
 	}
 	if n := len(m.gone); n > 0 {
 		what := "edited files no longer exist"
 		if n == 1 {
 			what = "edited file no longer exists"
 		}
-		list = append(list, "", sMuted.Render(clip(fmt.Sprintf("%d %s", n, what), lw)))
+		l.add("", -1)
+		l.add(sMuted.Render(clip(fmt.Sprintf("%d %s", n, what), lw)), -1)
 	}
-	left := lipgloss.NewStyle().Width(lw).MaxHeight(h).Render(strings.Join(scrollTo(list, selLine, h), "\n"))
+	return l
+}
+
+func (m Model) viewChanges(h int) string {
+	lw := m.listWidth()
+	l := m.changesList(lw)
+	left := lipgloss.NewStyle().Width(lw).MaxHeight(h).Render(strings.Join(scrollTo(l.lines, l.sel, h), "\n"))
 
 	var title, meta string
 	if it, ok := m.selectedChange(); ok {
@@ -219,6 +229,10 @@ func (m Model) changesKey(key string) (tea.Model, tea.Cmd) {
 	case "enter", "right", "l":
 		if n > 0 {
 			m.cFocus = true
+		}
+	case "o":
+		if it, ok := m.selectedChange(); ok {
+			return m, openFolder(it.Path)
 		}
 	case "y":
 		if it, ok := m.selectedChange(); ok {

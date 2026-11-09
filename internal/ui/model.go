@@ -579,9 +579,11 @@ func (m Model) render() string {
 		lipgloss.JoinVertical(lipgloss.Left, header, body, footer))
 }
 
-func (m Model) viewHeader() string {
-	brand := sBrand.Render("◉ LOOKOUT")
-	tabsFor := func(short bool) string {
+// headerParts are the header's pieces: the brand, the tabs (full names,
+// or numbers when space is short) and the badges on the right.
+func (m Model) headerParts() (brand string, tabs, right []string) {
+	brand = sBrand.Render("◉ LOOKOUT")
+	tabsFor := func(short bool) []string {
 		var tabs []string
 		for i, n := range tabNames {
 			label := fmt.Sprintf("%d %s", i+1, n)
@@ -594,11 +596,10 @@ func (m Model) viewHeader() string {
 				tabs = append(tabs, sTab.Render(label))
 			}
 		}
-		return strings.Join(tabs, "")
+		return tabs
 	}
 
 	// Right side, most important first; trimmed from the end to fit.
-	var right []string
 	if w := m.health.Warning(); w != "" {
 		right = append(right, sWarn.Render("! PARSER"))
 	}
@@ -611,16 +612,36 @@ func (m Model) viewHeader() string {
 	right = append(right, m.limitBadges()...)
 
 	// Prefer full tab names; fall back to short tabs, then fewer badges.
-	fits := func(left string, r []string) bool {
-		return lipgloss.Width(left)+lipgloss.Width(strings.Join(r, "  "))+1 <= m.width
+	fits := func(t, r []string) bool {
+		return lipgloss.Width(brand+"  "+strings.Join(t, ""))+lipgloss.Width(strings.Join(r, "  "))+1 <= m.width
 	}
-	left := brand + "  " + tabsFor(false)
-	if !fits(left, right) {
-		left = brand + "  " + tabsFor(true)
+	tabs = tabsFor(false)
+	if !fits(tabs, right) {
+		tabs = tabsFor(true)
 	}
-	for len(right) > 0 && !fits(left, right) {
+	for len(right) > 0 && !fits(tabs, right) {
 		right = right[:len(right)-1]
 	}
+	return brand, tabs, right
+}
+
+// tabAt is the tab under column x of the header's first line, or -1.
+func (m Model) tabAt(x int) int {
+	brand, tabs, _ := m.headerParts()
+	pos := lipgloss.Width(brand) + 2
+	for i, t := range tabs {
+		w := lipgloss.Width(t)
+		if x >= pos && x < pos+w {
+			return i
+		}
+		pos += w
+	}
+	return -1
+}
+
+func (m Model) viewHeader() string {
+	brand, tabs, right := m.headerParts()
+	left := brand + "  " + strings.Join(tabs, "")
 	line := left
 	if r := strings.Join(right, "  "); len(right) > 0 {
 		line = left + strings.Repeat(" ", m.width-lipgloss.Width(left)-lipgloss.Width(r)) + r
@@ -645,7 +666,7 @@ func (m Model) viewFooter() string {
 	case (m.tab == tabChanges && m.cFocus) || (m.tab == tabActivity && m.aFocus):
 		keys = "↑↓/pgup/pgdn scroll · esc back · q quit"
 	case m.tab == tabChanges:
-		keys = "↑↓ select · enter read diff · y copy commit ID · s sessions · ? help · q quit"
+		keys = "↑↓ select · enter read diff · o open folder · y copy commit ID · s sessions · ? help · q quit"
 	case m.tab == tabActivity:
 		keys = "↑↓ select · enter details · s sessions · ? help · q quit"
 	case m.tab == tabSkills && m.sFocus:
@@ -694,10 +715,11 @@ func (m Model) viewHelp() string {
 		"  s             pick which session to show (a: follow the latest again)",
 		"  ↑↓ / j k      move · enter to focus the viewer · esc to go back",
 		"  e             edit the selected file in $EDITOR (needs [files] allow_edit = true)",
-		"  o             Files: open the selected file's folder in your file manager",
+		"  o             Files, Changes: open the selected file's folder in your file manager",
 		"  r             rescan the file list",
 		"  R             restart Lookout (e.g. after a rebuild)",
-		"  mouse         drag to select text: it's copied when you let go. Hold Shift for the terminal's own selection",
+		"  mouse         click a tab, a list row or the reader · drag to select text: it's copied when",
+		"                you let go (hold Shift for the terminal's own selection) · wheel scrolls",
 		"  q             quit",
 		"",
 		sBold.Render("Alerts"),

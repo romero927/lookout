@@ -9,6 +9,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/romero927/lookout/internal/app"
 	"github.com/romero927/lookout/internal/config"
@@ -476,5 +477,49 @@ func TestSelectionStaysInPane(t *testing.T) {
 	got := s.text([]string{"lst │ first line", "lst │ second line"})
 	if got != "first line\nsecon" {
 		t.Errorf("got %q", got)
+	}
+}
+
+func click(x, y int) []tea.Msg {
+	return []tea.Msg{
+		tea.MouseMsg{X: x, Y: y, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft},
+		tea.MouseMsg{X: x, Y: y, Action: tea.MouseActionRelease},
+	}
+}
+
+func TestClickTabAndRow(t *testing.T) {
+	core, db := setup(t)
+	var m tea.Model = New(Options{Core: core, Store: db, Version: "test"})
+	m = drive(m, tea.WindowSizeMsg{Width: 160, Height: 40}, LoadedMsg{})
+	mm := m.(Model)
+	tab := -1
+	for x := 0; x < 160 && tab != tabActivity; x++ {
+		if mm.tabAt(x) == tabActivity {
+			tab = x
+		}
+	}
+	if tab < 0 {
+		t.Fatal("Activity tab not found in the header")
+	}
+	m = drive(m, click(tab, 0)...)
+	if m.(Model).tab != tabActivity {
+		t.Fatalf("click on the tab should switch to Activity, got %d", m.(Model).tab)
+	}
+	// Clicking a list row selects that turn; clicking the reader focuses it.
+	mm = m.(Model)
+	top := lipgloss.Height(mm.viewHeader())
+	l := mm.activityList(mm.listWidth())
+	for y, row := range l.rows {
+		if row == 0 {
+			m = drive(m, click(2, top+y)...)
+			break
+		}
+	}
+	if m.(Model).aSel != 0 {
+		t.Errorf("row click should select turn 0, got %d", m.(Model).aSel)
+	}
+	m = drive(m, click(mm.listWidth()+5, top+3)...)
+	if !m.(Model).aFocus {
+		t.Error("click in the reader should focus it")
 	}
 }
