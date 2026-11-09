@@ -48,16 +48,26 @@ func (m Model) changeItems() []changeItem {
 	for _, w := range m.work {
 		status[w.Path] = w.Status
 	}
+	committed := map[string]bool{}
+	for _, w := range m.committed {
+		committed[w.Path] = true
+	}
 	var items, gone []changeItem
 	seen := map[string]bool{}
 	for i := range m.act.Files {
 		f := &m.act.Files[i]
 		seen[f.Path] = true
 		it := changeItem{Path: f.Path, F: f, Status: status[f.Path]}
-		if m.gone[f.Path] {
+		switch {
+		case m.gone[f.Path]:
 			it.Group = grpGone
 			gone = append(gone, it)
-		} else {
+		case it.Status == "" && committed[f.Path]:
+			// Claude's edits are committed now: list it there, with the
+			// lines Claude changed.
+			it.Group = grpCommitted
+			items = append(items, it)
+		default:
 			items = append(items, it)
 		}
 	}
@@ -206,8 +216,8 @@ func (m Model) changesList(lw int) list {
 			continue
 		}
 		st := sText
-		if it.Group == grpGone || (it.F != nil && it.Status == "" && m.inWorkTree(it.Path)) {
-			st = sMuted // gone, committed, or changed back
+		if it.Group == grpGone || (it.Group == grpClaude && it.Status == "" && m.inWorkTree(it.Path)) {
+			st = sMuted // gone, or changed back to how it was
 		}
 		l.add("  "+st.Render(name)+" "+stat, i)
 	}

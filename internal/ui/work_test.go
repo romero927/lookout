@@ -99,3 +99,28 @@ func TestEditsDiff(t *testing.T) {
 		}
 	}
 }
+
+func TestCommittedClaudeEditMovesToCommitted(t *testing.T) {
+	var m Model
+	m.hasSess = true
+	m.sess.Cwd = "/w/site"
+	m.workTops = []string{"/w/site"}
+	m.act.Files = []activity.FileChange{
+		{Path: "/w/site/done.js", Added: 3, Removed: 3},
+		{Path: "/w/site/wip.js", Added: 1},
+	}
+	m.work = []activity.WorkChange{{Path: "/w/site/wip.js", Status: " M"}}
+	m.committed = []activity.WorkChange{{Path: "/w/site/done.js", Status: "M", Commit: "abc"}}
+
+	items := m.changeItems()
+	if len(items) != 2 || items[0].Path != "/w/site/wip.js" || items[0].Group != grpClaude {
+		t.Fatalf("items = %+v", items)
+	}
+	if items[1].Path != "/w/site/done.js" || items[1].Group != grpCommitted || items[1].F == nil {
+		t.Errorf("committed Claude edit should be in Committed with its stats: %+v", items[1])
+	}
+	text := plainText(strings.Join(m.changesList(50).lines, "\n"))
+	if !strings.Contains(text, "Committed since the session started\n▸ done.js") && !strings.Contains(text, "Committed since the session started\n  done.js") {
+		t.Errorf("list:\n%s", text)
+	}
+}
