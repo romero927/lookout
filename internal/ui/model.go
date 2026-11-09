@@ -220,6 +220,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(tick(), m.checkAlerts(), m.changesCmd())
 
+	case openedMsg:
+		if msg.err != nil {
+			m.setFlash("couldn't open "+ShortPath(msg.dir)+": "+msg.err.Error(), sRed, 6*time.Second)
+		} else {
+			m.setFlash("opened "+ShortPath(msg.dir), sGreen, 4*time.Second)
+		}
+		return m, nil
+
 	case copiedMsg:
 		switch {
 		case msg.err != "":
@@ -293,7 +301,7 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "esc", "left", "h", "enter":
 			*focus = false
 			return m, nil
-		case "q", "ctrl+c", "e", "c", "1", "2", "3", "4", "5", "6", "7", "8", "tab", "shift+tab", "?", "s", "R":
+		case "q", "ctrl+c", "e", "c", "o", "1", "2", "3", "4", "5", "6", "7", "8", "tab", "shift+tab", "?", "s", "R":
 		default:
 			var cmd tea.Cmd
 			*view, cmd = view.Update(k)
@@ -372,6 +380,10 @@ func (m Model) filesKey(key string) (tea.Model, tea.Cmd) {
 		m.setFlash("rescanned files", sMuted, 2*time.Second)
 	case "e":
 		return m.editSelected()
+	case "o":
+		if m.gSel < len(m.files) {
+			return m, openFolder(m.files[m.gSel].Path)
+		}
 	}
 	m.loadSelectedFile()
 	return m, nil
@@ -627,9 +639,9 @@ func (m Model) viewFooter() string {
 	case m.picking:
 		keys = "↑↓ select · enter show · a follow latest · y copy ID · esc close"
 	case m.tab == tabFiles && m.gFocus:
-		keys = "↑↓/pgup/pgdn scroll · esc back · e edit · q quit"
+		keys = "↑↓/pgup/pgdn scroll · esc back · e edit · o open folder · q quit"
 	case m.tab == tabFiles:
-		keys = "↑↓ select · enter view · e edit · r rescan · ? help · q quit"
+		keys = "↑↓ select · enter view · e edit · o open folder · r rescan · ? help · q quit"
 	case (m.tab == tabChanges && m.cFocus) || (m.tab == tabActivity && m.aFocus):
 		keys = "↑↓/pgup/pgdn scroll · esc back · q quit"
 	case m.tab == tabChanges:
@@ -682,6 +694,7 @@ func (m Model) viewHelp() string {
 		"  s             pick which session to show (a: follow the latest again)",
 		"  ↑↓ / j k      move · enter to focus the viewer · esc to go back",
 		"  e             edit the selected file in $EDITOR (needs [files] allow_edit = true)",
+		"  o             Files: open the selected file's folder in your file manager",
 		"  r             rescan the file list",
 		"  R             restart Lookout (e.g. after a rebuild)",
 		"  mouse         drag to select text: it's copied when you let go. Hold Shift for the terminal's own selection",
