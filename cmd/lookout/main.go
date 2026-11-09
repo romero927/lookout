@@ -165,7 +165,7 @@ func cmdTUI(args []string, stderr io.Writer) int {
 	model := ui.New(ui.Options{
 		Core: core, Store: db, StoreErr: dbErr, ConfigErr: cfgErr, Version: appVersion(), Exe: exe,
 	})
-	prog = tea.NewProgram(model, tea.WithAltScreen())
+	prog = tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()

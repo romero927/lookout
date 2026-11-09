@@ -50,11 +50,7 @@ func (m Model) viewContext(h int) string {
 		return fmt.Sprintf("%s %s %s %s %s", pad(clip(name, labelW), labelW), bar(frac, gw, sBlue),
 			lpad(Tokens(tokens), 6), sMuted.Render(lpad(fmt.Sprintf("%.0f%%", frac*100), 4)), sMuted.Render(note))
 	}
-	startup := "Startup: system prompt, tools, CLAUDE.md, memory"
-	if v.Compacted {
-		startup = "Startup + /compact summary"
-	}
-	parts := []string{row(startup, v.Startup, "")}
+	parts := []string{row("Startup: system prompt, tools, CLAUDE.md, memory", v.Startup, "")}
 	for _, p := range v.Parts {
 		note := ""
 		if p.Count > 1 {
@@ -98,6 +94,8 @@ func itemKind(it activity.CtxItem) string {
 		return "reply"
 	case activity.KindInjected:
 		return "injected"
+	case activity.KindSummary:
+		return "summary"
 	case activity.KindCall:
 		return it.Tool + " input"
 	}
@@ -135,7 +133,7 @@ func compactHint(it activity.Sized) string {
 	case activity.KindPrompt:
 		what = fmt.Sprintf("my prompt starting %q", clip(it.Label, 60))
 	}
-	return fmt.Sprintf("/compact Leave out %s (about %s tokens). Keep the current task, decisions made, files changed and open questions in full detail.", what, Tokens(it.Tokens))
+	return fmt.Sprintf("/compact Don't keep %s (about %s tokens) in the summary. Keep the current task, decisions made, files changed and open questions in full detail.", what, Tokens(it.Tokens))
 }
 
 func (m Model) itemDetail(it activity.Sized, v activity.ContextView, w, room int) []string {
@@ -152,11 +150,17 @@ func (m Model) itemDetail(it activity.Sized, v activity.ContextView, w, room int
 		lines = append(lines, "", sLabel.Render("STARTS WITH"))
 		lines = append(lines, strings.Split(wrap.Render(sText.Render(strings.ReplaceAll(it.Preview, "\t", "  "))), "\n")...)
 	}
-	lines = append(lines, "", sLabel.Render("TO FREE UP THIS ROOM"),
-		sText.Render(clip("/rewind (Esc Esc): go back to before it. Removes it and everything after.", w)),
-		sText.Render(clip("/compact: summarizes the whole conversation, leaving this out:", w)))
-	lines = append(lines, strings.Split(wrap.Render(sGreen.Render(compactHint(it))), "\n")...)
-	lines = append(lines, sMuted.Render(clip("c copies the /compact line · esc back", w)))
+	if it.Kind == activity.KindSummary {
+		lines = append(lines, "", sLabel.Render("KEEP IT"),
+			sText.Render(clip("This is the only record of the conversation before the last /compact.", w)),
+			sMuted.Render("esc back"))
+	} else {
+		lines = append(lines, "", sLabel.Render("TO FREE UP THIS ROOM"),
+			sText.Render(clip("/rewind (Esc Esc): go back to before it. Removes it and everything after.", w)),
+			sText.Render(clip("/compact: summarizes the whole conversation. This line asks it not to keep this:", w)))
+		lines = append(lines, strings.Split(wrap.Render(sGreen.Render(compactHint(it))), "\n")...)
+		lines = append(lines, sMuted.Render(clip("c copies the /compact line · esc back", w)))
+	}
 	if len(lines) > room {
 		lines = lines[:room]
 	}
@@ -170,7 +174,7 @@ func (m Model) contextKey(key string) (tea.Model, tea.Cmd) {
 		case "esc", "left", "h", "enter":
 			m.xFocus = false
 		case "c":
-			if m.xSel < n {
+			if m.xSel < n && m.ctxView.Largest[m.xSel].Kind != activity.KindSummary {
 				return m, copyText(compactHint(m.ctxView.Largest[m.xSel]))
 			}
 		}
@@ -202,7 +206,7 @@ func (m Model) contextKey(key string) (tea.Model, tea.Cmd) {
 		m.xSel = 0
 		m.refreshContext()
 	case "c":
-		if m.xSel < n {
+		if m.xSel < n && m.ctxView.Largest[m.xSel].Kind != activity.KindSummary {
 			return m, copyText(compactHint(m.ctxView.Largest[m.xSel]))
 		}
 	}

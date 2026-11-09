@@ -78,6 +78,7 @@ type Model struct {
 	height int
 	tab    int
 	help   bool
+	sel    selection // mouse drag in progress
 	loaded bool
 	now    time.Time
 
@@ -251,6 +252,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.gLoaded = ""
 		m.refreshFiles()
 		return m, nil
+
+	case tea.MouseMsg:
+		nm, cmd := m.mouse(msg)
+		mm := nm.(Model)
+		return mm, tea.Batch(cmd, mm.changesCmd())
 
 	case tea.KeyMsg:
 		nm, cmd := m.handleKey(msg)
@@ -517,6 +523,11 @@ func (m Model) listWidth() int {
 
 // View renders the screen.
 func (m Model) View() string {
+	return m.sel.highlight(m.render())
+}
+
+// render draws the screen; View adds any mouse selection on top.
+func (m Model) render() string {
 	if m.width == 0 {
 		return "starting lookout…"
 	}
@@ -673,6 +684,7 @@ func (m Model) viewHelp() string {
 		"  e             edit the selected file in $EDITOR (needs [files] allow_edit = true)",
 		"  r             rescan the file list",
 		"  R             restart Lookout (e.g. after a rebuild)",
+		"  mouse         drag to select text: it's copied when you let go. Hold Shift for the terminal's own selection",
 		"  q             quit",
 		"",
 		sBold.Render("Alerts"),

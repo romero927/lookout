@@ -151,9 +151,12 @@ type Record struct {
 	ToolUses   []ToolUse
 
 	// User fields.
-	Prompt      string // text the human typed; empty for tool results and meta
-	Command     string // slash command, e.g. "/model", when the line records one
-	ToolResults []ToolResult
+	Prompt string // text the human typed; empty for tool results and meta
+	// CompactSummary marks the summary Claude Code writes after /compact.
+	// It's stored as a user message, but you didn't type it.
+	CompactSummary bool
+	Command        string // slash command, e.g. "/model", when the line records one
+	ToolResults    []ToolResult
 	// Size is the byte length of a user message's content: a prompt, or
 	// text Claude Code injected (command output, reminders).
 	Size int
@@ -165,7 +168,7 @@ type Record struct {
 
 // IsHumanPrompt reports whether the record is a prompt the user typed.
 func (r Record) IsHumanPrompt() bool {
-	return r.Kind == KindUser && !r.Meta && !r.Sidechain && (r.Prompt != "" || r.Command != "")
+	return r.Kind == KindUser && !r.Meta && !r.Sidechain && !r.CompactSummary && (r.Prompt != "" || r.Command != "")
 }
 
 // UsageKey is the dedupe key for usage: one per API response.

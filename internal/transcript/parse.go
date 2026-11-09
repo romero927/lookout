@@ -69,6 +69,8 @@ func ParseLine(line []byte) (rec Record, st Status) {
 			setBool(&rec.Sidechain, v)
 		case "isMeta":
 			setBool(&rec.Meta, v)
+		case "isCompactSummary":
+			setBool(&rec.CompactSummary, v)
 		}
 	})
 	if !ok {

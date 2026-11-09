@@ -17,9 +17,9 @@ import (
 	"github.com/romero927/lookout/internal/store"
 )
 
-var ansi = regexp.MustCompile(`\x1b\[[0-9;?]*[a-zA-Z]`)
+var testANSI = regexp.MustCompile(`\x1b\[[0-9;?]*[a-zA-Z]`)
 
-func plain(s string) string { return ansi.ReplaceAllString(s, "") }
+func plain(s string) string { return testANSI.ReplaceAllString(s, "") }
 
 // setup builds a fake ~/.claude with a synthetic session timestamped "now".
 func setup(t *testing.T) (*app.Core, *store.Store) {
@@ -347,7 +347,7 @@ func TestContextItemsSeeAllAndDetail(t *testing.T) {
 	}
 	m = drive(m, key("enter"))
 	v = plain(m.View())
-	for _, want := range []string{"TO FREE UP THIS ROOM", "/compact Leave out", "/rewind", "c copies"} {
+	for _, want := range []string{"TO FREE UP THIS ROOM", "/compact Don't keep", "/rewind", "c copies"} {
 		if !strings.Contains(v, want) {
 			t.Errorf("detail missing %q\n%s", want, v)
 		}
@@ -444,5 +444,31 @@ func TestActivityShowsWhatAPromptAnswers(t *testing.T) {
 	}
 	if strings.Contains(v, "Fourth line.") {
 		t.Errorf("only the first %d lines should be quoted\n%s", inReplyLines, v)
+	}
+}
+
+func TestMouseSelectCopies(t *testing.T) {
+	core, db := setup(t)
+	var m tea.Model = New(Options{Core: core, Store: db, Version: "test"})
+	m = drive(m, tea.WindowSizeMsg{Width: 120, Height: 40}, LoadedMsg{})
+	m = drive(m, tea.MouseMsg{X: 0, Y: 0, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft},
+		tea.MouseMsg{X: 8, Y: 0, Action: tea.MouseActionMotion, Button: tea.MouseButtonLeft})
+	if !strings.Contains(m.View(), "\x1b[0;7m") {
+		t.Error("drag should highlight the selection")
+	}
+	m, cmd := m.Update(tea.MouseMsg{X: 8, Y: 0, Action: tea.MouseActionRelease})
+	if cmd == nil {
+		t.Fatal("release should copy the selection")
+	}
+	if strings.Contains(m.View(), "\x1b[0;7m") {
+		t.Error("highlight should clear after release")
+	}
+}
+
+func TestSelectionText(t *testing.T) {
+	s := selection{from: cell{6, 1}, to: cell{2, 0}}
+	got := s.text([]string{"\x1b[1mhello\x1b[0m world  ", "second line"})
+	if got != "llo world\nsecond" {
+		t.Errorf("got %q", got)
 	}
 }

@@ -27,6 +27,7 @@ const (
 	KindCall     = "call"     // a tool call's input (e.g. a file Claude wrote)
 	KindResult   = "result"   // a tool's output
 	KindInjected = "injected" // text Claude Code added (command output, reminders)
+	KindSummary  = "summary"  // the summary written by the last /compact
 )
 
 // CtxItem is one thing in the context.
@@ -89,6 +90,8 @@ func (c *ctxState) observe(r transcript.Record) {
 			return
 		}
 		switch {
+		case r.CompactSummary:
+			c.add(CtxItem{Kind: KindSummary, Label: "Summary from the last /compact", Bytes: r.Size, At: r.Timestamp, Preview: preview(r.Prompt)})
 		case r.IsHumanPrompt() && r.Prompt != "":
 			line, _, _ := strings.Cut(r.Prompt, "\n")
 			c.add(CtxItem{Kind: KindPrompt, Label: line, Bytes: r.Size, At: r.Timestamp, Preview: preview(r.Prompt)})
