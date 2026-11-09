@@ -486,7 +486,7 @@ func TestActivityShowsWhatAPromptAnswers(t *testing.T) {
 	var m tea.Model = New(Options{Core: core, Store: db, Version: "test"})
 	m = drive(m, tea.WindowSizeMsg{Width: 120, Height: 40}, LoadedMsg{}, key("2"), key("enter"))
 	v := plain(m.View())
-	for _, want := range []string{"Claude's last reply:", "Want me to add the cache?", "Third line.", "full message: the next entry down", "│ yes"} {
+	for _, want := range []string{"Before this, Claude said:", "Want me to add the cache?", "Third line.", "full message: the next entry down", "│ yes"} {
 		if !strings.Contains(v, want) {
 			t.Errorf("missing %q\n%s", want, v)
 		}

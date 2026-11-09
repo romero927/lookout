@@ -128,6 +128,11 @@ type Model struct {
 	aFilter   string                         // Activity search text
 	aTyping   bool                           // typing the search
 
+	// Estimated share of each limit window used by the focused session:
+	// its fraction of all Claude Code usage on this computer in the window
+	// (weighted by model price), or -1 when unknown.
+	shareFive, shareWeek float64
+
 	ctxView activity.ContextView
 	xSel    int  // selected context item
 	xAll    bool // list every item, not just the largest
@@ -177,7 +182,7 @@ type Model struct {
 
 // New creates the model.
 func New(o Options) Model {
-	m := Model{o: o, now: time.Now(), stab: &strategy.Stabilizer{}, gView: viewport.New(40, 10), cView: viewport.New(40, 10), aView: viewport.New(40, 10), sView: viewport.New(40, 10)}
+	m := Model{o: o, now: time.Now(), shareFive: -1, shareWeek: -1, stab: &strategy.Stabilizer{}, gView: viewport.New(40, 10), cView: viewport.New(40, 10), aView: viewport.New(40, 10), sView: viewport.New(40, 10)}
 	m.refreshLimits(true)
 	m.fired = limits.LoadFired(paths.AlertsFile())
 	m.checkBuild()
@@ -452,6 +457,7 @@ func (m *Model) refresh() {
 	now := time.Now()
 	m.snap, m.sess, m.hasSess = m.o.Core.Snapshot(now)
 	m.health = m.o.Core.Watcher.Health()
+	m.refreshShare(now)
 	raw, st := m.o.Core.Suggest(now, SuggestExtra(m.limits, m.limitsExact(), now))
 	m.sstate = st
 	m.sugg, m.pending = m.stab.Update(raw, st.TurnCount, now)

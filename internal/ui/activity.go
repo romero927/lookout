@@ -260,7 +260,7 @@ func (m Model) renderTurn(t activity.Turn, prev string, w int) (string, []string
 		if more {
 			lines = lines[:inReplyLines]
 		}
-		b = append(b, sFaint.Render("Claude's last reply:"))
+		b = append(b, sFaint.Render("Before this, Claude said:"))
 		for _, l := range lines {
 			b = append(b, sFaint.Render("│ "+plainText(l)))
 		}

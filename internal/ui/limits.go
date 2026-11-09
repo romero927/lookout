@@ -120,6 +120,9 @@ func (m Model) viewLimits(w int) []string {
 			continue
 		}
 		p := *x.p
+		if len(out) > 1 {
+			out = append(out, "") // space between the two windows
+		}
 		label := sLabel.Render(pad(strings.ToUpper(x.name), 8))
 		indent := strings.Repeat(" ", 8)
 		if p.Expired {
@@ -135,8 +138,20 @@ func (m Model) viewLimits(w int) []string {
 				sMuted.Render(fmt.Sprintf("· %.0f%% left", max(0, 100-p.Used)))),
 			indent+sMuted.Render("resets ")+sText.Render(resetText(p, m.now)),
 			indent+st.Render(clip(paceText(p), w-8)))
+		share, since := m.shareFive, "this 5-hour window began"
+		if isWeekly(p) {
+			share, since = m.shareWeek, "the week began"
+		}
+		if share >= 0 {
+			out = append(out, indent+sMuted.Render("this session ")+
+				sText.Render(fmt.Sprintf("≈ %.0f%% of the limit", share*p.Used))+
+				sMuted.Render(clip(fmt.Sprintf(" · estimate: it did %.0f%% of this computer's Claude Code work since %s", share*100, since), max(0, w-30))))
+		}
 	}
 	note := "updated " + Ago(m.limits.Updated(), m.now) + " · counts all your Claude usage, on any device"
+	if m.shareFive >= 0 || m.shareWeek >= 0 {
+		note += " · session estimates assume all of it was Claude Code on this computer"
+	}
 	if m.now.Sub(m.limits.Updated()) > 15*time.Minute {
 		note = "last updated " + Ago(m.limits.Updated(), m.now) + " · refreshes when Claude Code replies"
 	}
@@ -305,4 +320,29 @@ func SuggestExtra(st limits.State, exact bool, now time.Time) strategy.Extra {
 // limitsExact reports whether the loaded limits file is the focused session's.
 func (m Model) limitsExact() bool {
 	return m.hasSess && m.limitsPath == limits.FileFor(paths.LimitsDir(), m.sess.ID)
+}
+
+// refreshShare estimates how much of each limit window the focused session
+// used. Claude Code reports one percentage for the whole account, so this
+// splits it by the session's share of the Claude Code usage recorded on this
+// computer during the window, with tokens weighted by model price. Use
+// elsewhere (claude.ai, other computers) isn't seen, so it is an estimate.
+func (m *Model) refreshShare(now time.Time) {
+	m.shareFive, m.shareWeek = -1, -1
+	if !m.hasSess {
+		return
+	}
+	five, week := m.limits.Paces(now)
+	for _, x := range []struct {
+		p   *limits.Pace
+		out *float64
+	}{{five, &m.shareFive}, {week, &m.shareWeek}} {
+		if x.p == nil || x.p.Expired {
+			continue
+		}
+		mine, all := m.o.Core.Agg.Share(m.sess.ID, x.p.Start, now)
+		if all > 0 {
+			*x.out = mine / all
+		}
+	}
 }
