@@ -419,3 +419,30 @@ func TestActivityPromptShownOnce(t *testing.T) {
 		t.Errorf("prompt shown %d times in the viewer:\n%s", n, right)
 	}
 }
+
+func TestActivityShowsWhatAPromptAnswers(t *testing.T) {
+	core, db := setup(t)
+	proj := filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "projects", "-work-demo")
+	ts := func(d time.Duration) string { return time.Now().UTC().Add(d).Format(time.RFC3339Nano) }
+	more := `{"type":"assistant","sessionId":"sess-ui","cwd":"/work/demo","timestamp":"` + ts(-30*time.Second) + `","message":{"id":"m3","model":"claude-sonnet-test","content":[{"type":"text","text":"Want me to add the cache?\nIt takes a minute.\nThird line.\nFourth line."}],"usage":{"input_tokens":1,"output_tokens":5}}}` + "\n" +
+		`{"type":"user","sessionId":"sess-ui","cwd":"/work/demo","timestamp":"` + ts(-10*time.Second) + `","message":{"content":"yes"}}` + "\n"
+	f, err := os.OpenFile(filepath.Join(proj, "sess-ui.jsonl"), os.O_APPEND|os.O_WRONLY, 0o644)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = f.WriteString(more)
+	f.Close()
+	core.Load()
+
+	var m tea.Model = New(Options{Core: core, Store: db, Version: "test"})
+	m = drive(m, tea.WindowSizeMsg{Width: 120, Height: 40}, LoadedMsg{}, key("2"), key("enter"))
+	v := plain(m.View())
+	for _, want := range []string{"In reply to Claude:", "Want me to add the cache?", "Third line.", "full message: the next entry down", "│ yes"} {
+		if !strings.Contains(v, want) {
+			t.Errorf("missing %q\n%s", want, v)
+		}
+	}
+	if strings.Contains(v, "Fourth line.") {
+		t.Errorf("only the first %d lines should be quoted\n%s", inReplyLines, v)
+	}
+}

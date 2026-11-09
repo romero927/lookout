@@ -2,6 +2,7 @@ package ui
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -155,13 +156,21 @@ func (m *Model) loadTurn() {
 	}
 	moved := !strings.HasPrefix(m.aShown, fmt.Sprint(t.Start)+"|")
 	m.aShown = key
-	m.aView.SetContent(m.renderTurn(t, max(20, m.aView.Width)))
+	prev := ""
+	if m.aSel+1 < len(m.act.Turns) {
+		prev = m.act.Turns[m.aSel+1].Reply
+	}
+	m.aView.SetContent(m.renderTurn(t, prev, max(20, m.aView.Width)))
 	if moved {
 		m.aView.GotoTop()
 	}
 }
 
-func (m Model) renderTurn(t activity.Turn, w int) string {
+// inReplyLines is how much of Claude's previous message is shown above a
+// prompt, so a short reply ("yes", "do all of them") has its context.
+const inReplyLines = 3
+
+func (m Model) renderTurn(t activity.Turn, prev string, w int) string {
 	var b []string
 	at := func(tm time.Time) string {
 		if tm.IsZero() {
@@ -173,6 +182,28 @@ func (m Model) renderTurn(t activity.Turn, w int) string {
 		for _, l := range markdown(text, max(10, w-len(indent)-2)) {
 			b = append(b, indent+st.Render("│ ")+l)
 		}
+	}
+
+	// What it answers: the start of Claude's previous message.
+	if prev != "" && (t.Prompt != "" || t.Command != "") {
+		var lines []string
+		for _, l := range markdown(prev, max(10, w-2)) {
+			if strings.TrimSpace(plainText(l)) != "" {
+				lines = append(lines, l)
+			}
+		}
+		more := len(lines) > inReplyLines
+		if more {
+			lines = lines[:inReplyLines]
+		}
+		b = append(b, sMuted.Render("In reply to Claude:"))
+		for _, l := range lines {
+			b = append(b, sFaint.Render("│ ")+sMuted.Render(plainText(l)))
+		}
+		if more {
+			b = append(b, sFaint.Render("│ ")+sMuted.Render("… (full message: the next entry down)"))
+		}
+		b = append(b, "")
 	}
 
 	// What you asked (the time is in the header above).
@@ -328,3 +359,8 @@ func turnSummary(t activity.Turn) string {
 	}
 	return strings.Join(sum, " · ")
 }
+
+var ansiRe = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+
+// plainText drops colour codes, so quoted text can be shown dimmed.
+func plainText(s string) string { return ansiRe.ReplaceAllString(s, "") }
