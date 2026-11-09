@@ -26,7 +26,7 @@ var staticCheats = []cheat{
 	{"Sessions", "/clear", "Start a new session with empty context (the old one stays resumable)"},
 	{"Context", "/context", "Show context usage as a grid"},
 	{"Context", "/compact", "Summarize the conversation to free up context"},
-	{"Context", "/compact Keep only the current task, decisions made and files changed; drop old tool output.", "Compact with a focus"},
+	{"Context", "/compact Keep only the current task, decisions made and files changed; drop old tool output.", "Summarize everything, steering what the summary keeps"},
 	{"Context", "/rewind", "Go back to an earlier point (also Esc Esc)"},
 	{"Context", "/btw ", "Ask a side question without adding it to the main conversation"},
 	{"Model & usage", "/model", "Choose the model"},

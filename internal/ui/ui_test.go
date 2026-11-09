@@ -347,7 +347,7 @@ func TestContextItemsSeeAllAndDetail(t *testing.T) {
 	}
 	m = drive(m, key("enter"))
 	v = plain(m.View())
-	for _, want := range []string{"TO DROP IT FROM CLAUDE'S CONTEXT", "/compact Drop", "c copies it"} {
+	for _, want := range []string{"TO FREE UP THIS ROOM", "/compact Leave out", "/rewind", "c copies"} {
 		if !strings.Contains(v, want) {
 			t.Errorf("detail missing %q\n%s", want, v)
 		}
@@ -356,7 +356,7 @@ func TestContextItemsSeeAllAndDetail(t *testing.T) {
 		t.Error("c should copy the /compact line")
 	}
 	m = drive(m, key("esc"))
-	if strings.Contains(plain(m.View()), "TO DROP IT") {
+	if strings.Contains(plain(m.View()), "TO FREE UP") {
 		t.Error("esc should return to the list")
 	}
 }

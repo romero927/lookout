@@ -121,7 +121,8 @@ func (m Model) itemList(v activity.ContextView, w, room int) []string {
 	return scrollTo(lines, m.xSel, room)
 }
 
-// compactHint is the /compact instruction offered for an item.
+// compactHint is a focused /compact line for an item. /compact always
+// summarizes the whole conversation; the text only steers the summary.
 func compactHint(it activity.Sized) string {
 	what := "that " + itemKind(it.CtxItem)
 	switch it.Kind {
@@ -134,7 +135,7 @@ func compactHint(it activity.Sized) string {
 	case activity.KindPrompt:
 		what = fmt.Sprintf("my prompt starting %q", clip(it.Label, 60))
 	}
-	return fmt.Sprintf("/compact Drop %s (about %s tokens); keep the current task, decisions and file changes.", what, Tokens(it.Tokens))
+	return fmt.Sprintf("/compact Leave out %s (about %s tokens). Keep the current task, decisions made, files changed and open questions in full detail.", what, Tokens(it.Tokens))
 }
 
 func (m Model) itemDetail(it activity.Sized, v activity.ContextView, w, room int) []string {
@@ -151,10 +152,12 @@ func (m Model) itemDetail(it activity.Sized, v activity.ContextView, w, room int
 		lines = append(lines, "", sLabel.Render("STARTS WITH"))
 		lines = append(lines, strings.Split(wrap.Render(sText.Render(strings.ReplaceAll(it.Preview, "\t", "  "))), "\n")...)
 	}
-	lines = append(lines, "", sLabel.Render("TO DROP IT FROM CLAUDE'S CONTEXT"),
-		sMuted.Render("Lookout can't change Claude's context. In Claude Code, run:"))
+	lines = append(lines, "", sLabel.Render("TO FREE UP THIS ROOM"),
+		sMuted.Render(clip("Claude Code can't remove one item; Lookout can't change its context either. Two options:", w)),
+		sText.Render(clip("• /rewind (Esc Esc): go back to before it. Removes it and everything after it.", w)),
+		sText.Render(clip("• /compact: replaces the WHOLE conversation with a summary. This line asks the summary to leave it out:", w)))
 	lines = append(lines, strings.Split(wrap.Render(sGreen.Render(compactHint(it))), "\n")...)
-	lines = append(lines, sMuted.Render(clip("c copies it · or /rewind (Esc Esc) to go back to before it · esc back", w)))
+	lines = append(lines, sMuted.Render(clip("c copies the /compact line · esc back", w)))
 	if len(lines) > room {
 		lines = lines[:room]
 	}
@@ -241,7 +244,7 @@ func contextTip(v activity.ContextView) string {
 	case "Grep output", "Glob output":
 		return "search results fill the most room. Narrower patterns or paths keep it smaller."
 	case "Tool inputs (commands, files Claude wrote)":
-		return "files Claude wrote stay in the context. /compact drops them and keeps a summary."
+		return "files Claude wrote stay in the context. /compact replaces them (and everything else) with a summary."
 	case "Claude's replies":
 		return "long replies fill the most room. Asking for brief answers keeps it smaller."
 	}
