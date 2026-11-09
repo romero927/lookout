@@ -28,6 +28,7 @@ type FileChange struct {
 // Call is one step in a turn: a tool call, or (when Name is empty) a
 // message Claude wrote.
 type Call struct {
+	ID      string // tool_use ID, for loading the full input and output
 	Name    string
 	Summary string // command, file or pattern
 	Text    string // the message, for message steps
@@ -66,6 +67,9 @@ type Session struct {
 	AgentTasks map[string]string
 	Turns      []Turn       // newest first
 	Files      []FileChange // most recently edited first
+	// Dirs are folders the session worked in besides its own: where its
+	// commands ran (cd, git -C) and where it edited files. Most recent first.
+	Dirs []string
 }
 
 const (
@@ -98,6 +102,7 @@ type session struct {
 	tools   map[string]bool    // tool_use ids already counted
 	ctx     ctxState
 	agents  map[string]string // subagent ID -> task
+	dirs    []string          // see Session.Dirs; oldest first
 }
 
 // Engine tracks every session. Safe for concurrent use.
@@ -229,10 +234,18 @@ func (e *Engine) Observe(r transcript.Record, src transcript.Source) {
 				}
 				if len(t.Calls) < maxCalls {
 					p.call = len(t.Calls)
-					t.Calls = append(t.Calls, Call{Name: tu.Name, Summary: summary(tu), Subagent: sub, Agent: agent, At: r.Timestamp, Added: tu.Added, Removed: tu.Removed})
+					t.Calls = append(t.Calls, Call{ID: tu.ID, Name: tu.Name, Summary: summary(tu), Subagent: sub, Agent: agent, At: r.Timestamp, Added: tu.Added, Removed: tu.Removed})
 				} else {
 					t.Dropped++
 				}
+			}
+			if tu.Command != "" {
+				for _, d := range commandDirs(tu.Command, r.Cwd) {
+					s.addDir(d)
+				}
+			}
+			if editTools[tu.Name] && filepath.IsAbs(tu.FilePath) {
+				s.addDir(filepath.Dir(tu.FilePath))
 			}
 			if editTools[tu.Name] && tu.FilePath != "" {
 				f := s.files[tu.FilePath]
@@ -298,6 +311,9 @@ func (e *Engine) Session(id string) Session {
 	}
 	for k, v := range s.agents {
 		out.AgentTasks[k] = v
+	}
+	for i := len(s.dirs) - 1; i >= 0; i-- {
+		out.Dirs = append(out.Dirs, s.dirs[i])
 	}
 	for i := len(s.turns) - 1; i >= 0; i-- {
 		t := s.turns[i].Turn

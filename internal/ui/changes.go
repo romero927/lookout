@@ -16,7 +16,8 @@ import (
 type (
 	diffMsg struct{ path, diff, note string }
 	workMsg struct {
-		dir, top  string
+		dir       string   // the folders checked, joined: see workDirs
+		tops      []string // their repositories' top folders
 		items     []activity.WorkChange
 		committed []activity.WorkChange
 		err       error
@@ -88,6 +89,12 @@ func (m Model) relPath(p string) string {
 			return r
 		}
 	}
+	// In another repository the session worked in: name it by its folder.
+	for _, top := range m.workTops {
+		if r, err := filepath.Rel(top, p); err == nil && !strings.HasPrefix(r, "..") {
+			return filepath.Join(filepath.Base(top), r)
+		}
+	}
 	return ShortPath(p)
 }
 
@@ -136,7 +143,7 @@ func (m Model) changesList(lw int) list {
 			continue
 		}
 		st := sText
-		if it.Group == grpGone || (it.F != nil && m.workTop != "" && it.Status == "" && strings.HasPrefix(it.Path, m.workTop)) {
+		if it.Group == grpGone || (it.F != nil && it.Status == "" && m.inWorkTree(it.Path)) {
 			st = sMuted // gone, committed, or changed back
 		}
 		l.add("  "+st.Render(name)+" "+stat, i)
@@ -273,24 +280,15 @@ func (m *Model) changesCmd() tea.Cmd {
 		return nil
 	}
 	var cmds []tea.Cmd
-	dir := ""
-	if m.hasSess {
-		dir = m.sess.Cwd
-	}
+	dirs := m.workDirs()
+	dir := strings.Join(dirs, "\n")
 	since := time.Time{}
 	if m.hasSess {
 		since = m.sess.FirstSeen
 	}
 	if !m.workBusy && dir != "" && (dir != m.workDir || m.now.Sub(m.workAt) > 5*time.Second) {
 		m.workBusy = true
-		cmds = append(cmds, func() tea.Msg {
-			items, top, err := activity.WorkingTree(dir)
-			var committed []activity.WorkChange
-			if err == nil {
-				committed, _ = activity.CommittedSince(top, since)
-			}
-			return workMsg{dir: dir, top: top, items: items, committed: committed, err: err}
-		})
+		cmds = append(cmds, func() tea.Msg { return checkWork(dir, dirs, since) })
 	}
 	if it, ok := m.selectedChange(); ok && !m.diffBusy && (it.Path != m.diffPath || m.now.Sub(m.diffAt) > 3*time.Second) {
 		m.diffBusy = true
@@ -334,10 +332,75 @@ func (m *Model) applyWork(msg workMsg) {
 	m.workAt = time.Now()
 	m.workDir = msg.dir
 	if msg.err != nil {
-		m.work, m.committed, m.workTop = nil, nil, ""
+		m.work, m.committed, m.workTops = nil, nil, nil
 		return
 	}
-	m.work, m.committed, m.workTop = msg.items, msg.committed, msg.top
+	m.work, m.committed, m.workTops = msg.items, msg.committed, msg.tops
+}
+
+// maxWorkDirs caps how many folders Changes checks with git.
+const maxWorkDirs = 8
+
+// workDirs are the folders whose git changes Changes shows: the session's
+// own, then the ones it worked in elsewhere, most recent first.
+func (m Model) workDirs() []string {
+	var dirs []string
+	seen := map[string]bool{}
+	add := func(d string) {
+		if d != "" && !seen[d] && len(dirs) < maxWorkDirs {
+			seen[d] = true
+			dirs = append(dirs, d)
+		}
+	}
+	if m.hasSess {
+		add(m.sess.Cwd)
+	}
+	for _, d := range m.act.Dirs {
+		add(d)
+	}
+	return dirs
+}
+
+// checkWork lists uncommitted changes and commits since the session began
+// in each folder's repository. Folders outside a repository are skipped.
+func checkWork(key string, dirs []string, since time.Time) workMsg {
+	msg := workMsg{dir: key}
+	seen := map[string]bool{}
+	var firstErr error
+	for _, d := range dirs {
+		if _, err := os.Stat(d); err != nil {
+			continue
+		}
+		items, top, err := activity.WorkingTree(d)
+		if err != nil {
+			if firstErr == nil {
+				firstErr = err
+			}
+			continue
+		}
+		if seen[top] {
+			continue
+		}
+		seen[top] = true
+		msg.tops = append(msg.tops, top)
+		msg.items = append(msg.items, items...)
+		committed, _ := activity.CommittedSince(top, since)
+		msg.committed = append(msg.committed, committed...)
+	}
+	if len(msg.tops) == 0 {
+		msg.err = firstErr
+	}
+	return msg
+}
+
+// inWorkTree reports whether p is inside one of the checked repositories.
+func (m Model) inWorkTree(p string) bool {
+	for _, top := range m.workTops {
+		if p == top || strings.HasPrefix(p, top+string(filepath.Separator)) {
+			return true
+		}
+	}
+	return false
 }
 
 func colorDiff(d string) string {

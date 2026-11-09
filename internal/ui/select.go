@@ -216,6 +216,13 @@ func (m Model) click(x, y int) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if x >= m.listWidth() {
+		if m.tab == tabActivity {
+			// The reader shows a title and a summary line above the text.
+			if line := m.aView.YOffset + y - top - 2; y-top >= 2 && line < len(m.aStepAt) && m.aStepAt[line] != "" {
+				m.aFocus = true
+				return m.toggleStep(m.aStepAt[line])
+			}
+		}
 		return p.reload(m, "enter")
 	}
 	row := p.l.rowAt(y-top, h)

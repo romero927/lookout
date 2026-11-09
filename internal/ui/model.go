@@ -113,7 +113,7 @@ type Model struct {
 	gone      map[string]bool // edited files no longer on disk
 	work      []activity.WorkChange
 	committed []activity.WorkChange
-	workTop   string
+	workTops  []string
 	workDir   string
 	workBusy  bool
 	workAt    time.Time
@@ -121,6 +121,10 @@ type Model struct {
 	aFocus    bool
 	aView     viewport.Model
 	aShown    string
+	aOpen     map[string]bool                // steps opened to show input and output
+	aDetail   map[string]activity.StepDetail // loaded step details, by tool ID
+	aStepAt   []string                       // tool ID per line of the shown turn
+	aRev      int                            // bumped when steps open or load
 
 	ctxView activity.ContextView
 	xSel    int  // selected context item
@@ -249,6 +253,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.applyWork(msg)
 		return m, nil
 
+	case stepsMsg:
+		m.applySteps(msg)
+		return m, nil
+
 	case editorDoneMsg:
 		switch {
 		case msg.err != nil:
@@ -297,6 +305,10 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		focus, view = &m.aFocus, &m.aView
 	case m.tab == tabSkills && m.sFocus:
 		focus, view = &m.sFocus, &m.sView
+	}
+	if m.tab == tabActivity && key == "x" && m.loaded {
+		m.loadTurn()
+		return m.toggleAllSteps()
 	}
 	if focus != nil {
 		switch key {
@@ -443,6 +455,7 @@ func (m *Model) refresh() {
 		// Another session: start the lists at the top.
 		m.cSel, m.aSel, m.cFocus, m.aFocus = 0, 0, false, false
 		m.diffPath, m.diffText, m.aShown = "", "", ""
+		m.aOpen, m.aDetail = nil, nil
 		m.showDiff()
 	}
 	if n := len(m.act.Turns); m.aSel >= n {
@@ -672,12 +685,14 @@ func (m Model) viewFooter() string {
 		keys = "↑↓/pgup/pgdn scroll · esc back · e edit · o open folder · q quit"
 	case m.tab == tabFiles:
 		keys = "↑↓ select · enter view · e edit · o open folder · r rescan · ? help · q quit"
-	case (m.tab == tabChanges && m.cFocus) || (m.tab == tabActivity && m.aFocus):
+	case m.tab == tabActivity && m.aFocus:
+		keys = "↑↓/pgup/pgdn scroll · click a step to open it · x open all · esc back · q quit"
+	case m.tab == tabChanges && m.cFocus:
 		keys = "↑↓/pgup/pgdn scroll · esc back · q quit"
 	case m.tab == tabChanges:
 		keys = "↑↓ select · enter read diff · o open folder · y copy commit ID · s sessions · ? help · q quit"
 	case m.tab == tabActivity:
-		keys = "↑↓ select · enter details · s sessions · ? help · q quit"
+		keys = "↑↓ select · enter details · x open all steps · s sessions · ? help · q quit"
 	case m.tab == tabSkills && m.sFocus:
 		keys = "↑↓/pgup/pgdn scroll · c copy · esc back · q quit"
 	case m.tab == tabSkills:
@@ -708,7 +723,8 @@ func (m Model) viewHelp() string {
 		"",
 		sBold.Render("Panels"),
 		"  1 Usage       limits, token usage for the session, today and the last 5h, and limit use per day",
-		"  2 Activity    one entry per prompt: Claude's messages and tool calls in order, files edited",
+		"  2 Activity    one entry per prompt: Claude's messages and tool calls in order, files edited;\n" +
+			"                click a step (or x for all) to see its full command and output",
 		"  3 Changes     every file changed this session (Claude's edits, uncommitted, committed), with diffs",
 		"  4 Context     what fills the context window, by kind and largest items",
 		"  5 Models      model suggestion and what each model is for; switch yourself with /model",

@@ -483,7 +483,7 @@ func TestActivityShowsWhatAPromptAnswers(t *testing.T) {
 	var m tea.Model = New(Options{Core: core, Store: db, Version: "test"})
 	m = drive(m, tea.WindowSizeMsg{Width: 120, Height: 40}, LoadedMsg{}, key("2"), key("enter"))
 	v := plain(m.View())
-	for _, want := range []string{"In reply to Claude:", "Want me to add the cache?", "Third line.", "full message: the next entry down", "│ yes"} {
+	for _, want := range []string{"Claude's last reply:", "Want me to add the cache?", "Third line.", "full message: the next entry down", "│ yes"} {
 		if !strings.Contains(v, want) {
 			t.Errorf("missing %q\n%s", want, v)
 		}
@@ -633,5 +633,40 @@ func TestClickCheatsheetCopies(t *testing.T) {
 	m, cmd := m.Update(click(4, top+y)[1])
 	if m.(Model).kSel != 3 || cmd == nil {
 		t.Errorf("click should select row 3 and copy it: sel=%d cmd=%v", m.(Model).kSel, cmd != nil)
+	}
+}
+
+func TestActivityStepsOpen(t *testing.T) {
+	core, db := setup(t)
+	var m tea.Model = New(Options{Core: core, Store: db, Version: "test"})
+	m = drive(m, tea.WindowSizeMsg{Width: 120, Height: 40}, LoadedMsg{}, key("2"), key("enter"))
+
+	// x opens every step; the details load in the background.
+	m, cmd := m.Update(key("x"))
+	if cmd == nil {
+		t.Fatal("x should load the step details")
+	}
+	if v := plain(m.View()); !strings.Contains(v, "loading…") {
+		t.Errorf("expected a loading note\n%s", v)
+	}
+	m, _ = m.Update(cmd())
+	v := plain(m.View())
+	if !strings.Contains(v, "▾") || !strings.Contains(v, "still running") {
+		t.Fatalf("step not shown open\n%s", v)
+	}
+
+	// Clicking the step's line closes it again.
+	y := -1
+	for i, l := range strings.Split(v, "\n") {
+		if strings.Contains(l, "▾") && strings.Contains(l, "Edit") {
+			y = i
+		}
+	}
+	if y < 0 {
+		t.Fatalf("step line not found\n%s", v)
+	}
+	m = drive(m, click(m.(Model).listWidth()+10, y)...)
+	if v := plain(m.View()); strings.Contains(v, "still running") {
+		t.Errorf("click should close the step\n%s", v)
 	}
 }

@@ -175,7 +175,7 @@ func (m *Model) loadTurn() {
 		return
 	}
 	t := m.act.Turns[m.aSel]
-	key := fmt.Sprintf("%s|%d|%d|%d|%d", t.Start, len(t.Calls), t.Failed, t.End.UnixNano(), len(t.Reply))
+	key := fmt.Sprintf("%s|%d|%d|%d|%d|%d", t.Start, len(t.Calls), t.Failed, t.End.UnixNano(), len(t.Reply), m.aRev)
 	if key == m.aShown {
 		return
 	}
@@ -185,7 +185,9 @@ func (m *Model) loadTurn() {
 	if m.aSel+1 < len(m.act.Turns) {
 		prev = m.act.Turns[m.aSel+1].Reply
 	}
-	m.aView.SetContent(m.renderTurn(t, prev, max(20, m.aView.Width)))
+	text, at := m.renderTurn(t, prev, max(20, m.aView.Width))
+	m.aView.SetContent(text)
+	m.aStepAt = at
 	if moved {
 		m.aView.GotoTop()
 	}
@@ -195,8 +197,12 @@ func (m *Model) loadTurn() {
 // prompt, so a short reply ("yes", "do all of them") has its context.
 const inReplyLines = 3
 
-func (m Model) renderTurn(t activity.Turn, prev string, w int) string {
+// renderTurn draws a turn for the viewer. It also returns, for each line,
+// the tool ID of the step on it ("" for other lines), so a click can open
+// that step.
+func (m Model) renderTurn(t activity.Turn, prev string, w int) (string, []string) {
 	var b []string
+	stepAt := map[int]string{}
 	at := func(tm time.Time) string {
 		if tm.IsZero() {
 			return ""
@@ -221,7 +227,7 @@ func (m Model) renderTurn(t activity.Turn, prev string, w int) string {
 		if more {
 			lines = lines[:inReplyLines]
 		}
-		b = append(b, sMuted.Render("In reply to Claude:"))
+		b = append(b, sMuted.Render("Claude's last reply:"))
 		for _, l := range lines {
 			b = append(b, sFaint.Render("│ ")+sMuted.Render(plainText(l)))
 		}
@@ -316,7 +322,24 @@ func (m Model) renderTurn(t activity.Turn, prev string, w int) string {
 			if c.Added > 0 || c.Removed > 0 {
 				detail += sGreen.Render(fmt.Sprintf("  +%d", c.Added)) + sRed.Render(fmt.Sprintf(" -%d", c.Removed))
 			}
-			b = append(b, clip(fmt.Sprintf("%s  %s %s %s", indent, mark, name, sMuted.Render(detail)), w+60))
+			open := c.ID != "" && m.aOpen[c.ID]
+			fold := " "
+			if c.ID != "" {
+				fold = sFaint.Render("▸")
+				if open {
+					fold = sBlue.Render("▾")
+				}
+			}
+			stepAt[len(b)] = c.ID
+			b = append(b, clip(fmt.Sprintf("%s%s %s %s %s", indent, fold, mark, name, sMuted.Render(detail)), w+60))
+			if open {
+				d, ok := m.aDetail[c.ID]
+				for _, l := range stepLines(c, d, ok, max(10, w-len(indent)-5)) {
+					stepAt[len(b)] = c.ID
+					b = append(b, indent+"     "+l)
+				}
+				continue // the output above includes any error
+			}
 			if c.Fail && c.Error != "" {
 				for _, l := range strings.Split(c.Error, "\n") {
 					b = append(b, indent+"     "+sRed.Render(clip(l, max(10, w-len(indent)-5))))
@@ -327,7 +350,11 @@ func (m Model) renderTurn(t activity.Turn, prev string, w int) string {
 	if t.Dropped > 0 {
 		b = append(b, sMuted.Render(fmt.Sprintf("… and %d more steps not kept", t.Dropped)))
 	}
-	return strings.Join(b, "\n")
+	ids := make([]string, len(b))
+	for i, id := range stepAt {
+		ids[i] = id
+	}
+	return strings.Join(b, "\n"), ids
 }
 
 // plural is "1 tool" / "3 tools".
