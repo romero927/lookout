@@ -102,6 +102,14 @@ type ToolUse struct {
 	Name     string
 	FilePath string // file_path / notebook_path for file tools
 	Command  string // Bash command, truncated
+	// Detail is a short description for other tools: a search pattern,
+	// a task description, a URL. Truncated.
+	Detail string
+	// Added / Removed are the lines an edit tool changes (an estimate:
+	// unchanged lines at the start and end of the replaced text are not
+	// counted). Write counts the whole new content as added.
+	Added, Removed int
+	Whole          bool // Write: the whole file was (re)written
 }
 
 // ToolResult is the outcome of a tool call, as reported back to the model.

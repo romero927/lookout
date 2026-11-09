@@ -80,6 +80,21 @@ func lpad(s string, w int) string {
 }
 
 // clip shortens s to at most w display cells.
+// clipLeft shortens s from the left ("…/ui/model.go"), keeping the end.
+func clipLeft(s string, w int) string {
+	if w <= 0 {
+		return ""
+	}
+	if lipgloss.Width(s) <= w {
+		return s
+	}
+	r := []rune(s)
+	for len(r) > 0 && lipgloss.Width(string(r))+1 > w {
+		r = r[1:]
+	}
+	return "…" + string(r)
+}
+
 func clip(s string, w int) string {
 	if w <= 0 {
 		return ""

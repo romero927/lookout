@@ -87,8 +87,10 @@ func TestPanelsRender(t *testing.T) {
 			want []string
 		}{
 			{"1", []string{"LOOKOUT", "LIMITS", "not connected", "SESSION", "sess-ui", "TOKENS", "burn"}},
-			{"2", []string{"RECOMMENDATION", "Upgrade to opus", "frustration", "/model opus"}},
-			{"3", []string{"FILES", "settings.json"}},
+			{"2", []string{"CHANGES", "1 edited file no longer"}},
+			{"3", []string{"ACTIVITY", "this still doesn't work", "1 tools", "1 files"}},
+			{"4", []string{"RECOMMENDATION", "Upgrade to opus", "frustration", "/model opus"}},
+			{"5", []string{"FILES", "settings.json"}},
 		}
 		for _, p := range panels {
 			m = drive(m, key(p.key))
@@ -118,7 +120,7 @@ func TestPanelsRender(t *testing.T) {
 func TestFilesMasksSecretsAndBlocksEditByDefault(t *testing.T) {
 	core, db := setup(t)
 	var m tea.Model = New(Options{Core: core, Store: db})
-	m = drive(m, tea.WindowSizeMsg{Width: 120, Height: 40}, LoadedMsg{}, key("3"), key("enter"))
+	m = drive(m, tea.WindowSizeMsg{Width: 120, Height: 40}, LoadedMsg{}, key("5"), key("enter"))
 	v := plain(m.View())
 	if strings.Contains(v, "sk-secret") || !strings.Contains(v, "••••••") {
 		t.Fatalf("secret not masked:\n%s", v)
@@ -251,5 +253,59 @@ func TestHistoryAlertsAndRestart(t *testing.T) {
 	m, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("R")})
 	if !m.(Model).RestartRequested() || cmd == nil {
 		t.Error("R should request a restart and quit")
+	}
+}
+
+func TestActivityDetailAndSessionPicker(t *testing.T) {
+	core, db := setup(t)
+	var m tea.Model = New(Options{Core: core, Store: db, Version: "test"})
+	m = drive(m, tea.WindowSizeMsg{Width: 120, Height: 40}, LoadedMsg{}, key("3"), key("enter"))
+	v := plain(m.View())
+	for _, want := range []string{"PROMPT", "this still doesn't work", "FILES EDITED (1)", "TOOLS (1)", "Edit", "CLAUDE'S LAST MESSAGE", "done"} {
+		if !strings.Contains(v, want) {
+			t.Errorf("activity detail missing %q\n%s", want, v)
+		}
+	}
+	m = drive(m, key("esc"), key("s"))
+	if v := plain(m.View()); !strings.Contains(v, "SESSIONS") || !strings.Contains(v, "Following the latest") {
+		t.Fatalf("picker not shown:\n%s", v)
+	}
+	m = drive(m, key("enter"))
+	if v := plain(m.View()); !strings.Contains(v, "pinned") || core.Pinned != "sess-ui" {
+		t.Errorf("enter should pin the session (pinned=%q)\n%s", core.Pinned, v)
+	}
+	m = drive(m, key("s"), tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
+	if core.Pinned != "" || strings.Contains(plain(m.View()), "◆ pinned") {
+		t.Error("a should go back to following the latest session")
+	}
+}
+
+func TestChangesListsExistingFiles(t *testing.T) {
+	core, db := setup(t)
+	dir := t.TempDir()
+	file := filepath.Join(dir, "main.go")
+	if err := os.WriteFile(file, []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	proj := filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "projects", "-tmp-x")
+	_ = os.MkdirAll(proj, 0o755)
+	ts := time.Now().UTC().Format(time.RFC3339Nano)
+	lines := `{"type":"user","sessionId":"sess-x","cwd":"` + dir + `","timestamp":"` + ts + `","message":{"content":"write main"}}` + "\n" +
+		`{"type":"assistant","sessionId":"sess-x","cwd":"` + dir + `","timestamp":"` + ts + `","message":{"id":"x1","model":"claude-opus-test","content":[{"type":"tool_use","id":"w1","name":"Write","input":{"file_path":"` + file + `","content":"package main\n"}}],"usage":{"input_tokens":1,"output_tokens":1}}}` + "\n"
+	if err := os.WriteFile(filepath.Join(proj, "sess-x.jsonl"), []byte(lines), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	core.Load()
+	core.Pinned = "sess-x"
+	var m tea.Model = New(Options{Core: core, Store: db, Version: "test"})
+	m = drive(m, tea.WindowSizeMsg{Width: 120, Height: 30}, LoadedMsg{}, key("2"))
+	v := plain(m.View())
+	for _, want := range []string{"main.go", "+1 -0", "written"} {
+		if !strings.Contains(v, want) {
+			t.Errorf("missing %q\n%s", want, v)
+		}
+	}
+	if strings.Contains(v, "no longer exist") {
+		t.Errorf("existing file counted as gone\n%s", v)
 	}
 }

@@ -11,6 +11,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/romero927/lookout/internal/activity"
 	"github.com/romero927/lookout/internal/app"
 	"github.com/romero927/lookout/internal/configfiles"
 	"github.com/romero927/lookout/internal/limits"
@@ -45,11 +46,13 @@ type UsageRow struct {
 
 const (
 	tabUsage = iota
+	tabChanges
+	tabActivity
 	tabModels
 	tabFiles
 )
 
-var tabNames = []string{"Usage", "Models", "Files"}
+var tabNames = []string{"Usage", "Changes", "Activity", "Models", "Files"}
 
 // Options configure the model.
 type Options struct {
@@ -85,6 +88,31 @@ type Model struct {
 	followed  int
 	lastLogAt time.Time
 
+	// Changes and Activity (from the activity engine)
+	act      activity.Session
+	cSel     int
+	cFocus   bool
+	cView    viewport.Model
+	diffPath string // path whose diff is in cView
+	diffText string
+	diffBusy bool
+	diffAt   time.Time
+	gone     map[string]bool // edited files no longer on disk
+	work     []activity.WorkChange
+	workTop  string
+	workDir  string
+	workBusy bool
+	workAt   time.Time
+	aSel     int
+	aFocus   bool
+	aView    viewport.Model
+	aShown   string
+
+	// Session picker
+	picking bool
+	pSel    int
+	pList   []telemetry.Session
+
 	// Files
 	files    []configfiles.File
 	gSel     int
@@ -116,7 +144,7 @@ type Model struct {
 
 // New creates the model.
 func New(o Options) Model {
-	m := Model{o: o, now: time.Now(), gView: viewport.New(40, 10)}
+	m := Model{o: o, now: time.Now(), gView: viewport.New(40, 10), cView: viewport.New(40, 10), aView: viewport.New(40, 10)}
 	m.refreshLimits(true)
 	m.fired = limits.LoadFired(paths.AlertsFile())
 	m.checkBuild()
@@ -164,7 +192,15 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.loaded {
 			m.refresh()
 		}
-		return m, tea.Batch(tick(), m.checkAlerts())
+		return m, tea.Batch(tick(), m.checkAlerts(), m.changesCmd())
+
+	case diffMsg:
+		m.applyDiff(msg)
+		return m, m.changesCmd()
+
+	case workMsg:
+		m.applyWork(msg)
+		return m, nil
 
 	case editorDoneMsg:
 		switch {
@@ -181,7 +217,9 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case tea.KeyMsg:
-		return m.handleKey(msg)
+		nm, cmd := m.handleKey(msg)
+		mm := nm.(Model)
+		return mm, tea.Batch(cmd, mm.changesCmd())
 	}
 	return m, nil
 }
@@ -192,16 +230,29 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.help = false
 		return m, nil
 	}
+	if m.picking {
+		return m.pickerKey(key)
+	}
 	// Keys the focused viewers consume first.
-	if m.tab == tabFiles && m.gFocus {
+	var focus *bool
+	var view *viewport.Model
+	switch {
+	case m.tab == tabFiles && m.gFocus:
+		focus, view = &m.gFocus, &m.gView
+	case m.tab == tabChanges && m.cFocus:
+		focus, view = &m.cFocus, &m.cView
+	case m.tab == tabActivity && m.aFocus:
+		focus, view = &m.aFocus, &m.aView
+	}
+	if focus != nil {
 		switch key {
 		case "esc", "left", "h", "enter":
-			m.gFocus = false
+			*focus = false
 			return m, nil
-		case "q", "ctrl+c", "e", "1", "2", "3", "tab", "shift+tab", "?":
+		case "q", "ctrl+c", "e", "1", "2", "3", "4", "5", "tab", "shift+tab", "?", "s", "R":
 		default:
 			var cmd tea.Cmd
-			m.gView, cmd = m.gView.Update(k)
+			*view, cmd = view.Update(k)
 			return m, cmd
 		}
 	}
@@ -214,9 +265,11 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "?":
 		m.help = true
 		return m, nil
-	case "1", "2", "3":
+	case "1", "2", "3", "4", "5":
 		m.tab = int(key[0] - '1')
 		return m, nil
+	case "s":
+		return m.openPicker(), nil
 	case "tab":
 		m.tab = (m.tab + 1) % len(tabNames)
 		return m, nil
@@ -225,8 +278,13 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	if m.tab == tabFiles {
+	switch m.tab {
+	case tabFiles:
 		return m.filesKey(key)
+	case tabChanges:
+		return m.changesKey(key)
+	case tabActivity:
+		return m.activityKey(key)
 	}
 	return m, nil
 }
@@ -291,6 +349,25 @@ func (m *Model) refresh() {
 	m.snap, m.sess, m.hasSess = m.o.Core.Snapshot(now)
 	m.health = m.o.Core.Watcher.Health()
 	m.sugg, m.sstate = m.o.Core.Suggest(now)
+	prev := m.act.ID
+	m.act = activity.Session{}
+	if m.hasSess {
+		m.act = m.o.Core.Activity.Session(m.sess.ID)
+	}
+	m.refreshGone()
+	if m.act.ID != prev {
+		// Another session: start the lists at the top.
+		m.cSel, m.aSel, m.cFocus, m.aFocus = 0, 0, false, false
+		m.diffPath, m.diffText, m.aShown = "", "", ""
+		m.showDiff()
+	}
+	if n := len(m.act.Turns); m.aSel >= n {
+		m.aSel = max(0, n-1)
+	}
+	if n := len(m.changeItems()); m.cSel >= n {
+		m.cSel = max(0, n-1)
+	}
+	m.loadTurn()
 	if db := m.o.Store; db != nil && m.hasSess {
 		if _, err := db.LogSuggestion(m.sugg); err != nil {
 			m.setFlash("strategy log: "+err.Error(), sRed, 5*time.Second)
@@ -364,9 +441,12 @@ func (m *Model) layoutViewports() {
 	bodyH := max(5, m.height-5)
 	listW := m.listWidth()
 	viewW := max(20, m.width-listW-3)
-	m.gView.Width, m.gView.Height = viewW, max(3, bodyH-2)
-	m.gLoaded = ""
+	for _, v := range []*viewport.Model{&m.gView, &m.cView, &m.aView} {
+		v.Width, v.Height = viewW, max(3, bodyH-2)
+	}
+	m.gLoaded, m.aShown = "", ""
 	m.loadSelectedFile()
+	m.loadTurn()
 }
 
 func (m Model) listWidth() int {
@@ -385,12 +465,18 @@ func (m Model) View() string {
 	switch {
 	case m.help:
 		body = m.viewHelp()
+	case m.picking:
+		body = m.viewPicker(bodyH)
 	case !m.loaded:
 		body = "\n  " + sMuted.Render("scanning transcripts in "+ShortPath(paths.ClaudeProjectsDir())+" …")
 	default:
 		switch m.tab {
 		case tabUsage:
 			body = m.viewUsage()
+		case tabChanges:
+			body = m.viewChanges(bodyH)
+		case tabActivity:
+			body = m.viewActivity(bodyH)
 		case tabModels:
 			body = m.viewModels()
 		case tabFiles:
@@ -428,6 +514,9 @@ func (m Model) viewHeader() string {
 	if m.newBuild {
 		right = append(right, sGreen.Bold(true).Render("↻ R restart"))
 	}
+	if m.o.Core.Pinned != "" {
+		right = append(right, sYellow.Bold(true).Render("◆ pinned"))
+	}
 	right = append(right, m.limitBadges()...)
 
 	// Prefer full tab names; fall back to short tabs, then fewer badges.
@@ -456,12 +545,20 @@ func (m Model) viewHeader() string {
 func (m Model) viewFooter() string {
 	var keys string
 	switch {
+	case m.picking:
+		keys = "↑↓ select · enter show · a follow latest · esc close"
 	case m.tab == tabFiles && m.gFocus:
 		keys = "↑↓/pgup/pgdn scroll · esc back · e edit · q quit"
 	case m.tab == tabFiles:
 		keys = "↑↓ select · enter view · e edit · r rescan · ? help · q quit"
+	case (m.tab == tabChanges && m.cFocus) || (m.tab == tabActivity && m.aFocus):
+		keys = "↑↓/pgup/pgdn scroll · esc back · q quit"
+	case m.tab == tabChanges:
+		keys = "↑↓ select · enter read diff · s sessions · ? help · q quit"
+	case m.tab == tabActivity:
+		keys = "↑↓ select · enter details · s sessions · ? help · q quit"
 	default:
-		keys = "1-3/tab panels · ? help · q quit"
+		keys = "1-5/tab panels · s sessions · ? help · q quit"
 	}
 	if m.newBuild {
 		keys = "R restart into new build · " + keys
@@ -478,11 +575,14 @@ func (m Model) viewHelp() string {
 		"",
 		sBold.Render("Panels"),
 		"  1 Usage       limits, token usage for the session, today and the last 5h, and limit use per day",
-		"  2 Models      rules-based model suggestion; switch yourself with /model",
-		"  3 Files       Claude Code (and Codex) config and memory files, read-only by default",
+		"  2 Changes     files Claude edited this session, with the uncommitted git diff",
+		"  3 Activity    one entry per prompt: tools used, failures, files edited, Claude's last message",
+		"  4 Models      rules-based model suggestion; switch yourself with /model",
+		"  5 Files       Claude Code (and Codex) config and memory files, read-only by default",
 		"",
 		sBold.Render("Keys"),
-		"  1-3, tab      switch panel",
+		"  1-5, tab      switch panel",
+		"  s             pick which session to show (a: follow the latest again)",
 		"  ↑↓ / j k      move · enter to focus the viewer · esc to go back",
 		"  e             edit the selected file in $EDITOR (needs [files] allow_edit = true)",
 		"  r             rescan the file list",
@@ -498,6 +598,7 @@ func (m Model) viewHelp() string {
 		"  data     " + ShortPath(paths.DataDir()),
 		"",
 		sMuted.Render("Lookout only reads what Claude Code writes to disk. It never calls Claude."),
+		sMuted.Render("Git is run read-only (diff, status) for the Changes panel."),
 		sMuted.Render("Unofficial. Not affiliated with Anthropic. " + m.o.Version),
 		"",
 		sMuted.Render("press any key"),

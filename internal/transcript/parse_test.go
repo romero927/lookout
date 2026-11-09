@@ -381,3 +381,22 @@ func TestHealthWarning(t *testing.T) {
 		})
 	}
 }
+
+func TestToolUseLineCounts(t *testing.T) {
+	line := `{"type":"assistant","sessionId":"s","timestamp":"2026-01-01T00:00:00Z","message":{"id":"m","model":"claude-x","usage":{"input_tokens":1,"output_tokens":1},"content":[` +
+		`{"type":"tool_use","id":"a","name":"Edit","input":{"file_path":"/p/a.go","old_string":"x\ny\nz","new_string":"x\nY\nY2\nz"}},` +
+		`{"type":"tool_use","id":"b","name":"Write","input":{"file_path":"/p/b.go","content":"1\n2\n3\n"}},` +
+		`{"type":"tool_use","id":"c","name":"MultiEdit","input":{"file_path":"/p/c.go","edits":[{"old_string":"a","new_string":"b"},{"old_string":"q\nr","new_string":""}]}},` +
+		`{"type":"tool_use","id":"d","name":"Grep","input":{"pattern":"TODO"}}]}}`
+	rec, st := ParseLine([]byte(line))
+	if st != StatusOK || len(rec.ToolUses) != 4 {
+		t.Fatalf("status %v, %d tool uses", st, len(rec.ToolUses))
+	}
+	got := func(i int) [2]int { return [2]int{rec.ToolUses[i].Added, rec.ToolUses[i].Removed} }
+	if got(0) != [2]int{2, 1} || got(1) != [2]int{3, 0} || !rec.ToolUses[1].Whole || got(2) != [2]int{1, 3} {
+		t.Errorf("counts: edit %v write %v multi %v", got(0), got(1), got(2))
+	}
+	if rec.ToolUses[3].Detail != "TODO" {
+		t.Errorf("detail %q", rec.ToolUses[3].Detail)
+	}
+}

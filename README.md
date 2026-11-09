@@ -1,6 +1,6 @@
 # Lookout
 
-A terminal dashboard that runs **beside** an interactive [Claude Code](https://docs.anthropic.com/en/docs/claude-code) session, for example in a tmux split. It shows token usage, suggests when to switch models, and lets you browse your config and memory files.
+A terminal dashboard that runs **beside** an interactive [Claude Code](https://docs.anthropic.com/en/docs/claude-code) session, for example in a tmux split. It shows your usage limits and token usage, which files Claude changed, what it did in each turn, suggests when to switch models, and lets you browse your config and memory files.
 
 > **Unofficial.** Lookout is an independent open-source project. It is not affiliated with, endorsed by, or supported by Anthropic. "Claude" and "Claude Code" are trademarks of Anthropic.
 
@@ -13,17 +13,19 @@ Lookout is a **dashboard, not a wrapper**:
 - It **never calls Claude**. It doesn't use `claude -p`, the Agent SDK, or the Anthropic API, and it never types into Claude Code through a pty or scripted input. All of your Claude usage stays on your normal interactive limits.
 - It **only reads** what Claude Code writes to disk (`~/.claude/`), plus what Claude Code itself passes to an optional status line command.
 - It **never handles credentials**. It doesn't read `~/.claude/.credentials.json` or `~/.codex/auth.json`, and the Files panel refuses to open them.
-- It **sends nothing anywhere**. No network calls, no telemetry. The only programs it starts are your `$EDITOR` (if you enable editing) and a desktop notifier for alerts.
+- It **sends nothing anywhere**. No network calls, no telemetry. The only programs it starts are `git` (read-only `diff` and `status`, for the Changes panel), a desktop notifier for alerts, and your `$EDITOR` if you enable editing.
 
 ## Panels
 
 | # | Panel | What it shows |
 |---|-------|---------------|
 | 1 | **Usage** | Your real **5-hour and weekly limits** (percent used, percent left, reset time) with a pace projection: where you'll be at reset, or when you'll hit the limit. Below that: the current session and its context fill, token counts for the session, today and the last 5 hours, burn rate, usage by model, the last 7 days, and how much of the weekly limit each day used. **Tokens and percentages only, never dollars.** |
-| 2 | **Models** | The current model, a suggested model, and a one-line reason, from tunable rules. You switch yourself with `/model`. It also flags when `/compact` or a fresh session is worth it, and logs each suggestion together with the model you actually used next. |
-| 3 | **Files** | Browse `~/.claude/settings.json`, the global and project `CLAUDE.md` files, auto-memory files, and `~/.codex/config.toml` / `AGENTS.md`. Read-only by default, with secret-looking values masked on screen. |
+| 2 | **Changes** | Every file Claude edited in the session (including through subagents), with estimated lines added and removed, and its uncommitted `git diff`. New files show in full. Other uncommitted files in the repository are listed below, so changes made by shell commands aren't missed. |
+| 3 | **Activity** | One entry per prompt you sent: how long the turn took, the tools Claude used (failures marked), the files it edited, and its last message. Useful for catching up on what happened while you were away. |
+| 4 | **Models** | The current model, a suggested model, and a one-line reason, from tunable rules. You switch yourself with `/model`. It also flags when `/compact` or a fresh session is worth it, and logs each suggestion together with the model you actually used next. |
+| 5 | **Files** | Browse `~/.claude/settings.json`, the global and project `CLAUDE.md` files, auto-memory files, and `~/.codex/config.toml` / `AGENTS.md`. Read-only by default, with secret-looking values masked on screen. |
 
-Keys: `1`–`3` or `tab` switch panels · `↑↓`/`jk` move · `enter` focuses a viewer · `esc` goes back · `e` edits (if enabled) · `R` restarts · `?` help · `q` quits.
+Keys: `1`–`5` or `tab` switch panels · `s` picks which session to show (`a` in the picker follows the latest again) · `↑↓`/`jk` move · `enter` focuses a viewer · `esc` goes back · `e` edits (if enabled) · `R` restarts · `?` help · `q` quits.
 
 **Alerts.** When a limit passes 80% or 95%, or your pace would reach it before the reset, the dashboard rings the terminal bell (tmux marks the window), sends a desktop notification (`notify-send` on Linux, `osascript` on macOS) and shows the alert in the footer. Each alert fires once per limit window, even across restarts and several open dashboards. Tune or turn them off under `[alerts]`.
 

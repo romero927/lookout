@@ -200,6 +200,8 @@ func parseAssistant(rec *Record, msg []byte) bool {
 			tu := ToolUse{}
 			tu.ID, _ = str(id)
 			tu.Name, _ = str(name)
+			var oldS, newS, content string
+			var edits []byte
 			eachField(input, func(k, v []byte) {
 				switch string(k) {
 				case "file_path":
@@ -210,8 +212,41 @@ func parseAssistant(rec *Record, msg []byte) bool {
 					}
 				case "command":
 					tu.Command, _ = strPrefix(v, 500)
+				case "pattern", "description", "url", "query", "path", "skill":
+					if tu.Detail == "" {
+						tu.Detail, _ = strPrefix(v, 200)
+					}
+				case "old_string":
+					oldS, _ = str(v)
+				case "new_string", "new_source":
+					newS, _ = str(v)
+				case "content":
+					content, _ = str(v)
+				case "edits":
+					edits = v
 				}
 			})
+			switch tu.Name {
+			case "Edit", "NotebookEdit":
+				tu.Added, tu.Removed = LineChange(oldS, newS)
+			case "Write":
+				tu.Added, tu.Whole = countLines(content), true
+			case "MultiEdit":
+				eachElem(edits, func(e []byte) {
+					var o, n string
+					eachField(e, func(k, v []byte) {
+						switch string(k) {
+						case "old_string":
+							o, _ = str(v)
+						case "new_string":
+							n, _ = str(v)
+						}
+					})
+					a, r := LineChange(o, n)
+					tu.Added += a
+					tu.Removed += r
+				})
+			}
 			rec.ToolUses = append(rec.ToolUses, tu)
 		}
 	})
@@ -336,3 +371,28 @@ func contentText(c []byte, max int) string {
 	})
 	return string(cutRune([]byte(strings.Join(parts, "\n")), max))
 }
+
+// LineChange estimates the lines added and removed when old is replaced by
+// new: lines shared at the start and end are not counted.
+func LineChange(old, new string) (added, removed int) {
+	if old == new {
+		return 0, 0
+	}
+	a, b := splitLines(old), splitLines(new)
+	for len(a) > 0 && len(b) > 0 && a[0] == b[0] {
+		a, b = a[1:], b[1:]
+	}
+	for len(a) > 0 && len(b) > 0 && a[len(a)-1] == b[len(b)-1] {
+		a, b = a[:len(a)-1], b[:len(b)-1]
+	}
+	return len(b), len(a)
+}
+
+func splitLines(s string) []string {
+	if s == "" {
+		return nil
+	}
+	return strings.Split(strings.TrimSuffix(s, "\n"), "\n")
+}
+
+func countLines(s string) int { return len(splitLines(s)) }

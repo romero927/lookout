@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/romero927/lookout/internal/activity"
 	"github.com/romero927/lookout/internal/config"
 	"github.com/romero927/lookout/internal/paths"
 	"github.com/romero927/lookout/internal/strategy"
@@ -19,9 +20,13 @@ type Core struct {
 	Cfg      config.Config
 	Agg      *telemetry.Aggregator
 	Strategy *strategy.Engine
+	Activity *activity.Engine
 	Watcher  *watch.Watcher
 	// CwdFilter restricts the "current session" to one working directory.
 	CwdFilter string
+	// Pinned, when set, is the session to show instead of the latest one.
+	// Only the UI goroutine changes it.
+	Pinned string
 }
 
 // New builds a Core. onChange is called (debounced) when new records arrive.
@@ -30,6 +35,7 @@ func New(cfg config.Config, cwdFilter string, onChange func()) *Core {
 		Cfg:       cfg,
 		Agg:       telemetry.New(),
 		Strategy:  strategy.NewEngine(),
+		Activity:  activity.New(),
 		CwdFilter: cwdFilter,
 	}
 	maxAge := time.Duration(cfg.Usage.HistoryDays) * 24 * time.Hour
@@ -40,13 +46,24 @@ func New(cfg config.Config, cwdFilter string, onChange func()) *Core {
 func (c *Core) handle(r transcript.Record, src transcript.Source) {
 	c.Agg.Add(r, src)
 	c.Strategy.Observe(r, src)
+	c.Activity.Observe(r, src)
 }
 
 // Load performs the initial scan.
 func (c *Core) Load() int { return c.Watcher.Scan() }
 
-// Current returns the session in focus.
-func (c *Core) Current() (telemetry.Session, bool) { return c.Agg.Current(c.CwdFilter) }
+// Current returns the session in focus: the pinned one if it still exists,
+// else the latest (in CwdFilter, when set).
+func (c *Core) Current() (telemetry.Session, bool) {
+	if c.Pinned != "" {
+		for _, s := range c.Agg.Sessions() {
+			if s.ID == c.Pinned {
+				return s, true
+			}
+		}
+	}
+	return c.Agg.Current(c.CwdFilter)
+}
 
 // Snapshot computes telemetry for the current session.
 func (c *Core) Snapshot(now time.Time) (telemetry.Snapshot, telemetry.Session, bool) {

@@ -1,0 +1,89 @@
+package ui
+
+import (
+	"fmt"
+	"path/filepath"
+	"strings"
+	"time"
+
+	tea "github.com/charmbracelet/bubbletea"
+)
+
+const maxPick = 40
+
+func (m Model) openPicker() Model {
+	m.picking = true
+	m.pList = m.o.Core.Agg.Sessions()
+	if len(m.pList) > maxPick {
+		m.pList = m.pList[:maxPick]
+	}
+	m.pSel = 0
+	for i, s := range m.pList {
+		if m.hasSess && s.ID == m.sess.ID {
+			m.pSel = i
+		}
+	}
+	return m
+}
+
+func (m Model) pickerKey(key string) (tea.Model, tea.Cmd) {
+	switch key {
+	case "esc", "s", "q":
+		m.picking = false
+	case "up", "k":
+		if m.pSel > 0 {
+			m.pSel--
+		}
+	case "down", "j":
+		if m.pSel < len(m.pList)-1 {
+			m.pSel++
+		}
+	case "a":
+		m.o.Core.Pinned = ""
+		m.picking = false
+		m.setFlash("following the latest session", sMuted, 3*time.Second)
+		m.refresh()
+	case "enter":
+		if m.pSel < len(m.pList) {
+			s := m.pList[m.pSel]
+			m.o.Core.Pinned = s.ID
+			m.picking = false
+			m.setFlash("showing session "+ShortID(s.ID)+" · s then a to follow the latest again", sGreen, 4*time.Second)
+			m.refresh()
+		}
+	}
+	return m, nil
+}
+
+func (m Model) viewPicker(h int) string {
+	w := m.width
+	mode := "Following the latest session"
+	if m.o.Core.CwdFilter != "" {
+		mode += " in " + ShortPath(m.o.Core.CwdFilter)
+	}
+	if m.o.Core.Pinned != "" {
+		mode = "Pinned to session " + ShortID(m.o.Core.Pinned)
+	}
+	out := []string{section("Sessions", w), sMuted.Render(clip(mode+" · enter show · a follow latest · esc close", w)), ""}
+	if len(m.pList) == 0 {
+		out = append(out, sMuted.Render("No sessions found."))
+	}
+	for i, s := range m.pList {
+		live := sMuted.Render("○")
+		if m.now.Sub(s.LastActivity) < 2*time.Minute {
+			live = sGreen.Render("●")
+		}
+		proj := filepath.Base(s.Cwd)
+		if proj == "." || proj == "/" {
+			proj = s.Project
+		}
+		line := fmt.Sprintf("%s %s  %s  %s  %s", live, ShortID(s.ID), pad(clip(proj, 22), 22),
+			pad(ShortModel(s.Model), 12), Ago(s.LastActivity, m.now))
+		if i == m.pSel {
+			out = append(out, sSelected.Render(pad("▸ "+line, w-1)))
+		} else {
+			out = append(out, "  "+line)
+		}
+	}
+	return strings.Join(scrollTo(out, m.pSel+3, h), "\n")
+}
