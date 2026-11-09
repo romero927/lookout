@@ -131,10 +131,24 @@ func (a *Aggregator) Sessions() []Session {
 }
 
 // Current picks the session to focus on: the most recently active one,
-// optionally restricted to a working directory.
+// optionally restricted to a working directory. A session in exactly that
+// directory wins; otherwise one in a folder inside it, or one it is inside
+// (Claude Code may have been started in a parent or a subfolder).
 func (a *Aggregator) Current(cwd string) (Session, bool) {
-	for _, s := range a.Sessions() {
-		if cwd == "" || sameDir(s.Cwd, cwd) {
+	sessions := a.Sessions()
+	if cwd == "" {
+		if len(sessions) > 0 {
+			return sessions[0], true
+		}
+		return Session{}, false
+	}
+	for _, s := range sessions {
+		if sameDir(s.Cwd, cwd) {
+			return s, true
+		}
+	}
+	for _, s := range sessions {
+		if s.Cwd != "" && (within(s.Cwd, cwd) || within(cwd, s.Cwd)) {
 			return s, true
 		}
 	}
@@ -143,6 +157,12 @@ func (a *Aggregator) Current(cwd string) (Session, bool) {
 
 func sameDir(a, b string) bool {
 	return strings.TrimRight(a, "/") == strings.TrimRight(b, "/")
+}
+
+// within reports whether path is inside dir.
+func within(path, dir string) bool {
+	dir = strings.TrimRight(dir, "/")
+	return dir != "" && strings.HasPrefix(path, dir+"/")
 }
 
 // Window is a usage total over some span.

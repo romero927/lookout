@@ -48,11 +48,12 @@ const (
 	tabUsage = iota
 	tabChanges
 	tabActivity
+	tabContext
 	tabModels
 	tabFiles
 )
 
-var tabNames = []string{"Usage", "Changes", "Activity", "Models", "Files"}
+var tabNames = []string{"Usage", "Changes", "Activity", "Context", "Models", "Files"}
 
 // Options configure the model.
 type Options struct {
@@ -89,24 +90,27 @@ type Model struct {
 	lastLogAt time.Time
 
 	// Changes and Activity (from the activity engine)
-	act      activity.Session
-	cSel     int
-	cFocus   bool
-	cView    viewport.Model
-	diffPath string // path whose diff is in cView
-	diffText string
-	diffBusy bool
-	diffAt   time.Time
-	gone     map[string]bool // edited files no longer on disk
-	work     []activity.WorkChange
-	workTop  string
-	workDir  string
-	workBusy bool
-	workAt   time.Time
-	aSel     int
-	aFocus   bool
-	aView    viewport.Model
-	aShown   string
+	act       activity.Session
+	cSel      int
+	cFocus    bool
+	cView     viewport.Model
+	diffPath  string // path whose diff is in cView
+	diffText  string
+	diffBusy  bool
+	diffAt    time.Time
+	gone      map[string]bool // edited files no longer on disk
+	work      []activity.WorkChange
+	committed []activity.WorkChange
+	workTop   string
+	workDir   string
+	workBusy  bool
+	workAt    time.Time
+	aSel      int
+	aFocus    bool
+	aView     viewport.Model
+	aShown    string
+
+	ctxView activity.ContextView
 
 	// Session picker
 	picking bool
@@ -249,7 +253,7 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "esc", "left", "h", "enter":
 			*focus = false
 			return m, nil
-		case "q", "ctrl+c", "e", "1", "2", "3", "4", "5", "tab", "shift+tab", "?", "s", "R":
+		case "q", "ctrl+c", "e", "1", "2", "3", "4", "5", "6", "tab", "shift+tab", "?", "s", "R":
 		default:
 			var cmd tea.Cmd
 			*view, cmd = view.Update(k)
@@ -265,7 +269,7 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "?":
 		m.help = true
 		return m, nil
-	case "1", "2", "3", "4", "5":
+	case "1", "2", "3", "4", "5", "6":
 		m.tab = int(key[0] - '1')
 		return m, nil
 	case "s":
@@ -355,6 +359,10 @@ func (m *Model) refresh() {
 		m.act = m.o.Core.Activity.Session(m.sess.ID)
 	}
 	m.refreshGone()
+	m.ctxView = activity.ContextView{}
+	if m.hasSess {
+		m.ctxView = m.o.Core.Activity.Context(m.sess.ID, 12)
+	}
 	if m.act.ID != prev {
 		// Another session: start the lists at the top.
 		m.cSel, m.aSel, m.cFocus, m.aFocus = 0, 0, false, false
@@ -476,6 +484,8 @@ func (m Model) View() string {
 			body = m.viewChanges(bodyH)
 		case tabActivity:
 			body = m.viewActivity(bodyH)
+		case tabContext:
+			body = m.viewContext()
 		case tabModels:
 			body = m.viewModels()
 		case tabFiles:
@@ -557,7 +567,7 @@ func (m Model) viewFooter() string {
 	case m.tab == tabActivity:
 		keys = "↑↓ select · enter details · s sessions · ? help · q quit"
 	default:
-		keys = "1-5/tab panels · s sessions · ? help · q quit"
+		keys = "1-6/tab panels · s sessions · ? help · q quit"
 	}
 	if m.newBuild {
 		keys = "R restart into new build · " + keys
@@ -576,11 +586,12 @@ func (m Model) viewHelp() string {
 		"  1 Usage       limits, token usage for the session, today and the last 5h, and limit use per day",
 		"  2 Changes     files Claude edited this session, with the uncommitted git diff",
 		"  3 Activity    one entry per prompt: tools used, failures, files edited, Claude's last message",
-		"  4 Models      rules-based model suggestion; switch yourself with /model",
-		"  5 Files       Claude Code config and memory files, read-only by default",
+		"  4 Context     what fills the context window, by kind and largest items",
+		"  5 Models      rules-based model suggestion; switch yourself with /model",
+		"  6 Files       Claude Code config and memory files, read-only by default",
 		"",
 		sBold.Render("Keys"),
-		"  1-5, tab      switch panel",
+		"  1-6, tab      switch panel",
 		"  s             pick which session to show (a: follow the latest again)",
 		"  ↑↓ / j k      move · enter to focus the viewer · esc to go back",
 		"  e             edit the selected file in $EDITOR (needs [files] allow_edit = true)",

@@ -200,6 +200,7 @@ func parseAssistant(rec *Record, msg []byte) bool {
 			tu := ToolUse{}
 			tu.ID, _ = str(id)
 			tu.Name, _ = str(name)
+			tu.InputSize = len(input)
 			var oldS, newS, content string
 			var edits []byte
 			eachField(input, func(k, v []byte) {
@@ -270,6 +271,7 @@ func parseUser(rec *Record, msg []byte) bool {
 	}) || len(content) == 0 {
 		return false
 	}
+	rec.Size = len(content)
 	switch content[0] {
 	case '"':
 		s, ok := str(content)
@@ -310,6 +312,11 @@ func parseUser(rec *Record, msg []byte) bool {
 			tr.ToolUseID, _ = str(toolUseID)
 			tr.IsError, _ = boolean(isError)
 			tr.Text = contentText(inner, MaxResultText)
+			tr.Size = len(inner)
+			if n := bytes.Count(inner, []byte(`"type":"image"`)); n > 0 {
+				tr.Images = n
+				tr.Size = len(contentText(inner, 1<<20))
+			}
 			rec.ToolResults = append(rec.ToolResults, tr)
 		}
 	})

@@ -88,8 +88,9 @@ func TestPanelsRender(t *testing.T) {
 			{"1", []string{"LOOKOUT", "LIMITS", "not connected", "SESSION", "sess-ui", "TOKENS", "burn"}},
 			{"2", []string{"CHANGES", "1 edited file no longer"}},
 			{"3", []string{"ACTIVITY", "this still doesn't work", "1 tools", "1 files"}},
-			{"4", []string{"RECOMMENDATION", "Upgrade to opus", "frustration", "/model opus"}},
-			{"5", []string{"FILES", "settings.json"}},
+			{"4", []string{"CONTEXT", "Startup", "LARGEST ITEMS"}},
+			{"5", []string{"RECOMMENDATION", "Upgrade to opus", "frustration", "/model opus"}},
+			{"6", []string{"FILES", "settings.json"}},
 		}
 		for _, p := range panels {
 			m = drive(m, key(p.key))
@@ -119,7 +120,7 @@ func TestPanelsRender(t *testing.T) {
 func TestFilesMasksSecretsAndBlocksEditByDefault(t *testing.T) {
 	core, db := setup(t)
 	var m tea.Model = New(Options{Core: core, Store: db})
-	m = drive(m, tea.WindowSizeMsg{Width: 120, Height: 40}, LoadedMsg{}, key("5"), key("enter"))
+	m = drive(m, tea.WindowSizeMsg{Width: 120, Height: 40}, LoadedMsg{}, key("6"), key("enter"))
 	v := plain(m.View())
 	if strings.Contains(v, "sk-secret") || !strings.Contains(v, "••••••") {
 		t.Fatalf("secret not masked:\n%s", v)

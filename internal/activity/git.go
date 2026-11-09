@@ -35,8 +35,9 @@ func git(dir string, args ...string) (string, error) {
 }
 
 // Diff returns the uncommitted changes to one file (staged and unstaged,
-// against HEAD), or a short note when there is no diff to show.
-func Diff(path string) (diff, note string) {
+// against HEAD). When there are none, it shows the file's commits since
+// `since` (the session start), or a short note.
+func Diff(path string, since time.Time) (diff, note string) {
 	if _, err := exec.LookPath("git"); err != nil {
 		return "", "git isn't installed, so no diff."
 	}
@@ -63,9 +64,46 @@ func Diff(path string) (diff, note string) {
 		return "", "git diff failed: " + err.Error()
 	}
 	if strings.TrimSpace(d) == "" {
-		return "", "No uncommitted changes (already committed, or changed back)."
+		if !since.IsZero() {
+			if l, err := git(dir, "log", "-p", "--no-ext-diff", "--since="+since.Format(time.RFC3339),
+				"--format=commit %h  %s  (%ar)", "--", base); err == nil && strings.TrimSpace(l) != "" {
+				return capLines(l, maxNewLines*2), ""
+			}
+		}
+		return "", "No uncommitted changes, and no commits to it since the session started."
 	}
 	return d, ""
+}
+
+func capLines(s string, n int) string {
+	lines := strings.SplitAfter(s, "\n")
+	if len(lines) <= n {
+		return s
+	}
+	return strings.Join(lines[:n], "") + fmt.Sprintf("… %d more lines\n", len(lines)-n)
+}
+
+// CommittedSince lists files changed by commits since t in the repository
+// top, newest status first.
+func CommittedSince(top string, t time.Time) ([]WorkChange, error) {
+	if top == "" || t.IsZero() {
+		return nil, nil
+	}
+	out, err := git(top, "log", "--since="+t.Format(time.RFC3339), "--name-status", "--no-renames", "--format=")
+	if err != nil {
+		return nil, err
+	}
+	seen := map[string]bool{}
+	var res []WorkChange
+	for _, line := range strings.Split(out, "\n") {
+		code, name, ok := strings.Cut(line, "\t")
+		if !ok || name == "" || seen[name] {
+			continue
+		}
+		seen[name] = true
+		res = append(res, WorkChange{Path: filepath.Join(top, name), Status: code})
+	}
+	return res, nil
 }
 
 // WorkChange is one path with uncommitted changes in a repository.

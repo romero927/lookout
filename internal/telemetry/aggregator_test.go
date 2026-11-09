@@ -212,3 +212,30 @@ func TestFixtureTotals(t *testing.T) {
 		t.Fatalf("current = %+v", cur)
 	}
 }
+
+func TestCurrentMatchesRelatedFolders(t *testing.T) {
+	a := New()
+	at := time.Now()
+	add := func(id, cwd string, d time.Duration) {
+		a.Add(transcript.Record{Kind: transcript.KindAssistant, SessionID: id, Cwd: cwd, Timestamp: at.Add(d),
+			MessageID: id, Model: "claude-x", HasUsage: true, Usage: transcript.Usage{Output: 1}}, transcript.Source{SessionID: id})
+	}
+	add("parent", "/w", 0)
+	add("child", "/w/app/sub", time.Minute)
+	add("other", "/elsewhere", 2*time.Minute)
+	add("prefix", "/w/application", 3*time.Minute)
+
+	cases := map[string]string{
+		"/w/app":     "child",  // a session in a subfolder
+		"/w/app/sub": "child",  // exact
+		"/w/app/x":   "parent", // inside a session's folder
+		"/w":         "parent", // exact beats the newer subfolder sessions
+		"/nowhere":   "",
+	}
+	for cwd, want := range cases {
+		s, ok := a.Current(cwd)
+		if got := s.ID; (want == "" && ok) || (want != "" && got != want) {
+			t.Errorf("Current(%q) = %q, want %q", cwd, got, want)
+		}
+	}
+}

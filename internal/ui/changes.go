@@ -16,17 +16,19 @@ import (
 type (
 	diffMsg struct{ path, diff, note string }
 	workMsg struct {
-		dir, top string
-		items    []activity.WorkChange
-		err      error
+		dir, top  string
+		items     []activity.WorkChange
+		committed []activity.WorkChange
+		err       error
 	}
 )
 
 // Groups in the Changes list, in display order.
 const (
-	grpClaude = iota // edited by Claude, still on disk
-	grpOther         // uncommitted, not edited by Claude
-	grpGone          // edited by Claude, no longer on disk
+	grpClaude    = iota // edited by Claude, still on disk
+	grpOther            // uncommitted, not edited by Claude's edit tools
+	grpCommitted        // committed since the session started
+	grpGone             // edited by Claude, no longer on disk
 )
 
 // changeItem is one row of the Changes list.
@@ -57,7 +59,14 @@ func (m Model) changeItems() []changeItem {
 	}
 	for _, w := range m.work {
 		if !seen[w.Path] {
+			seen[w.Path] = true
 			items = append(items, changeItem{Path: w.Path, Status: w.Status, Group: grpOther})
+		}
+	}
+	for _, w := range m.committed {
+		if !seen[w.Path] {
+			seen[w.Path] = true
+			items = append(items, changeItem{Path: w.Path, Status: w.Status, Group: grpCommitted})
 		}
 	}
 	_ = gone // listed only as a count: usually old paths from moved folders
@@ -103,7 +112,11 @@ func (m Model) viewChanges(h int) string {
 	for i, it := range items {
 		if it.Group != group {
 			group = it.Group
-			list = append(list, "", sLabel.Render(clip("Also uncommitted in "+filepath.Base(m.workTop), lw)))
+			title := "Other uncommitted changes"
+			if group == grpCommitted {
+				title = "Committed since the session started"
+			}
+			list = append(list, "", sLabel.Render(clip(title, lw)))
 		}
 		var stat string
 		switch {
@@ -154,7 +167,11 @@ func (m Model) viewChanges(h int) string {
 				parts = append(parts, "incl. subagents")
 			}
 		} else {
-			parts = append(parts, "not edited by Claude ("+describeStatus(it.Status)+")")
+			how := "uncommitted"
+			if it.Group == grpCommitted {
+				how = "committed"
+			}
+			parts = append(parts, describeStatus(it.Status)+", "+how+" · changed by a command, by you, or by another tool")
 		}
 		meta = sMuted.Render(clip(strings.Join(parts, " · "), m.cView.Width))
 	} else {
@@ -229,18 +246,26 @@ func (m *Model) changesCmd() tea.Cmd {
 	if m.hasSess {
 		dir = m.sess.Cwd
 	}
+	since := time.Time{}
+	if m.hasSess {
+		since = m.sess.FirstSeen
+	}
 	if !m.workBusy && dir != "" && (dir != m.workDir || m.now.Sub(m.workAt) > 5*time.Second) {
 		m.workBusy = true
 		cmds = append(cmds, func() tea.Msg {
 			items, top, err := activity.WorkingTree(dir)
-			return workMsg{dir: dir, top: top, items: items, err: err}
+			var committed []activity.WorkChange
+			if err == nil {
+				committed, _ = activity.CommittedSince(top, since)
+			}
+			return workMsg{dir: dir, top: top, items: items, committed: committed, err: err}
 		})
 	}
 	if it, ok := m.selectedChange(); ok && !m.diffBusy && (it.Path != m.diffPath || m.now.Sub(m.diffAt) > 3*time.Second) {
 		m.diffBusy = true
 		p := it.Path
 		cmds = append(cmds, func() tea.Msg {
-			d, note := activity.Diff(p)
+			d, note := activity.Diff(p, since)
 			return diffMsg{path: p, diff: d, note: note}
 		})
 	}
@@ -278,10 +303,10 @@ func (m *Model) applyWork(msg workMsg) {
 	m.workAt = time.Now()
 	m.workDir = msg.dir
 	if msg.err != nil {
-		m.work, m.workTop = nil, ""
+		m.work, m.committed, m.workTop = nil, nil, ""
 		return
 	}
-	m.work, m.workTop = msg.items, msg.top
+	m.work, m.committed, m.workTop = msg.items, msg.committed, msg.top
 }
 
 func colorDiff(d string) string {
@@ -289,6 +314,8 @@ func colorDiff(d string) string {
 	for i, l := range lines {
 		l = strings.ReplaceAll(l, "\t", "    ")
 		switch {
+		case strings.HasPrefix(l, "commit "):
+			lines[i] = sBold.Render(l)
 		case strings.HasPrefix(l, "+++"), strings.HasPrefix(l, "---"), strings.HasPrefix(l, "diff "), strings.HasPrefix(l, "index "):
 			lines[i] = sMuted.Render(l)
 		case strings.HasPrefix(l, "+"):

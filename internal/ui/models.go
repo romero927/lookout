@@ -52,29 +52,6 @@ func (m Model) viewModels() string {
 		out = append(out, st.Render("! "+c.Message))
 	}
 
-	// Recent turns (shapes only; prompts are not shown).
-	out = append(out, "", section("Recent turns", w))
-	turns := m.sstate.Turns
-	shown := 0
-	header := sMuted.Render(fmt.Sprintf("%-4s %-18s %6s %6s %6s %8s", "turn", "model", "tools", "errors", "files", "output"))
-	out = append(out, header)
-	for i := len(turns) - 1; i >= 0 && shown < 6; i-- {
-		t := turns[i]
-		if !t.Active() {
-			continue
-		}
-		shown++
-		errs := fmt.Sprintf("%6d", t.ToolErrors)
-		if t.ToolErrors > 0 {
-			errs = sRed.Render(errs)
-		}
-		out = append(out, fmt.Sprintf("%-4s %-18s %6d %s %6d %8s",
-			turnLabel(shown-1), clip(ShortModel(t.Model), 18), t.ToolCalls, errs, len(t.Edits), Tokens(t.OutputTokens)))
-	}
-	if shown == 0 {
-		out = append(out, sMuted.Render("no turns yet"))
-	}
-
 	// Log.
 	out = append(out, "", section("Suggestion log", w))
 	if m.o.Store == nil {
@@ -113,11 +90,4 @@ func (m Model) viewModels() string {
 		}
 	}
 	return strings.Join(out, "\n")
-}
-
-func turnLabel(i int) string {
-	if i == 0 {
-		return "now"
-	}
-	return fmt.Sprintf("-%d", i)
 }

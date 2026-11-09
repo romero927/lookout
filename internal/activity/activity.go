@@ -80,6 +80,7 @@ type session struct {
 	files   map[string]*FileChange
 	pending map[string]pending // tool_use id -> call
 	tools   map[string]bool    // tool_use ids already counted
+	ctx     ctxState
 }
 
 // Engine tracks every session. Safe for concurrent use.
@@ -107,6 +108,9 @@ func (e *Engine) Observe(r transcript.Record, src transcript.Source) {
 	if s == nil {
 		s = &session{files: map[string]*FileChange{}, pending: map[string]pending{}, tools: map[string]bool{}}
 		e.sessions[sid] = s
+	}
+	if !sub {
+		s.ctx.observe(r)
 	}
 	switch r.Kind {
 	case transcript.KindUser:

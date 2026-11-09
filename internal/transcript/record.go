@@ -110,6 +110,7 @@ type ToolUse struct {
 	// counted). Write counts the whole new content as added.
 	Added, Removed int
 	Whole          bool // Write: the whole file was (re)written
+	InputSize      int  // bytes of the call's JSON input (it stays in context)
 }
 
 // ToolResult is the outcome of a tool call, as reported back to the model.
@@ -117,6 +118,8 @@ type ToolResult struct {
 	ToolUseID string
 	IsError   bool
 	Text      string // truncated to MaxResultText
+	Size      int    // bytes of the full result (text only when it has images)
+	Images    int    // image blocks in the result
 }
 
 // MaxResultText caps how much tool output is kept per result.
@@ -148,6 +151,9 @@ type Record struct {
 	Prompt      string // text the human typed; empty for tool results and meta
 	Command     string // slash command, e.g. "/model", when the line records one
 	ToolResults []ToolResult
+	// Size is the byte length of a user message's content: a prompt, or
+	// text Claude Code injected (command output, reminders).
+	Size int
 
 	// Compaction fields.
 	CompactPre  int64

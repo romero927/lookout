@@ -89,15 +89,15 @@ func TestGitDiffAndWorkingTree(t *testing.T) {
 	run("add", ".")
 	run("commit", "-q", "-m", "init")
 
-	if d, note := Diff(filepath.Join(dir, "a.txt")); d != "" || !strings.Contains(note, "No uncommitted") {
+	if d, note := Diff(filepath.Join(dir, "a.txt"), time.Time{}); d != "" || !strings.Contains(note, "No uncommitted") {
 		t.Errorf("clean file: %q %q", d, note)
 	}
 	write("a.txt", "one\nTWO\n")
 	write("sub/new.txt", "x\n")
-	if d, _ := Diff(filepath.Join(dir, "a.txt")); !strings.Contains(d, "+TWO") || !strings.Contains(d, "-two") {
+	if d, _ := Diff(filepath.Join(dir, "a.txt"), time.Time{}); !strings.Contains(d, "+TWO") || !strings.Contains(d, "-two") {
 		t.Errorf("diff: %q", d)
 	}
-	if d, _ := Diff(filepath.Join(dir, "sub", "new.txt")); !strings.Contains(d, "not yet tracked") || !strings.Contains(d, "+x") {
+	if d, _ := Diff(filepath.Join(dir, "sub", "new.txt"), time.Time{}); !strings.Contains(d, "not yet tracked") || !strings.Contains(d, "+x") {
 		t.Errorf("untracked file: %q", d)
 	}
 	items, top, err := WorkingTree(filepath.Join(dir, "sub"))
@@ -115,7 +115,65 @@ func TestGitDiffAndWorkingTree(t *testing.T) {
 	if got["a.txt"] != " M" || got["new.txt"] != "??" {
 		t.Errorf("working tree: %v", got)
 	}
-	if _, note := Diff(filepath.Join(t.TempDir(), "x.txt")); !strings.Contains(note, "Not in a git") {
+	// After committing, the change shows as committed since the session start.
+	start := time.Now().Add(-time.Hour)
+	run("add", ".")
+	run("commit", "-q", "-m", "change a")
+	if d, _ := Diff(filepath.Join(dir, "a.txt"), start); !strings.Contains(d, "commit ") || !strings.Contains(d, "+TWO") {
+		t.Errorf("committed diff: %q", d)
+	}
+	committed, err := CommittedSince(top, start)
+	if err != nil {
+		t.Fatal(err)
+	}
+	names := map[string]string{}
+	for _, c := range committed {
+		names[filepath.Base(c.Path)] = c.Status
+	}
+	if names["a.txt"] != "M" || names["new.txt"] != "A" {
+		t.Errorf("committed since: %v", names)
+	}
+	if _, note := Diff(filepath.Join(t.TempDir(), "x.txt"), time.Time{}); !strings.Contains(note, "Not in a git") {
 		t.Errorf("outside repo: %q", note)
+	}
+}
+
+func TestContextBreakdown(t *testing.T) {
+	e := New()
+	src := transcript.Source{SessionID: "c"}
+	at := time.Date(2026, 11, 9, 10, 0, 0, 0, time.UTC)
+	rec := func(r transcript.Record) { r.SessionID = "c"; e.Observe(r, src) }
+
+	rec(transcript.Record{Kind: transcript.KindUser, Timestamp: at, Prompt: "read the file", Size: 400})
+	// First response: 20,100 tokens in context, so startup is about 20,000.
+	rec(transcript.Record{Kind: transcript.KindAssistant, Timestamp: at.Add(time.Second), Model: "claude-x", HasUsage: true,
+		Usage:    transcript.Usage{Input: 100, CacheCreate: 20000},
+		ToolUses: []transcript.ToolUse{{ID: "r1", Name: "Read", FilePath: "/p/big.go", InputSize: 40}}})
+	rec(transcript.Record{Kind: transcript.KindUser, Timestamp: at.Add(2 * time.Second),
+		ToolResults: []transcript.ToolResult{{ToolUseID: "r1", Size: 40000}}})
+	rec(transcript.Record{Kind: transcript.KindAssistant, Timestamp: at.Add(3 * time.Second), Model: "claude-x", HasUsage: true,
+		Usage: transcript.Usage{Input: 10, CacheRead: 20100, CacheCreate: 10200}, Text: "It's a big file."})
+
+	v := e.Context("c", 5)
+	if v.Total != 30310 || v.Startup != 20000 || v.Estimated {
+		t.Fatalf("view: %+v", v)
+	}
+	if v.Parts[0].Name != "Read output" || v.Parts[0].Tokens != 10000 {
+		t.Errorf("parts: %+v", v.Parts)
+	}
+	if v.Largest[0].Label != "big.go" || v.Largest[0].Tool != "Read" {
+		t.Errorf("largest: %+v", v.Largest)
+	}
+	if v.Other < 0 || v.Other > 400 {
+		t.Errorf("other: %d", v.Other)
+	}
+
+	// Compaction starts over.
+	rec(transcript.Record{Kind: transcript.KindCompact, Timestamp: at.Add(time.Minute), CompactPre: 30310, CompactPost: 5000})
+	rec(transcript.Record{Kind: transcript.KindAssistant, Timestamp: at.Add(2 * time.Minute), Model: "claude-x", HasUsage: true,
+		Usage: transcript.Usage{Input: 10, CacheCreate: 25000}})
+	v = e.Context("c", 5)
+	if !v.Compacted || v.Startup != 25010 || len(v.Parts) != 0 {
+		t.Errorf("after compact: %+v", v)
 	}
 }
