@@ -6,6 +6,8 @@ A terminal dashboard that runs **beside** an interactive [Claude Code](https://d
 
 ![Lookout's Usage panel, rendered from synthetic data](docs/screenshot.png)
 
+![Lookout's Activity panel with a step opened, rendered from synthetic data](docs/activity.png)
+
 ## What it is (and isn't)
 
 Lookout is a **dashboard, not a wrapper**:
@@ -109,7 +111,7 @@ Claude Code's transcript format isn't a public API and can change with any Claud
 make build    # static binary in ./bin
 make test     # go test ./... (race detector on)
 make lint     # golangci-lint, or go vet + gofmt if it isn't installed
-make screenshot  # re-render docs/screenshot.png from synthetic data (needs Python 3 + Pillow)
+make screenshot  # re-render docs/screenshot.png and docs/activity.png from synthetic data (needs Python 3 + Pillow)
 ```
 
 All test fixtures are **synthetic**. Never commit real transcripts. To benchmark against your own data locally without copying it into the repo:

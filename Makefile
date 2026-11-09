@@ -31,6 +31,7 @@ fmt:
 screenshot:
 	LOOKOUT_SCREENSHOT=$(CURDIR)/bin/shot.ansi go test ./internal/ui -run Screenshot -count=1
 	python3 -I scripts/ansi2png.py bin/shot.ansi docs/screenshot.png
+	python3 -I scripts/ansi2png.py bin/shot-activity.ansi docs/activity.png
 
 snapshot:
 	goreleaser release --snapshot --clean
