@@ -3,6 +3,7 @@ package ui
 import (
 	"strings"
 
+	"github.com/charmbracelet/bubbles/viewport"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
@@ -44,9 +45,9 @@ func (s selection) clamp(x, y int) cell {
 func (m Model) mouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	switch {
 	case msg.Button == tea.MouseButtonWheelUp:
-		return m.handleKey(tea.KeyMsg{Type: tea.KeyUp})
+		return m.wheel(msg.X, -1)
 	case msg.Button == tea.MouseButtonWheelDown:
-		return m.handleKey(tea.KeyMsg{Type: tea.KeyDown})
+		return m.wheel(msg.X, 1)
 	case msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft:
 		m.sel = selection{on: true, box: m.pane(msg.X)}
 		m.sel.from = m.sel.clamp(msg.X, msg.Y)
@@ -118,8 +119,59 @@ func (s selection) highlight(view string) string {
 	return strings.Join(lines, "\n")
 }
 
-// click handles a click without a drag: a tab in the header, a row in a
-// split panel's list, or the reader beside it.
+// splitPane is a split panel's list and how to drive it.
+type splitPane struct {
+	l      list
+	idx    *int
+	focus  *bool
+	reload func(Model, string) (tea.Model, tea.Cmd)
+	view   *viewport.Model
+}
+
+// split returns the current panel's list and reader, if it has them.
+func (m *Model) split() (splitPane, bool) {
+	if m.help || m.picking || !m.loaded {
+		return splitPane{}, false
+	}
+	lw := m.listWidth()
+	switch m.tab {
+	case tabActivity:
+		return splitPane{m.activityList(lw), &m.aSel, &m.aFocus, Model.activityKey, &m.aView}, true
+	case tabChanges:
+		return splitPane{m.changesList(lw), &m.cSel, &m.cFocus, Model.changesKey, &m.cView}, true
+	case tabSkills:
+		return splitPane{m.skillsList(lw), &m.sSel, &m.sFocus, Model.skillsKey, &m.sView}, true
+	case tabFiles:
+		return splitPane{m.filesList(lw), &m.gSel, &m.gFocus, Model.filesKey, &m.gView}, true
+	}
+	return splitPane{}, false
+}
+
+// wheel scrolls what's under the pointer: the list moves the selection,
+// the reader scrolls its text.
+func (m Model) wheel(x, dir int) (tea.Model, tea.Cmd) {
+	key := tea.KeyMsg{Type: tea.KeyDown}
+	if dir < 0 {
+		key = tea.KeyMsg{Type: tea.KeyUp}
+	}
+	p, ok := m.split()
+	if !ok {
+		return m.handleKey(key)
+	}
+	if x < m.listWidth() {
+		*p.focus = false
+		return m.handleKey(key)
+	}
+	if dir < 0 {
+		p.view.ScrollUp(3)
+	} else {
+		p.view.ScrollDown(3)
+	}
+	return m, nil
+}
+
+// click handles a click without a drag: a tab in the header; a row in a
+// list, which opens it as enter does; or the reader beside the list.
 func (m Model) click(x, y int) (tea.Model, tea.Cmd) {
 	if m.help || m.picking || !m.loaded {
 		return m, nil
@@ -136,30 +188,23 @@ func (m Model) click(x, y int) (tea.Model, tea.Cmd) {
 	if y < top || y >= top+h {
 		return m, nil
 	}
-	lw := m.listWidth()
-	var l list
-	var focus *bool
-	var idx *int
-	var reload func(Model, string) (tea.Model, tea.Cmd)
-	switch m.tab {
-	case tabActivity:
-		l, idx, focus, reload = m.activityList(lw), &m.aSel, &m.aFocus, Model.activityKey
-	case tabChanges:
-		l, idx, focus, reload = m.changesList(lw), &m.cSel, &m.cFocus, Model.changesKey
-	case tabSkills:
-		l, idx, focus, reload = m.skillsList(lw), &m.sSel, &m.sFocus, Model.skillsKey
-	case tabFiles:
-		l, idx, focus, reload = m.filesList(lw), &m.gSel, &m.gFocus, Model.filesKey
-	default:
+	if m.tab == tabContext {
+		return m.clickContext(y-top, h)
+	}
+	p, ok := m.split()
+	if !ok {
 		return m, nil
 	}
-	if x >= lw {
-		// The reader: focus it, as enter does, so the keys scroll it.
-		return reload(m, "enter")
+	if x >= m.listWidth() {
+		return p.reload(m, "enter")
 	}
-	*focus = false
-	if row := l.rowAt(y-top, h); row >= 0 {
-		*idx = row
+	row := p.l.rowAt(y-top, h)
+	if row < 0 {
+		return m, nil
 	}
-	return reload(m, "")
+	*p.focus = false
+	*p.idx = row
+	nm, c1 := p.reload(m, "")
+	nm, c2 := p.reload(nm.(Model), "enter")
+	return nm, tea.Batch(c1, c2)
 }

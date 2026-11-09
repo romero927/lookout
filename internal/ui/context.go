@@ -221,3 +221,34 @@ func contextTip(v activity.ContextView) string {
 	}
 	return ""
 }
+
+// clickContext opens the item clicked on line y of the Context body, or
+// goes back to the list when its details are showing.
+func (m Model) clickContext(y, h int) (tea.Model, tea.Cmd) {
+	if m.xFocus {
+		m.xFocus = false
+		return m, nil
+	}
+	// The items start below the "Largest items" / "All items" heading.
+	lines := strings.Split(m.viewContext(h), "\n")
+	top := -1
+	for i, l := range lines {
+		if t := strings.TrimSpace(plainText(l)); strings.HasPrefix(t, "LARGEST ITEMS") || strings.HasPrefix(t, "ALL ITEMS") {
+			top = i + 1
+		}
+	}
+	n := len(m.ctxView.Largest)
+	if top < 0 || y < top || n == 0 {
+		return m, nil
+	}
+	room := max(3, h-top-1) // as viewContext sizes it
+	start := 0
+	if n > room {
+		start = max(0, m.xSel-room+2)
+	}
+	if i := start + y - top; i < n {
+		m.xSel = i
+		m.xFocus = true
+	}
+	return m, nil
+}

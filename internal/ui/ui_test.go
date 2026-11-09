@@ -523,3 +523,33 @@ func TestClickTabAndRow(t *testing.T) {
 		t.Error("click in the reader should focus it")
 	}
 }
+
+func TestClickRowOpensReaderAndContextItem(t *testing.T) {
+	core, db := setup(t)
+	var m tea.Model = New(Options{Core: core, Store: db, Version: "test"})
+	m = drive(m, tea.WindowSizeMsg{Width: 160, Height: 40}, LoadedMsg{}, key("2"))
+	mm := m.(Model)
+	top := lipgloss.Height(mm.viewHeader())
+	for y, row := range mm.activityList(mm.listWidth()).rows {
+		if row == 0 {
+			m = drive(m, click(2, top+y)...)
+			break
+		}
+	}
+	if !m.(Model).aFocus {
+		t.Error("clicking a turn should open it in the reader")
+	}
+
+	m = drive(m, key("4"))
+	mm = m.(Model)
+	lines := strings.Split(plain(mm.View()), "\n")
+	for y, l := range lines {
+		if strings.HasPrefix(strings.TrimSpace(l), "LARGEST ITEMS") {
+			m = drive(m, click(5, y+1)...)
+			break
+		}
+	}
+	if !m.(Model).xFocus || !strings.Contains(plain(m.View()), "TO FREE UP ROOM") {
+		t.Errorf("clicking an item should open its details\n%s", plain(m.View()))
+	}
+}
