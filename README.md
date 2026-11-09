@@ -14,7 +14,7 @@ Lookout is a **dashboard, not a wrapper**:
 - It **only reads** what Claude Code writes to disk (`~/.claude/`), plus what Claude Code itself passes to an optional status line command.
 - It **never handles credentials**. It doesn't read `~/.claude/.credentials.json`, and the Files panel refuses to open it.
 - It **sends nothing anywhere**. No network calls, no telemetry. The only programs it starts are `git` (read-only `diff`, `status` and `log`, for the Changes panel), a desktop notifier for alerts, a clipboard tool when you copy a command, and your `$EDITOR` if you enable editing.
-- It **never types into Claude Code**. Commands it offers are copied for you to paste. Copying goes to the OS clipboard through `xclip`, `xsel`, `wl-copy`, `pbcopy` or `clip.exe`. On Linux, install one (`sudo apt install xclip`); without one, Lookout falls back to tmux's paste buffer (paste with your prefix, then `]`) or the terminal's clipboard, and says so.
+- It **never types into Claude Code**. Commands it offers are copied for you to paste. Copying goes to the OS clipboard through `xclip`, `xsel`, `wl-copy`, `pbcopy` or `clip.exe`. On Linux, install one (`sudo apt install xclip`); without one, Lookout falls back to tmux's paste buffer (paste with your prefix, then `]`) or the terminal's clipboard, and says so. You can also drag to select any text in Lookout: it's copied when you let go (hold Shift for the terminal's own selection).
 
 ## Panels
 
