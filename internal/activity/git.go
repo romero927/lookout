@@ -34,6 +34,9 @@ func git(dir string, args ...string) (string, error) {
 	return out.String(), nil
 }
 
+// NoRepoNote is Diff's note for a file outside any git repository.
+const NoRepoNote = "Not in a git repository, so no diff."
+
 // Diff returns the uncommitted changes to one file (staged and unstaged,
 // against HEAD). When there are none, it shows the file's commits since
 // `since` (the session start), or a short note.
@@ -46,7 +49,7 @@ func Diff(path string, since time.Time) (diff, note string) {
 		return "", "The file's folder no longer exists."
 	}
 	if _, err := git(dir, "rev-parse", "--show-toplevel"); err != nil {
-		return "", "Not in a git repository, so no diff."
+		return "", NoRepoNote
 	}
 	base := filepath.Base(path)
 	if _, err := git(dir, "ls-files", "--error-unmatch", "--", base); err != nil {

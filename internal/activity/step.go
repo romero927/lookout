@@ -149,3 +149,102 @@ func resultText(raw json.RawMessage) string {
 	}
 	return clip(strings.Join(sb, "\n"), MaxStepOutput)
 }
+
+// FileEdit is one edit Claude's tools made to a file, from the transcript.
+type FileEdit struct {
+	Tool    string // Edit, MultiEdit or Write
+	At      string // the record's timestamp, as written
+	Old     []string
+	New     []string // for Write: the whole new content
+	Content bool     // true for Write
+}
+
+// LoadFileEdits reads the successful edits made to path from the
+// transcript files, oldest first. It lets Changes show what Claude did to a
+// file that git can't diff.
+func LoadFileEdits(files []string, path string) []FileEdit {
+	type pend struct {
+		e  FileEdit
+		id string
+	}
+	var all []pend
+	failed := map[string]bool{}
+	// Match the path as it is written inside JSON (backslashes escaped).
+	quoted, _ := json.Marshal(path)
+	needle := quoted[1 : len(quoted)-1]
+	for _, f := range files {
+		fh, err := os.Open(f)
+		if err != nil {
+			continue
+		}
+		r := bufio.NewReaderSize(fh, 1<<16)
+		for {
+			line, err := r.ReadBytes('\n')
+			if len(line) > 0 && (bytes.Contains(line, needle) || bytes.Contains(line, []byte(`"is_error":true`))) {
+				var l struct {
+					Timestamp string `json:"timestamp"`
+					stepLine
+				}
+				if json.Unmarshal(line, &l) == nil {
+					var blocks []struct {
+						stepBlock
+						Name string `json:"name"`
+					}
+					if json.Unmarshal(l.Message.Content, &blocks) == nil {
+						for _, b := range blocks {
+							switch {
+							case b.Type == "tool_result" && b.IsError:
+								failed[b.ToolUseID] = true
+							case b.Type == "tool_use" && editTools[b.Name]:
+								if p, _ := b.Input["file_path"].(string); p == path {
+									for _, e := range editsOf(b.Name, b.Input) {
+										e.At = l.Timestamp
+										all = append(all, pend{e, b.ID})
+									}
+								}
+							}
+						}
+					}
+				}
+			}
+			if err != nil {
+				break
+			}
+		}
+		fh.Close()
+	}
+	var out []FileEdit
+	for _, p := range all {
+		if !failed[p.id] {
+			out = append(out, p.e)
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool { return out[i].At < out[j].At })
+	return out
+}
+
+func editsOf(tool string, in map[string]any) []FileEdit {
+	str := func(m map[string]any, k string) string { v, _ := m[k].(string); return v }
+	lines := func(s string) []string {
+		if s == "" {
+			return nil
+		}
+		return strings.Split(strings.TrimSuffix(s, "\n"), "\n")
+	}
+	switch tool {
+	case "Edit":
+		return []FileEdit{{Tool: tool, Old: lines(str(in, "old_string")), New: lines(str(in, "new_string"))}}
+	case "MultiEdit":
+		var out []FileEdit
+		list, _ := in["edits"].([]any)
+		for _, x := range list {
+			if m, ok := x.(map[string]any); ok {
+				out = append(out, FileEdit{Tool: tool, Old: lines(str(m, "old_string")), New: lines(str(m, "new_string"))})
+			}
+		}
+		return out
+	case "Write":
+		return []FileEdit{{Tool: tool, New: lines(str(in, "content")), Content: true}}
+	}
+	return nil
+}

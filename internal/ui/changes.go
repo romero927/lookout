@@ -12,6 +12,7 @@ import (
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/romero927/lookout/internal/activity"
+	"github.com/romero927/lookout/internal/paths"
 )
 
 type (
@@ -355,8 +356,18 @@ func (m *Model) changesCmd() tea.Cmd {
 	if it, ok := m.selectedChange(); ok && !m.diffBusy && (it.Path != m.diffPath || m.now.Sub(m.diffAt) > 3*time.Second) {
 		m.diffBusy = true
 		p := it.Path
+		var files []string
+		if it.F != nil && m.hasSess {
+			files = activity.SessionFiles(paths.ClaudeProjectsDir(), m.sess.Project, m.sess.ID)
+		}
 		cmds = append(cmds, func() tea.Msg {
 			d, note := activity.Diff(p, since)
+			if d == "" && note == activity.NoRepoNote && files != nil {
+				// git can't help: show the edits Claude made instead.
+				if edits := activity.LoadFileEdits(files, p); len(edits) > 0 {
+					d = editsDiff(edits)
+				}
+			}
 			return diffMsg{path: p, diff: d, note: note}
 		})
 	}
@@ -485,4 +496,52 @@ func colorDiff(d string) string {
 		}
 	}
 	return strings.Join(lines, "\n")
+}
+
+// maxEditLines caps how many lines editsDiff shows.
+const maxEditLines = 2000
+
+// editsDiff shows the edits Claude made to a file outside git, oldest
+// first, in diff form so it is coloured like one.
+func editsDiff(edits []activity.FileEdit) string {
+	n := len(edits)
+	what := "edits"
+	if n == 1 {
+		what = "edit"
+	}
+	lines := []string{
+		fmt.Sprintf("Not in a git repository: showing the %d %s Claude made this session.", n, what),
+		"",
+	}
+	for i, e := range edits {
+		head := fmt.Sprintf("@@ %d. %s", i+1, e.Tool)
+		if at := editTime(e.At); at != "" {
+			head += " · " + at
+		}
+		if e.Content {
+			head += " (whole file)"
+		}
+		lines = append(lines, head+" @@")
+		for _, l := range e.Old {
+			lines = append(lines, "-"+l)
+		}
+		for _, l := range e.New {
+			lines = append(lines, "+"+l)
+		}
+		lines = append(lines, "")
+		if len(lines) > maxEditLines {
+			lines = append(lines[:maxEditLines], fmt.Sprintf("… %d more edits not shown", n-i-1))
+			break
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
+// editTime is a transcript timestamp as local HH:MM, or "".
+func editTime(ts string) string {
+	t, err := time.Parse(time.RFC3339Nano, ts)
+	if err != nil {
+		return ""
+	}
+	return t.Local().Format("15:04")
 }

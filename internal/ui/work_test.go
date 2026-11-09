@@ -87,3 +87,15 @@ func TestChangesGroupedByRepo(t *testing.T) {
 		t.Errorf("single repo should have no heading\n%s", text)
 	}
 }
+
+func TestEditsDiff(t *testing.T) {
+	d := editsDiff([]activity.FileEdit{
+		{Tool: "Write", New: []string{"a"}, Content: true},
+		{Tool: "Edit", At: "2026-01-10T10:01:00Z", Old: []string{"a"}, New: []string{"A"}},
+	})
+	for _, s := range []string{"showing the 2 edits Claude made", "@@ 1. Write (whole file) @@\n+a", "@@ 2. Edit · ", "-a\n+A"} {
+		if !strings.Contains(d, s) {
+			t.Errorf("missing %q in\n%s", s, d)
+		}
+	}
+}

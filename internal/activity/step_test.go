@@ -39,3 +39,28 @@ func TestLoadSteps(t *testing.T) {
 		t.Error("missing ID should be left out")
 	}
 }
+
+func TestLoadFileEdits(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "s.jsonl")
+	lines := strings.Join([]string{
+		`{"timestamp":"2026-01-10T10:00:00Z","message":{"content":[{"type":"tool_use","id":"w","name":"Write","input":{"file_path":"/x/notes.txt","content":"a\nb\n"}}]}}`,
+		`{"timestamp":"2026-01-10T10:01:00Z","message":{"content":[{"type":"tool_use","id":"e1","name":"Edit","input":{"file_path":"/x/notes.txt","old_string":"a","new_string":"A"}}]}}`,
+		`{"timestamp":"2026-01-10T10:02:00Z","message":{"content":[{"type":"tool_use","id":"bad","name":"Edit","input":{"file_path":"/x/notes.txt","old_string":"zz","new_string":"q"}}]}}`,
+		`{"message":{"content":[{"type":"tool_result","tool_use_id":"bad","is_error":true,"content":"not found"}]}}`,
+		`{"timestamp":"2026-01-10T10:03:00Z","message":{"content":[{"type":"tool_use","id":"m","name":"MultiEdit","input":{"file_path":"/x/notes.txt","edits":[{"old_string":"b","new_string":"B"},{"old_string":"A","new_string":"A2"}]}}]}}`,
+		`{"timestamp":"2026-01-10T10:04:00Z","message":{"content":[{"type":"tool_use","id":"o","name":"Edit","input":{"file_path":"/x/other.txt","old_string":"1","new_string":"2"}}]}}`,
+	}, "\n") + "\n"
+	_ = os.WriteFile(f, []byte(lines), 0o644)
+
+	got := LoadFileEdits([]string{f}, "/x/notes.txt")
+	if len(got) != 4 {
+		t.Fatalf("got %d edits: %+v", len(got), got)
+	}
+	if !got[0].Content || strings.Join(got[0].New, ",") != "a,b" {
+		t.Errorf("write = %+v", got[0])
+	}
+	if got[1].Old[0] != "a" || got[1].New[0] != "A" || got[2].New[0] != "B" || got[3].New[0] != "A2" {
+		t.Errorf("edits = %+v", got)
+	}
+}
