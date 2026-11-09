@@ -2,10 +2,13 @@ package ui
 
 import (
 	"fmt"
+	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
 
+	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/romero927/lookout/internal/limits"
@@ -29,6 +32,7 @@ func (m *Model) refreshLimits(force bool) {
 		m.limits = limits.Load(path)
 	}
 	m.slConfigured, m.slOurs = limits.StatusLineSetting(filepath.Join(paths.ClaudeDir(), "settings.json"))
+	m.refreshHistory()
 }
 
 // isWeekly tells the two windows apart by length.
@@ -164,3 +168,136 @@ func (m Model) viewLimitsMissing(w int) []string {
 	}
 	return out
 }
+
+// refreshHistory reloads the per-day history when the file changed.
+func (m *Model) refreshHistory() {
+	info, err := os.Stat(paths.HistoryFile())
+	if err != nil {
+		m.history, m.histMod = limits.History{}, time.Time{}
+		return
+	}
+	if info.ModTime().Equal(m.histMod) {
+		return
+	}
+	m.histMod = info.ModTime()
+	m.history = limits.LoadHistory(paths.HistoryFile())
+}
+
+// DayNote describes one day's limit use, e.g. "+6% of weekly · hit 5h limit".
+func DayNote(d limits.DayUse) string {
+	if d.Weekly == 0 && d.FiveHourPeak == 0 {
+		return "—"
+	}
+	s := fmt.Sprintf("+%.0f%% of weekly", d.Weekly)
+	if d.FiveHourPeak >= 100 {
+		s += " · hit 5h limit"
+	} else if d.FiveHourPeak > 0 {
+		s += fmt.Sprintf(" · 5h peak %.0f%%", d.FiveHourPeak)
+	}
+	return s
+}
+
+// viewHistory is the "Weekly limit by day" chart.
+func (m Model) viewHistory(w int) []string {
+	days := m.history.Last(7, m.now)
+	if days == nil {
+		return nil
+	}
+	out := []string{section("Weekly limit by day", w)}
+	peak := 15.0 // so a light day doesn't fill the bar
+	for _, d := range days {
+		peak = max(peak, d.Weekly)
+	}
+	today := m.now.Local().Format("2006-01-02")
+	for _, d := range days {
+		st := sBlue
+		if d.Day == today {
+			st = sRed
+		}
+		note := sMuted.Render(DayNote(d))
+		if d.FiveHourPeak >= 100 {
+			note = sYellow.Render(DayNote(d))
+		}
+		out = append(out, clip(fmt.Sprintf("%s %s %s", sMuted.Render(d.Date().Format("Mon 01-02")),
+			bar(d.Weekly/peak, 12, st), note), w+40))
+	}
+	return out
+}
+
+// checkAlerts fires limit alerts that haven't been shown yet.
+func (m *Model) checkAlerts() tea.Cmd {
+	cfg := m.o.Core.Cfg.Alerts
+	alerts := limits.Alerts(m.limits, m.now, cfg.Thresholds, cfg.Pace)
+	var fresh []limits.Alert
+	for _, a := range alerts {
+		if _, ok := m.fired[a.Key]; !ok {
+			fresh = append(fresh, a)
+		}
+	}
+	if len(fresh) == 0 {
+		return nil
+	}
+	// Another dashboard may have shown them already.
+	m.fired = limits.LoadFired(paths.AlertsFile())
+	var show []limits.Alert
+	for _, a := range fresh {
+		if _, ok := m.fired[a.Key]; !ok {
+			m.fired[a.Key] = m.now.Unix()
+			show = append(show, a)
+		}
+	}
+	if len(show) == 0 {
+		return nil
+	}
+	_ = limits.SaveFired(paths.AlertsFile(), m.fired, m.now)
+	top := show[len(show)-1]
+	for _, a := range show {
+		if a.Level > top.Level {
+			top = a
+		}
+	}
+	m.setFlash("⚠ "+top.Text, levelStyle(top.Level).Bold(true), 15*time.Second)
+	return notify(top.Text, cfg.Bell, cfg.Desktop)
+}
+
+// notify rings the bell and sends a desktop notification, if enabled.
+func notify(text string, bell, desktop bool) tea.Cmd {
+	return func() tea.Msg {
+		if bell {
+			_, _ = os.Stdout.WriteString("\a")
+		}
+		if !desktop {
+			return nil
+		}
+		if p, err := exec.LookPath("notify-send"); err == nil {
+			_ = exec.Command(p, "--app-name=Lookout", "Lookout", text).Run()
+		} else if p, err := exec.LookPath("osascript"); err == nil {
+			_ = exec.Command(p, "-e", "on run argv", "-e",
+				`display notification (item 1 of argv) with title "Lookout"`, "-e", "end run", text).Run()
+		}
+		return nil
+	}
+}
+
+// checkBuild notices when the binary on disk was replaced (e.g. make build).
+func (m *Model) checkBuild() {
+	if m.o.Exe == "" || m.newBuild {
+		return
+	}
+	info, err := os.Stat(m.o.Exe)
+	if err != nil {
+		return
+	}
+	if m.exeMod.IsZero() {
+		m.exeMod, m.exeSize = info.ModTime(), info.Size()
+		return
+	}
+	// Wait until the file has settled so a build in progress isn't run.
+	if (!info.ModTime().Equal(m.exeMod) || info.Size() != m.exeSize) && m.now.Sub(info.ModTime()) > 2*time.Second {
+		m.newBuild = true
+		m.setFlash("A new Lookout build is ready: press R to restart", sGreen.Bold(true), 15*time.Second)
+	}
+}
+
+// RestartRequested reports whether the user asked to restart into a new build.
+func (m Model) RestartRequested() bool { return m.restart }

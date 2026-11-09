@@ -70,8 +70,18 @@ func appVersion() string {
 	return version
 }
 
+// restartExe is set when the dashboard should restart into a new build.
+var restartExe string
+
 func main() {
-	os.Exit(run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
+	code := run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr)
+	if restartExe != "" {
+		if err := restartSelf(restartExe); err != nil {
+			fmt.Fprintf(os.Stderr, "lookout: restart: %v\n", err)
+			code = 1
+		}
+	}
+	os.Exit(code)
 }
 
 func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
@@ -174,9 +184,13 @@ func cmdTUI(args []string, stderr io.Writer) int {
 		prog.Send(ui.LoadedMsg{Records: n})
 		_ = core.Watcher.Run(ctx)
 	}()
-	if _, err := prog.Run(); err != nil {
+	final, err := prog.Run()
+	if err != nil {
 		fmt.Fprintf(stderr, "lookout: %v\n", err)
 		return 1
+	}
+	if fm, ok := final.(ui.Model); ok && fm.RestartRequested() && exe != "" {
+		restartExe = exe
 	}
 	return 0
 }
@@ -287,6 +301,12 @@ func printLimits(w io.Writer, st limits.State, now time.Time) {
 	}{{"5-hour", five}, {"weekly", week}} {
 		if x.p != nil {
 			fmt.Fprintf(w, "  %-7s %s\n", x.name, ui.PaceSummary(*x.p, now))
+		}
+	}
+	if days := limits.LoadHistory(paths.HistoryFile()).Last(7, now); days != nil {
+		fmt.Fprintln(w, "\nWeekly limit used per day:")
+		for _, d := range days {
+			fmt.Fprintf(w, "  %s  %s\n", d.Date().Format("Mon 01-02"), ui.DayNote(d))
 		}
 	}
 }
@@ -480,6 +500,11 @@ func cmdStatusLine(args []string, stdin io.Reader, stdout, stderr io.Writer) int
 			hookLog("statusline save: %v", err)
 		}
 		limits.Prune(paths.LimitsDir(), now)
+		h := limits.LoadHistory(paths.HistoryFile())
+		h.Record(in, now)
+		if err := limits.SaveHistory(paths.HistoryFile(), h); err != nil {
+			hookLog("statusline history: %v", err)
+		}
 	}
 	fmt.Fprintln(stdout, limits.StatusLine(in, st, now))
 	return 0

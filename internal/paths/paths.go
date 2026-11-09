@@ -109,6 +109,12 @@ func BackupDir() string { return filepath.Join(DataDir(), "backups") }
 // one file per session.
 func LimitsDir() string { return filepath.Join(DataDir(), "limits") }
 
+// HistoryFile holds limit usage per day.
+func HistoryFile() string { return filepath.Join(DataDir(), "history.json") }
+
+// AlertsFile records which limit alerts were already shown.
+func AlertsFile() string { return filepath.Join(DataDir(), "alerts.json") }
+
 // LogDir holds hook and worker logs.
 func LogDir() string { return filepath.Join(DataDir(), "logs") }
 

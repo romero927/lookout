@@ -4,7 +4,7 @@ VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null)
 LDFLAGS := -s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT)
 
-.PHONY: all build install test lint fmt snapshot clean
+.PHONY: screenshot all build install test lint fmt snapshot clean
 
 all: lint test build
 
@@ -27,6 +27,10 @@ lint:
 
 fmt:
 	gofmt -w .
+
+screenshot:
+	LOOKOUT_SCREENSHOT=$(CURDIR)/bin/shot.ansi go test ./internal/ui -run Screenshot -count=1
+	python3 -I scripts/ansi2png.py bin/shot.ansi docs/screenshot.png
 
 snapshot:
 	goreleaser release --snapshot --clean

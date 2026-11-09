@@ -151,11 +151,14 @@ func changed(a, b Sample) bool {
 }
 
 // Save writes the state atomically.
-func Save(path string, s State) error {
+func Save(path string, s State) error { return writeJSON(path, s) }
+
+// writeJSON writes v to path atomically (temp file, then rename).
+func writeJSON(path string, v any) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return err
 	}
-	b, err := json.Marshal(s)
+	b, err := json.Marshal(v)
 	if err != nil {
 		return err
 	}

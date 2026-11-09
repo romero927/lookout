@@ -114,6 +114,15 @@ type Model struct {
 	codexErr     string
 	hookOK       bool
 	lastReview   time.Time
+	history      limits.History
+	histMod      time.Time
+	fired        limits.Fired
+
+	// Restart after a rebuild
+	exeMod   time.Time
+	exeSize  int64
+	newBuild bool
+	restart  bool
 
 	flash      string
 	flashStyle lipgloss.Style
@@ -125,6 +134,8 @@ func New(o Options) Model {
 	m := Model{o: o, now: time.Now(), gView: viewport.New(40, 10), rView: viewport.New(40, 10)}
 	m.refreshCrossCheck()
 	m.refreshLimits(true)
+	m.fired = limits.LoadFired(paths.AlertsFile())
+	m.checkBuild()
 	if o.ConfigErr != nil {
 		m.setFlash("config error: "+o.ConfigErr.Error()+" — using defaults", sRed, 10*time.Second)
 	}
@@ -165,13 +176,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tickMsg:
 		m.now = time.Time(msg)
 		m.refreshLimits(false)
+		m.checkBuild()
 		if m.loaded {
 			m.refresh()
 		}
 		if m.now.Sub(m.lastReview) >= 2*time.Second {
 			m.refreshCrossCheck()
 		}
-		return m, tick()
+		return m, tea.Batch(tick(), m.checkAlerts())
 
 	case editorDoneMsg:
 		switch {
@@ -227,6 +239,9 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 	switch key {
 	case "q", "ctrl+c":
+		return m, tea.Quit
+	case "R":
+		m.restart = true
 		return m, tea.Quit
 	case "?":
 		m.help = true
@@ -510,6 +525,9 @@ func (m Model) viewHeader() string {
 	if w := m.health.Warning(); w != "" {
 		right = append(right, sWarn.Render("! PARSER"))
 	}
+	if m.newBuild {
+		right = append(right, sGreen.Bold(true).Render("↻ R restart"))
+	}
 	right = append(right, m.limitBadges()...)
 	if m.crossOn {
 		right = append(right, sGreen.Render("● X-CHECK ON"))
@@ -554,6 +572,9 @@ func (m Model) viewFooter() string {
 	default:
 		keys = "1-4/tab panels · x cross-check · ? help · q quit"
 	}
+	if m.newBuild {
+		keys = "R restart into new build · " + keys
+	}
 	if m.flash != "" && time.Now().Before(m.flashUntil) {
 		return m.flashStyle.Render(clip(m.flash, m.width))
 	}
@@ -565,7 +586,7 @@ func (m Model) viewHelp() string {
 		section("Help", m.width),
 		"",
 		sBold.Render("Panels"),
-		"  1 Usage       token usage for the session, today, the last 5h and an estimated usage block",
+		"  1 Usage       limits, token usage for the session, today and the last 5h, and limit use per day",
 		"  2 Models      rules-based model suggestion; switch yourself with /model",
 		"  3 Files       Claude Code / Codex config and memory files (read-only by default)",
 		"  4 Cross-check Codex cross-check reviews of Claude's replies",
@@ -576,7 +597,12 @@ func (m Model) viewHelp() string {
 		"  ↑↓ / j k      move · enter to focus the viewer · esc to go back",
 		"  e             edit the selected file in $EDITOR (needs [files] allow_edit = true)",
 		"  r             rescan the file list",
+		"  R             restart Lookout (e.g. after a rebuild)",
 		"  q             quit",
+		"",
+		sBold.Render("Alerts"),
+		"  A bell, a desktop notification and a footer message when a limit passes 80% or 95%,",
+		"  or when your pace would reach it before the reset. Set them in [alerts] in config.toml.",
 		"",
 		sBold.Render("Files"),
 		"  config   " + ShortPath(paths.ConfigFile()),

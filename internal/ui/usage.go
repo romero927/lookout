@@ -130,6 +130,10 @@ func (m Model) viewUsage() string {
 	} else {
 		out = append(out, "", models, "", days)
 	}
+	if h := m.viewHistory(w); h != nil {
+		out = append(out, "")
+		out = append(out, h...)
+	}
 	return strings.Join(out, "\n")
 }
 

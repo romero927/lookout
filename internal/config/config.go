@@ -17,6 +17,7 @@ type Config struct {
 	UI         UI         `toml:"ui"`
 	Usage      Usage      `toml:"usage"`
 	Files      Files      `toml:"files"`
+	Alerts     Alerts     `toml:"alerts"`
 	Models     Models     `toml:"models"`
 	CrossCheck CrossCheck `toml:"crosscheck"`
 }
@@ -36,6 +37,19 @@ type Usage struct {
 	BurnWindowMinutes int `toml:"burn_window_minutes"`
 	// BlockHours is the length of the rolling window and of an estimated usage block.
 	BlockHours int `toml:"block_hours"`
+}
+
+// Alerts controls limit notifications from the dashboard.
+type Alerts struct {
+	// Bell rings the terminal bell (tmux marks the window).
+	Bell bool `toml:"bell"`
+	// Desktop sends a desktop notification (notify-send on Linux,
+	// osascript on macOS) when one is available.
+	Desktop bool `toml:"desktop"`
+	// Thresholds are the used percentages that trigger an alert.
+	Thresholds []float64 `toml:"thresholds"`
+	// Pace alerts when the current pace reaches 100% before the reset.
+	Pace bool `toml:"pace"`
 }
 
 // Files controls the config/memory file browser.
@@ -105,9 +119,10 @@ type CrossCheck struct {
 // Default returns the built-in configuration.
 func Default() Config {
 	return Config{
-		UI:    UI{Theme: "auto"},
-		Usage: Usage{HistoryDays: 30, BurnWindowMinutes: 10, BlockHours: 5},
-		Files: Files{AllowEdit: false, ExtraFiles: []string{}},
+		UI:     UI{Theme: "auto"},
+		Usage:  Usage{HistoryDays: 30, BurnWindowMinutes: 10, BlockHours: 5},
+		Files:  Files{AllowEdit: false, ExtraFiles: []string{}},
+		Alerts: Alerts{Bell: true, Desktop: true, Thresholds: []float64{80, 95}, Pace: true},
 		Models: Models{
 			ModelTiers:            []string{"haiku", "sonnet", "opus"},
 			RecentTurns:           3,
@@ -171,6 +186,9 @@ func (c *Config) fill() {
 	pos(&c.Usage.HistoryDays, d.Usage.HistoryDays)
 	pos(&c.Usage.BurnWindowMinutes, d.Usage.BurnWindowMinutes)
 	pos(&c.Usage.BlockHours, d.Usage.BlockHours)
+	if c.Alerts.Thresholds == nil {
+		c.Alerts.Thresholds = d.Alerts.Thresholds
+	}
 	s, ds := &c.Models, d.Models
 	if len(s.ModelTiers) == 0 {
 		s.ModelTiers = ds.ModelTiers
@@ -218,6 +236,12 @@ block_hours = 5            # rolling window and estimated usage block length
 [files]
 allow_edit = false         # true enables "e" to open a file in $EDITOR (a backup is made first)
 extra_files = []           # more files to list, e.g. ["~/.claude/keybindings.json"]
+
+[alerts]
+bell = true                # ring the terminal bell when a limit alert fires
+desktop = true             # also send a desktop notification (notify-send / osascript)
+thresholds = [80, 95]      # alert when a limit passes these percentages; [] turns them off
+pace = true                # alert when the current pace runs out before the reset
 
 [models]
 model_tiers = ["haiku", "sonnet", "opus"]   # cheapest -> most capable (/model aliases)

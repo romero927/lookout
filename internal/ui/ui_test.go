@@ -217,3 +217,62 @@ func TestLimitsWaitingWhenStatusLineInstalled(t *testing.T) {
 }
 
 func ptrF(v float64) *float64 { return &v }
+
+func TestHistoryAlertsAndRestart(t *testing.T) {
+	core, db := setup(t)
+	core.Cfg.Alerts.Desktop = false
+	core.Cfg.Alerts.Bell = false
+	now := time.Now()
+	st := limits.State{
+		UpdatedAt: now.Unix(),
+		FiveHour:  &limits.Window{UsedPercent: 85, ResetsAt: now.Add(30 * time.Minute).Unix()},
+		SevenDay:  &limits.Window{UsedPercent: 30, ResetsAt: now.Add(80 * time.Hour).Unix()},
+	}
+	if err := limits.Save(limits.FileFor(paths.LimitsDir(), "sess-ui"), st); err != nil {
+		t.Fatal(err)
+	}
+	today := now.Local().Format("2006-01-02")
+	h := limits.History{Days: []limits.DayUse{{Day: today, Weekly: 9, FiveHourPeak: 100}}}
+	if err := limits.SaveHistory(paths.HistoryFile(), h); err != nil {
+		t.Fatal(err)
+	}
+	exe := filepath.Join(t.TempDir(), "lookout")
+	if err := os.WriteFile(exe, []byte("v1"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	var m tea.Model = New(Options{Core: core, Store: db, Version: "test", Exe: exe})
+	m = drive(m, tea.WindowSizeMsg{Width: 110, Height: 90}, LoadedMsg{}, tickMsg(now))
+	v := plain(m.View())
+	for _, want := range []string{"WEEKLY LIMIT BY DAY", "+9% of weekly · hit 5h limit", "5-hour limit at 85%"} {
+		if !strings.Contains(v, want) {
+			t.Errorf("missing %q\n%s", want, v)
+		}
+	}
+	if f := limits.LoadFired(paths.AlertsFile()); len(f) == 0 {
+		t.Error("fired alert not saved")
+	}
+	// A second dashboard doesn't repeat it.
+	var m2 tea.Model = New(Options{Core: core, Store: db, Version: "test"})
+	m2 = drive(m2, tea.WindowSizeMsg{Width: 110, Height: 90}, LoadedMsg{}, tickMsg(now))
+	if strings.Contains(plain(m2.View()), "5-hour limit at 85%") {
+		t.Error("alert repeated by a second dashboard")
+	}
+
+	// Replace the binary: after it settles, R restart is offered.
+	if err := os.WriteFile(exe, []byte("v2-longer"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	m = drive(m, tickMsg(now.Add(time.Second)))
+	if strings.Contains(plain(m.View()), "R restart") {
+		t.Error("restart offered before the build settled")
+	}
+	m = drive(m, tickMsg(time.Now().Add(5*time.Second)))
+	if !strings.Contains(plain(m.View()), "R restart") {
+		t.Errorf("restart not offered\n%s", plain(m.View()))
+	}
+	m, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("R")})
+	if !m.(Model).RestartRequested() || cmd == nil {
+		t.Error("R should request a restart and quit")
+	}
+}

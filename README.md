@@ -4,8 +4,7 @@ A terminal dashboard that runs **beside** an interactive [Claude Code](https://d
 
 > **Unofficial.** Lookout is an independent open-source project. It is not affiliated with, endorsed by, or supported by Anthropic or OpenAI. "Claude" and "Claude Code" are trademarks of Anthropic; "Codex" and "ChatGPT" are trademarks of OpenAI.
 
-![Lookout screenshot](docs/screenshot.png)
-<!-- Screenshot placeholder: replace docs/screenshot.png with a real capture. -->
+![Lookout's Usage panel, rendered from synthetic data](docs/screenshot.png)
 
 ## What it is (and isn't)
 
@@ -20,12 +19,16 @@ Lookout is a **dashboard, not a wrapper**:
 
 | # | Panel | What it shows |
 |---|-------|---------------|
-| 1 | **Usage** | Your real **5-hour and weekly limits** (percent used, percent left, reset time) with a pace projection: where you'll be at reset, or when you'll hit the limit. Below that: the current session and its context fill, token counts for the session, today and the last 5 hours, burn rate, usage by model, and the last 7 days. **Tokens and percentages only, never dollars.** |
+| 1 | **Usage** | Your real **5-hour and weekly limits** (percent used, percent left, reset time) with a pace projection: where you'll be at reset, or when you'll hit the limit. Below that: the current session and its context fill, token counts for the session, today and the last 5 hours, burn rate, usage by model, the last 7 days, and how much of the weekly limit each day used. **Tokens and percentages only, never dollars.** |
 | 2 | **Models** | The current model, a suggested model, and a one-line reason, from tunable rules. You switch yourself with `/model`. It also flags when `/compact` or a fresh session is worth it, and logs each suggestion together with the model you actually used next. |
 | 3 | **Files** | Browse `~/.claude/settings.json`, the global and project `CLAUDE.md` files, auto-memory files, and `~/.codex/config.toml` / `AGENTS.md`. Read-only by default, with secret-looking values masked on screen. |
 | 4 | **Cross-check** | Codex cross-check reviews of Claude's replies, with a verdict (OK / CONCERNS / PROBLEMS). **Off by default.** |
 
-Keys: `1`–`4` or `tab` switch panels · `x` toggles cross-check · `↑↓`/`jk` move · `enter` focuses a viewer · `esc` goes back · `e` edits (if enabled) · `?` help · `q` quits.
+Keys: `1`–`4` or `tab` switch panels · `x` toggles cross-check · `↑↓`/`jk` move · `enter` focuses a viewer · `esc` goes back · `e` edits (if enabled) · `R` restarts · `?` help · `q` quits.
+
+**Alerts.** When a limit passes 80% or 95%, or your pace would reach it before the reset, the dashboard rings the terminal bell (tmux marks the window), sends a desktop notification (`notify-send` on Linux, `osascript` on macOS) and shows the alert in the footer. Each alert fires once per limit window, even across restarts and several open dashboards. Tune or turn them off under `[alerts]`.
+
+**New builds.** If the `lookout` binary is replaced while the dashboard runs (say, after `make build`), the header shows `↻ R restart`, and `R` restarts into the new build in place.
 
 ## Install
 
@@ -58,7 +61,7 @@ Claude Code passes your subscription's 5-hour and weekly usage (percent used and
 lookout statusline install --print
 ```
 
-Claude Code then runs `lookout statusline` after each update. It saves only the limit numbers (one small file per session under `limits/` in the data directory, so sessions on different accounts stay separate) and prints a short line under your prompt, e.g. `Opus 5.5 · ctx 12% · 5h 42% (resets 2h23m) · week 23%`. Settings allow only one status line, so this replaces any you already have. Limits are reported for Claude.ai subscriptions only; without them, Lookout falls back to a token-based estimate.
+Claude Code then runs `lookout statusline` after each update. It saves only the limit numbers (one small file per session under `limits/` in the data directory, so sessions on different accounts stay separate, plus a per-day total in `history.json`) and prints a short line under your prompt, e.g. `Opus 5.5 · ctx 12% · 5h 42% (resets 2h23m) · week 23%`. Settings allow only one status line, so this replaces any you already have. Limits are reported for Claude.ai subscriptions only; without them, Lookout falls back to a token-based estimate.
 
 ### Optional: Codex cross-check
 
@@ -109,6 +112,7 @@ Highlights:
 - `[models]`: every threshold (repeated edits, tool errors, multi-file turns, long prompts, frustration phrases, simple-turn streaks, short prompts, context %) and the model tier order (`model_tiers = ["haiku", "sonnet", "opus"]`).
 - `[files] allow_edit = true` turns on `e`, which opens the file in `$VISUAL`/`$EDITOR`. A timestamped backup is written to the data directory's `backups/` first, and is discarded if you didn't change anything.
 - `[crosscheck]`: `codex_path`, `model`, `timeout_seconds`, `max_chars`, `max_parallel`, `repo_access`, `prompt`.
+- `[alerts]`: `bell`, `desktop`, `thresholds` (default `[80, 95]`; `[]` turns them off) and `pace`.
 - `[ui] theme`: `auto`, `dark` or `light`. Inside tmux the terminal can't be asked, so dark is assumed. `LOOKOUT_THEME` overrides it.
 
 Lookout honours `CLAUDE_CONFIG_DIR` and `CODEX_HOME`.
@@ -118,6 +122,7 @@ Lookout honours `CLAUDE_CONFIG_DIR` and `CODEX_HOME`.
 - **Source.** JSONL transcripts under `~/.claude/projects/<project>/<session>.jsonl`, plus `…/<session>/subagents/*.jsonl` for subagents. Usage comes from `message.usage` on `assistant` records, and the model from `message.model`.
 - **Deduplication.** Claude Code writes one API response as several lines (one per content block), each repeating the same usage. Lookout counts each `message.id` once.
 - **Limits.** The percentages and reset times are exactly what Claude Code passes to the status line. They cover all your Claude usage, on any device, but only update when Claude Code refreshes its status line. The 5-hour pace is the change over the last 30 minutes (idle time counts); the weekly pace is the average since the week started. The projection assumes that pace holds.
+- **Weekly limit by day.** Each time Claude Code reports limits, the rise since the previous reading is added to that local day. After a window resets, the new window's usage counts in full. The first reading ever only sets a starting point, so the chart fills in from the day you connect the status line.
 - **Usage block (estimated, fallback).** Shown only when real limits aren't available: a 5-hour window that starts at the first message after a break, floored to the hour. It is a heuristic, not Anthropic's actual limit meter.
 - **Context.** Context ≈ input + cache read + cache write of the latest main-chain response. If a session goes past the configured window (default 200k), a 1M window is assumed.
 
@@ -131,6 +136,7 @@ Claude Code's transcript format isn't a public API and can change with any Claud
 make build    # static binary in ./bin
 make test     # go test ./... (race detector on)
 make lint     # golangci-lint, or go vet + gofmt if it isn't installed
+make screenshot  # re-render docs/screenshot.png from synthetic data (needs Python 3 + Pillow)
 ```
 
 All test fixtures are **synthetic**. Never commit real transcripts. To benchmark against your own data locally without copying it into the repo:
