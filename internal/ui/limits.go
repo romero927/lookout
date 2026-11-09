@@ -138,14 +138,14 @@ func (m Model) viewLimits(w int) []string {
 				sMuted.Render(fmt.Sprintf("· %.0f%% left", max(0, 100-p.Used)))),
 			indent+sMuted.Render("resets ")+sText.Render(resetText(p, m.now)),
 			indent+st.Render(clip(paceText(p), w-8)))
-		share, since := m.shareFive, "this 5-hour window"
+		share := m.shareFive
 		if isWeekly(p) {
-			share, since = m.shareWeek, "this weekly window"
+			share = m.shareWeek
 		}
 		if share >= 0 {
 			out = append(out, indent+sMuted.Render("this session: ")+
 				sText.Render(fmt.Sprintf("about %.0f of the %.0f%% used", share*p.Used, p.Used))+
-				sMuted.Render(clip(fmt.Sprintf(" (estimate: %.0f%% of this computer's Claude Code work in %s)", share*100, since), max(0, w-40))))
+				sMuted.Render(" (estimate)"))
 		}
 	}
 	note := "limits updated " + Ago(m.limits.Updated(), m.now) + " · they count your Claude usage on every device"
@@ -154,7 +154,8 @@ func (m Model) viewLimits(w int) []string {
 	}
 	out = append(out, "", sMuted.Render(clip(note, w)))
 	if m.shareFive >= 0 || m.shareWeek >= 0 {
-		out = append(out, sMuted.Render(clip("session estimates assume all of that usage came from Claude Code on this computer", w)))
+		out = append(out, sMuted.Render(clip("session estimate: this session's share of the Claude Code tokens used on this computer in that window,", w)),
+			sMuted.Render(clip("weighted by model; it assumes no other Claude usage (claude.ai, other computers) in the window", w)))
 	}
 	return out
 }
