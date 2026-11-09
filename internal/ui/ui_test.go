@@ -463,9 +463,18 @@ func TestMouseSelectCopies(t *testing.T) {
 }
 
 func TestSelectionText(t *testing.T) {
-	s := selection{from: cell{6, 1}, to: cell{2, 0}}
+	s := selection{from: cell{6, 1}, to: cell{2, 0}, box: [4]int{0, 100, 0, 10}}
 	got := s.text([]string{"\x1b[1mhello\x1b[0m world  ", "second line"})
 	if got != "llo world\nsecond" {
+		t.Errorf("got %q", got)
+	}
+}
+
+func TestSelectionStaysInPane(t *testing.T) {
+	// A reader pane from column 6: the list on the left isn't copied.
+	s := selection{from: cell{6, 0}, to: cell{10, 1}, box: [4]int{6, 22, 0, 10}}
+	got := s.text([]string{"lst │ first line", "lst │ second line"})
+	if got != "first line\nsecon" {
 		t.Errorf("got %q", got)
 	}
 }

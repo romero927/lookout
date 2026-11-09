@@ -4,17 +4,41 @@ import (
 	"strings"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
 )
 
 // Mouse selection, like Claude Code's: drag to highlight text, and it's
-// copied when you let go. The wheel scrolls like ↑↓.
+// copied when you let go. A drag stays inside the pane it starts in (the
+// list or the reader in split panels). The wheel scrolls like ↑↓.
 
 type cell struct{ x, y int }
 
 type selection struct {
 	on       bool // dragging
 	from, to cell
+	box      [4]int // pane bounds: x0, x1 (exclusive), y0, y1 (inclusive)
+}
+
+// pane is the area a drag starting at column x is kept within.
+func (m Model) pane(x int) [4]int {
+	y0 := lipgloss.Height(m.viewHeader())
+	y1 := m.height - lipgloss.Height(m.viewFooter()) - 1
+	b := [4]int{0, m.width, y0, max(y0, y1)}
+	split := !m.help && !m.picking && m.loaded &&
+		(m.tab == tabActivity || m.tab == tabChanges || m.tab == tabSkills || m.tab == tabFiles)
+	if split {
+		if lw := m.listWidth(); x < lw {
+			b[1] = lw
+		} else {
+			b[0] = lw + 2 // past the border and padding
+		}
+	}
+	return b
+}
+
+func (s selection) clamp(x, y int) cell {
+	return cell{min(max(x, s.box[0]), s.box[1]-1), min(max(y, s.box[2]), s.box[3])}
 }
 
 func (m Model) mouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
@@ -24,11 +48,13 @@ func (m Model) mouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	case msg.Button == tea.MouseButtonWheelDown:
 		return m.handleKey(tea.KeyMsg{Type: tea.KeyDown})
 	case msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft:
-		m.sel = selection{on: true, from: cell{msg.X, msg.Y}, to: cell{msg.X, msg.Y}}
+		m.sel = selection{on: true, box: m.pane(msg.X)}
+		m.sel.from = m.sel.clamp(msg.X, msg.Y)
+		m.sel.to = m.sel.from
 	case msg.Action == tea.MouseActionMotion && m.sel.on:
-		m.sel.to = cell{msg.X, msg.Y}
+		m.sel.to = m.sel.clamp(msg.X, msg.Y)
 	case msg.Action == tea.MouseActionRelease && m.sel.on:
-		m.sel.to = cell{msg.X, msg.Y}
+		m.sel.to = m.sel.clamp(msg.X, msg.Y)
 		text := m.sel.text(strings.Split(m.render(), "\n"))
 		m.sel = selection{}
 		if strings.TrimSpace(text) != "" {
@@ -47,7 +73,7 @@ func (s selection) span(y, width int) (a, b int, ok bool) {
 	if y < p.y || y > q.y {
 		return 0, 0, false
 	}
-	a, b = 0, width
+	a, b = s.box[0], min(width, s.box[1])
 	if y == p.y {
 		a = p.x
 	}
