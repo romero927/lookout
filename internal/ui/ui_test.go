@@ -90,7 +90,7 @@ func TestPanelsRender(t *testing.T) {
 			{"3", []string{"CHANGES", "1 edited file no longer"}},
 			{"4", []string{"CONTEXT", "Startup", "LARGEST ITEMS"}},
 			{"5", []string{"RECOMMENDATION", "Upgrade to opus", "frustration", "/model opus", "MODELS YOU CAN SWITCH TO", "Fastest for quick answers"}},
-			{"6", []string{"SKILLS"}},
+			{"7", []string{"SKILLS"}},
 			{"8", []string{"FILES", "settings.json"}},
 		}
 		for _, p := range panels {
@@ -364,7 +364,7 @@ func TestContextItemsSeeAllAndDetail(t *testing.T) {
 func TestCheatsheet(t *testing.T) {
 	core, db := setup(t)
 	var m tea.Model = New(Options{Core: core, Store: db, Version: "test"})
-	m = drive(m, tea.WindowSizeMsg{Width: 120, Height: 50}, LoadedMsg{}, key("7"))
+	m = drive(m, tea.WindowSizeMsg{Width: 120, Height: 50}, LoadedMsg{}, key("6"))
 	v := plain(m.View())
 	for _, want := range []string{"CHEATSHEET", "FOR THIS SESSION", "/model opus", "claude --resume sess-ui", "/compact", "/rewind", "/resume"} {
 		if !strings.Contains(v, want) {

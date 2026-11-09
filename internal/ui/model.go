@@ -54,12 +54,12 @@ const (
 	tabChanges
 	tabContext
 	tabModels
-	tabSkills
 	tabCheatsheet
+	tabSkills
 	tabFiles
 )
 
-var tabNames = []string{"Usage", "Activity", "Changes", "Context", "Models", "Skills", "Cheatsheet", "Files"}
+var tabNames = []string{"Usage", "Activity", "Changes", "Context", "Models", "Cheatsheet", "Skills", "Files"}
 
 // Options configure the model.
 type Options struct {
@@ -659,8 +659,8 @@ func (m Model) viewHelp() string {
 		"  3 Changes     every file changed this session (Claude's edits, uncommitted, committed), with diffs",
 		"  4 Context     what fills the context window, by kind and largest items",
 		"  5 Models      model suggestion and what each model is for; switch yourself with /model",
-		"  6 Skills      skills, custom commands and subagents Claude can use, and how to run them",
-		"  7 Cheatsheet  Claude Code commands to copy and paste, incl. ones for this session",
+		"  6 Cheatsheet  Claude Code commands to copy and paste, incl. ones for this session",
+		"  7 Skills      skills, custom commands and subagents Claude can use, and how to run them",
 		"  8 Files       Claude Code config and memory files, read-only by default",
 		"",
 		sBold.Render("Keys"),
