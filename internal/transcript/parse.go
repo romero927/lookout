@@ -1,0 +1,338 @@
+package transcript
+
+import (
+	"bytes"
+	"regexp"
+	"strings"
+	"time"
+)
+
+// ParseLine parses one JSONL line. It never panics. Unknown record types
+// return KindOther with StatusOK; unknown fields are ignored.
+func ParseLine(line []byte) (rec Record, st Status) {
+	defer func() {
+		if recover() != nil {
+			rec, st = Record{}, StatusMalformed
+		}
+	}()
+
+	line = bytes.TrimSpace(line)
+	if len(line) == 0 {
+		return Record{}, StatusBlank
+	}
+	if line[0] != '{' {
+		return Record{}, StatusMalformed
+	}
+
+	degraded := false
+	var typ, subtype, ts []byte
+	var message, compact []byte
+	setStr := func(dst *string, v []byte) {
+		s, ok := str(v)
+		if !ok && string(v) != "null" {
+			degraded = true
+		}
+		*dst = s
+	}
+	setBool := func(dst *bool, v []byte) {
+		b, ok := boolean(v)
+		if !ok {
+			degraded = true
+		}
+		*dst = b
+	}
+	ok := eachField(line, func(k, v []byte) {
+		switch string(k) {
+		case "type":
+			typ = v
+		case "subtype":
+			subtype = v
+		case "timestamp":
+			ts = v
+		case "message":
+			message = v
+		case "compactMetadata":
+			compact = v
+		case "uuid":
+			setStr(&rec.UUID, v)
+		case "sessionId":
+			setStr(&rec.SessionID, v)
+		case "agentId":
+			setStr(&rec.AgentID, v)
+		case "cwd":
+			setStr(&rec.Cwd, v)
+		case "requestId":
+			setStr(&rec.RequestID, v)
+		case "isSidechain":
+			setBool(&rec.Sidechain, v)
+		case "isMeta":
+			setBool(&rec.Meta, v)
+		}
+	})
+	if !ok {
+		return Record{}, StatusMalformed
+	}
+
+	if typ != nil {
+		setStr(&rec.Type, typ)
+	}
+	if ts != nil {
+		s, _ := str(ts)
+		if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
+			rec.Timestamp = t
+		} else {
+			degraded = true
+		}
+	}
+
+	switch rec.Type {
+	case "assistant":
+		rec.Kind = KindAssistant
+		if !parseAssistant(&rec, message) {
+			degraded = true
+		}
+	case "user":
+		rec.Kind = KindUser
+		if !parseUser(&rec, message) {
+			degraded = true
+		}
+	case "system":
+		if s, _ := str(subtype); s == "compact_boundary" {
+			rec.Kind = KindCompact
+			if compact != nil {
+				eachField(compact, func(k, v []byte) {
+					switch string(k) {
+					case "preTokens":
+						rec.CompactPre = integer(v)
+					case "postTokens":
+						rec.CompactPost = integer(v)
+					}
+				})
+			}
+		}
+	case "":
+		degraded = true
+	}
+
+	if rec.Kind != KindOther && rec.Timestamp.IsZero() {
+		degraded = true
+	}
+	if degraded {
+		return rec, StatusDegraded
+	}
+	return rec, StatusOK
+}
+
+// parseAssistant fills assistant fields. It returns false when the fields
+// Overwatch depends on (model, usage) are missing or mistyped.
+func parseAssistant(rec *Record, msg []byte) bool {
+	ok := true
+	var content, usage []byte
+	if msg == nil || !eachField(msg, func(k, v []byte) {
+		var good bool
+		switch string(k) {
+		case "id":
+			rec.MessageID, good = str(v)
+		case "model":
+			rec.Model, good = str(v)
+		case "stop_reason":
+			rec.StopReason, _ = str(v)
+			good = true
+		case "content":
+			content, good = v, true
+		case "usage":
+			usage, good = v, true
+		default:
+			good = true
+		}
+		if !good {
+			ok = false
+		}
+	}) {
+		return false
+	}
+	if usage != nil {
+		eachField(usage, func(k, v []byte) {
+			switch string(k) {
+			case "input_tokens":
+				rec.Usage.Input, rec.HasUsage = integer(v), true
+			case "output_tokens":
+				rec.Usage.Output, rec.HasUsage = integer(v), true
+			case "cache_creation_input_tokens":
+				rec.Usage.CacheCreate = integer(v)
+			case "cache_read_input_tokens":
+				rec.Usage.CacheRead = integer(v)
+			case "output_tokens_details":
+				eachField(v, func(k, v []byte) {
+					if string(k) == "thinking_tokens" {
+						rec.Usage.Thinking = integer(v)
+					}
+				})
+			}
+		})
+	}
+
+	var texts []string
+	eachElem(content, func(b []byte) {
+		var typ, text, id, name, input []byte
+		if !eachField(b, func(k, v []byte) {
+			switch string(k) {
+			case "type":
+				typ = v
+			case "text":
+				text = v
+			case "id":
+				id = v
+			case "name":
+				name = v
+			case "input":
+				input = v
+			}
+		}) {
+			return
+		}
+		switch t, _ := str(typ); t {
+		case "text":
+			if s, _ := str(text); s != "" {
+				texts = append(texts, s)
+			}
+		case "tool_use":
+			tu := ToolUse{}
+			tu.ID, _ = str(id)
+			tu.Name, _ = str(name)
+			eachField(input, func(k, v []byte) {
+				switch string(k) {
+				case "file_path":
+					tu.FilePath, _ = str(v)
+				case "notebook_path":
+					if tu.FilePath == "" {
+						tu.FilePath, _ = str(v)
+					}
+				case "command":
+					tu.Command, _ = strPrefix(v, 500)
+				}
+			})
+			rec.ToolUses = append(rec.ToolUses, tu)
+		}
+	})
+	rec.Text = strings.Join(texts, "\n")
+
+	if rec.Model == SyntheticModel {
+		return ok
+	}
+	return ok && rec.Model != "" && rec.HasUsage
+}
+
+var commandNameRe = regexp.MustCompile(`<command-name>\s*(/?[\w:.-]+)\s*</command-name>`)
+
+// parseUser fills prompt / tool-result fields.
+func parseUser(rec *Record, msg []byte) bool {
+	var content []byte
+	if msg == nil || !eachField(msg, func(k, v []byte) {
+		if string(k) == "content" {
+			content = v
+		}
+	}) || len(content) == 0 {
+		return false
+	}
+	switch content[0] {
+	case '"':
+		s, ok := str(content)
+		if !ok {
+			return false
+		}
+		setPrompt(rec, s)
+		return true
+	case '[':
+	default:
+		return false
+	}
+	var texts []string
+	eachElem(content, func(b []byte) {
+		var typ, text, toolUseID, isError, inner []byte
+		if !eachField(b, func(k, v []byte) {
+			switch string(k) {
+			case "type":
+				typ = v
+			case "text":
+				text = v
+			case "tool_use_id":
+				toolUseID = v
+			case "is_error":
+				isError = v
+			case "content":
+				inner = v
+			}
+		}) {
+			return
+		}
+		switch t, _ := str(typ); t {
+		case "text":
+			s, _ := str(text)
+			texts = append(texts, s)
+		case "tool_result":
+			tr := ToolResult{}
+			tr.ToolUseID, _ = str(toolUseID)
+			tr.IsError, _ = boolean(isError)
+			tr.Text = contentText(inner, MaxResultText)
+			rec.ToolResults = append(rec.ToolResults, tr)
+		}
+	})
+	if len(rec.ToolResults) == 0 && len(texts) > 0 {
+		setPrompt(rec, strings.Join(texts, "\n"))
+	}
+	return true
+}
+
+// setPrompt classifies a user text: a slash command, a typed prompt, or
+// injected markup (which is ignored).
+func setPrompt(rec *Record, s string) {
+	if m := commandNameRe.FindStringSubmatch(s); m != nil {
+		cmd := m[1]
+		if !strings.HasPrefix(cmd, "/") {
+			cmd = "/" + cmd
+		}
+		rec.Command = cmd
+		return
+	}
+	t := strings.TrimSpace(s)
+	if rec.Meta || strings.HasPrefix(t, "<") {
+		// Injected content: bash output, task notifications, caveats, etc.
+		return
+	}
+	rec.Prompt = t
+}
+
+// contentText flattens a tool_result content value (string or text
+// blocks), decoding at most max bytes.
+func contentText(c []byte, max int) string {
+	if len(c) == 0 {
+		return ""
+	}
+	if c[0] == '"' {
+		s, _ := strPrefix(c, max)
+		return s
+	}
+	var parts []string
+	n := 0
+	eachElem(c, func(b []byte) {
+		if n >= max {
+			return
+		}
+		var typ, text []byte
+		eachField(b, func(k, v []byte) {
+			switch string(k) {
+			case "type":
+				typ = v
+			case "text":
+				text = v
+			}
+		})
+		if t, _ := str(typ); t == "text" {
+			s, _ := strPrefix(text, max-n)
+			parts = append(parts, s)
+			n += len(s) + 1
+		}
+	})
+	return string(cutRune([]byte(strings.Join(parts, "\n")), max))
+}

@@ -1,0 +1,31 @@
+# Binaries and build output
+/bin/
+/dist/
+/overwatch
+*.exe
+*.test
+*.out
+*.prof
+
+# Overwatch runtime data (if pointed inside the repo)
+*.db
+*.db-shm
+*.db-wal
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal
+*.bak
+backups/
+logs/
+*.log
+
+# Never commit real Claude Code / Codex data. Fixtures must be synthetic.
+.claude/
+.codex/
+*.real.jsonl
+
+# Editors / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
