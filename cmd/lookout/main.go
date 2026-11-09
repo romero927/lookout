@@ -289,6 +289,14 @@ func cmdStats(args []string, stdout, stderr io.Writer) int {
 
 func printLimits(w io.Writer, st limits.State, now time.Time) {
 	five, week := st.Paces(now)
+	if st.SeenNoLimits() {
+		fmt.Fprint(w, "\nLimits: none reported (API key or pay-as-you-go account).")
+		if st.CostUSD != nil {
+			fmt.Fprintf(w, " Cost of the latest session so far: %s.", limits.Money(*st.CostUSD))
+		}
+		fmt.Fprintln(w)
+		return
+	}
 	if five == nil && week == nil {
 		fmt.Fprintln(w, "\nLimits: no data yet. See: lookout statusline install --print")
 		return
@@ -376,8 +384,8 @@ func cmdStatusLine(args []string, stdin io.Reader, stdout, stderr io.Writer) int
 		}
 		fmt.Fprintf(stdout, "Lookout never edits your settings. To show your 5-hour and weekly limits, merge this into\n%s:\n\n", settings)
 		fmt.Fprintln(stdout, limits.StatusLineSnippet(selfPath()))
-		fmt.Fprintln(stdout, "\nClaude Code then runs it after each reply and passes it your usage limits. Lookout")
-		fmt.Fprintln(stdout, "saves only those numbers and prints a short line under the prompt.")
+		fmt.Fprintln(stdout, "\nClaude Code then runs it after each reply and passes it your usage limits, context use and cost. Lookout")
+		fmt.Fprintln(stdout, "saves only those few numbers and prints a short line under the prompt.")
 		switch configured, ours := limits.StatusLineSetting(settings); {
 		case ours:
 			fmt.Fprintln(stdout, "\nStatus: Lookout's status line is already set up in that file.")

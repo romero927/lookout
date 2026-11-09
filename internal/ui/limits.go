@@ -149,8 +149,11 @@ func (m Model) viewLimitsMissing(w int) []string {
 	out := []string{section("Limits", w)}
 	switch {
 	case m.slOurs && m.limits.SeenNoLimits():
-		out = append(out, sMuted.Render(clip("This account doesn't report 5-hour or weekly limits (API key or pay-as-you-go).", w)),
-			sMuted.Render(clip("Tokens below are what you're billed on.", w)))
+		if c := m.limits.CostUSD; c != nil && m.limitsExact() {
+			out = append(out, sLabel.Render("COST    ")+sBold.Render(limits.Money(*c))+
+				sMuted.Render(clip(" this session, as reported by Claude Code", max(0, w-18))))
+		}
+		out = append(out, sMuted.Render(clip("No 5-hour or weekly limits: this is an API key or pay-as-you-go account.", w)))
 		return out
 	case m.slOurs:
 		out = append(out, sYellow.Render(clip("Waiting for Claude Code: limits arrive after its next reply.", w)),

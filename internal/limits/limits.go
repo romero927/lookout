@@ -59,6 +59,11 @@ type State struct {
 	// percent, and ContextAt when. Reported for every account type.
 	Context   *float64 `json:"ctx,omitempty"`
 	ContextAt int64    `json:"ctx_at,omitempty"`
+
+	// CostUSD is the session's cost so far as Claude Code reports it. It is
+	// shown only for accounts without subscription limits, where it is what
+	// you actually pay.
+	CostUSD *float64 `json:"cost_usd,omitempty"`
 }
 
 // ContextPercent returns the reported context use if it is recent.
@@ -93,6 +98,9 @@ type StatusInput struct {
 	ContextWindow struct {
 		UsedPercentage *float64 `json:"used_percentage"`
 	} `json:"context_window"`
+	Cost struct {
+		TotalCostUSD *float64 `json:"total_cost_usd"`
+	} `json:"cost"`
 	RateLimits *struct {
 		FiveHour *Window `json:"five_hour"`
 		SevenDay *Window `json:"seven_day"`
@@ -129,6 +137,10 @@ func (s *State) Apply(in StatusInput, now time.Time) bool {
 	if c := in.ContextWindow.UsedPercentage; c != nil {
 		v := *c
 		s.Context, s.ContextAt, ctx = &v, now.Unix(), true
+	}
+	if c := in.Cost.TotalCostUSD; c != nil {
+		v := *c
+		s.CostUSD, s.ContextAt, ctx = &v, now.Unix(), true
 	}
 	if in.RateLimits == nil || (in.RateLimits.FiveHour == nil && in.RateLimits.SevenDay == nil) {
 		return ctx
@@ -327,6 +339,9 @@ func StatusLine(in StatusInput, s State, now time.Time) string {
 	if week != nil && !week.Expired {
 		parts = append(parts, fmt.Sprintf("week %.0f%%", week.Used))
 	}
+	if c := in.Cost.TotalCostUSD; c != nil && in.RateLimits == nil && !s.HasData() {
+		parts = append(parts, Money(*c))
+	}
 	if len(parts) == 0 {
 		return "lookout"
 	}
@@ -343,4 +358,12 @@ func shortDur(d time.Duration) string {
 	default:
 		return fmt.Sprintf("%dm", int(math.Max(0, d.Minutes())))
 	}
+}
+
+// Money formats US dollars: "$0.42", "$12.30".
+func Money(usd float64) string {
+	if usd > 0 && usd < 0.01 {
+		return "<$0.01"
+	}
+	return fmt.Sprintf("$%.2f", usd)
 }

@@ -315,14 +315,14 @@ func TestLimitsForAPIKeyAccount(t *testing.T) {
 	if err := os.WriteFile(settings, []byte(`{"statusLine":{"type":"command","command":"/x/lookout statusline"}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	c := 12.0
-	st := limits.State{Context: &c, ContextAt: time.Now().Unix()}
+	c, cost := 12.0, 3.5
+	st := limits.State{Context: &c, ContextAt: time.Now().Unix(), CostUSD: &cost}
 	if err := limits.Save(limits.FileFor(paths.LimitsDir(), "sess-ui"), st); err != nil {
 		t.Fatal(err)
 	}
 	var m tea.Model = New(Options{Core: core, Store: db, Version: "test"})
 	v := plain(drive(m, tea.WindowSizeMsg{Width: 120, Height: 40}, LoadedMsg{}).View())
-	if !strings.Contains(v, "API key or pay-as-you-go") || strings.Contains(v, "Waiting for Claude Code") {
+	if !strings.Contains(v, "API key or pay-as-you-go") || !strings.Contains(v, "$3.50 this session") || strings.Contains(v, "Waiting for Claude Code") {
 		t.Errorf("API-key account not recognised\n%s", v)
 	}
 	// The reported context replaces the token estimate.

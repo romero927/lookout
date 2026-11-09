@@ -267,4 +267,17 @@ func TestApplyContextWithoutLimits(t *testing.T) {
 	if (&State{}).Apply(StatusInput{}, now) {
 		t.Error("empty input should not be recorded")
 	}
+	cost := 1.234
+	in.Cost.TotalCostUSD = &cost
+	in.Model.DisplayName = "Opus 5.5"
+	s.Apply(in, now)
+	if s.CostUSD == nil || *s.CostUSD != cost {
+		t.Errorf("cost not recorded: %+v", s)
+	}
+	if got := StatusLine(in, s, now); got != "Opus 5.5 · ctx 37% · $1.23" {
+		t.Errorf("status line %q", got)
+	}
+	if Money(0.004) != "<$0.01" || Money(0) != "$0.00" {
+		t.Error("Money formatting")
+	}
 }
