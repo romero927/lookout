@@ -178,7 +178,7 @@ func TestLimitsPanel(t *testing.T) {
 		m = drive(m, size, LoadedMsg{})
 		v := plain(m.View())
 		// 20 points in 20 minutes = 60%/h: the limit is hit well before reset.
-		for _, want := range []string{"5-HOUR", "62% used", "38% left", "recent pace 60%/h", "before reset", "WEEKLY", "30% used", "avg pace", "5h 62%", "wk 30%"} {
+		for _, want := range []string{"5-HOUR", "62% used", "38% left", "recent pace 60%/h", "before reset", "WEEKLY", "30% used", "average pace", "5h 62%", "wk 30%"} {
 			if !strings.Contains(v, want) {
 				t.Errorf("%dx%d: missing %q\n%s", size.Width, size.Height, want, v)
 			}

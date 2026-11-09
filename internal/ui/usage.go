@@ -72,7 +72,7 @@ func (m Model) viewUsage() string {
 	}{
 		{"Session", UsageRow{m.snap.Session.Usage, m.snap.Session.Messages}, true, subNote(m.snap.SessionSub)},
 		{"Today", UsageRow{m.snap.Today.Usage, m.snap.Today.Messages}, false, ""},
-		{fmt.Sprintf("Last %dh", hours), UsageRow{m.snap.Rolling.Usage, m.snap.Rolling.Messages}, false, "rolling"},
+		{fmt.Sprintf("Last %dh", hours), UsageRow{m.snap.Rolling.Usage, m.snap.Rolling.Messages}, false, ""},
 	}
 	cardW := min(34, (w-2)/len(cards)-4) // each card adds a border and padding
 	if cardW >= 22 {
@@ -110,7 +110,7 @@ func (m Model) viewUsage() string {
 		}
 		var notes []string
 		for _, c := range cards {
-			if c.note != "" && c.note != "rolling" {
+			if c.note != "" {
 				notes = append(notes, strings.TrimSuffix(c.title, " (est.)")+": "+c.note)
 			}
 		}
@@ -120,9 +120,9 @@ func (m Model) viewUsage() string {
 	}
 
 	// Pace.
-	out = append(out, clip(sMuted.Render(fmt.Sprintf("pace, last %d min: ", m.o.Core.Cfg.Usage.BurnWindowMinutes))+
-		sBold.Render(Rate(m.snap.OutputPerMin))+sMuted.Render(" output/min · ")+
-		sBold.Render(Rate(m.snap.FreshPerMin))+sMuted.Render(" new tokens/min (cache reads not counted)"), w+60))
+	out = append(out, clip(sMuted.Render(fmt.Sprintf("pace over the last %d min: ", m.o.Core.Cfg.Usage.BurnWindowMinutes))+
+		sBold.Render(Rate(m.snap.OutputPerMin))+sMuted.Render(" output tokens/min · ")+
+		sBold.Render(Rate(m.snap.FreshPerMin))+sMuted.Render(" new tokens/min (not counting cache reads)"), w+60))
 
 	// Models today + last 7 days, side by side when wide.
 	if w >= 110 {
@@ -238,7 +238,9 @@ func (m Model) viewDays(w int) string {
 		lines = append(lines, clip(line, w+40))
 	}
 	if tracked != "" {
-		lines = append(lines, sMuted.Render(clip("% of weekly = how much of your weekly limit that day used; tracked since "+tracked[5:], w)))
+		lines = append(lines,
+			sMuted.Render(clip("% of weekly = how much of the weekly limit that day used", w)),
+			sMuted.Render(clip("5h = the highest 5-hour reading that day · tracked since "+tracked[5:], w)))
 	}
 	return strings.Join(lines, "\n")
 }
