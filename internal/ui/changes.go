@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 
@@ -38,6 +39,7 @@ type changeItem struct {
 	F      *activity.FileChange // nil when Claude didn't edit it
 	Status string               // git porcelain code; "" when clean or unknown
 	Group  int
+	Repo   string // the repository's top folder; "" when not in one
 }
 
 func (m Model) changeItems() []changeItem {
@@ -71,7 +73,46 @@ func (m Model) changeItems() []changeItem {
 		}
 	}
 	_ = gone // listed only as a count: usually old paths from moved folders
+
+	// Within each group, files are grouped by repository: the session's own
+	// first, then the others in the order they first appear.
+	order := map[string]int{}
+	if m.hasSess {
+		order[m.repoOf(m.sess.Cwd)] = 0
+	}
+	for i := range items {
+		items[i].Repo = m.repoOf(items[i].Path)
+		if _, ok := order[items[i].Repo]; !ok {
+			order[items[i].Repo] = len(order)
+		}
+	}
+	sort.SliceStable(items, func(a, b int) bool {
+		if items[a].Group != items[b].Group {
+			return items[a].Group < items[b].Group
+		}
+		return order[items[a].Repo] < order[items[b].Repo]
+	})
 	return items
+}
+
+// repoOf is the checked repository containing p (the deepest, when they
+// nest), or "".
+func (m Model) repoOf(p string) string {
+	best := ""
+	for _, top := range m.workTops {
+		if (p == top || strings.HasPrefix(p, top+string(filepath.Separator))) && len(top) > len(best) {
+			best = top
+		}
+	}
+	return best
+}
+
+// repoName names a repository heading in the Changes list.
+func repoName(top string) string {
+	if top == "" {
+		return "not in a git repository"
+	}
+	return filepath.Base(top)
 }
 
 func (m Model) selectedChange() (changeItem, bool) {
@@ -117,7 +158,13 @@ func (m Model) changesList(lw int) list {
 	if len(items) == 0 || items[0].Group != grpClaude {
 		l.add(sMuted.Render("  none yet"), -1)
 	}
-	group := grpClaude
+	// Repository headings only help when there is more than one.
+	repos := map[string]bool{}
+	for _, it := range items {
+		repos[it.Repo] = true
+	}
+	byRepo := len(repos) > 1
+	group, repo := grpClaude, "\x00"
 	for i, it := range items {
 		if it.Group != group {
 			group = it.Group
@@ -127,6 +174,15 @@ func (m Model) changesList(lw int) list {
 			}
 			l.add("", -1)
 			l.add(sLabel.Render(clip(title, lw)), -1)
+			repo = "\x00"
+		}
+		indent := ""
+		if byRepo {
+			if it.Repo != repo {
+				repo = it.Repo
+				l.add(sBlue.Render(clip("  "+repoName(repo), lw)), -1)
+			}
+			indent = "  "
 		}
 		var stat string
 		switch {
@@ -135,8 +191,14 @@ func (m Model) changesList(lw int) list {
 		default:
 			stat = sYellow.Render(strings.TrimSpace(it.Status))
 		}
-		nameW := max(4, lw-lipgloss.Width(stat)-4)
-		name := pad(clipLeft(m.relPath(it.Path), nameW), nameW)
+		nameW := max(4, lw-lipgloss.Width(stat)-4-len(indent))
+		path := m.relPath(it.Path)
+		if byRepo && it.Repo != "" {
+			if r, err := filepath.Rel(it.Repo, it.Path); err == nil {
+				path = r // the heading names the repository
+			}
+		}
+		name := indent + pad(clipLeft(path, nameW), nameW)
 		if i == m.cSel {
 			l.sel = len(l.lines)
 			l.add(sSelected.Render("▸ "+name)+" "+stat, i)

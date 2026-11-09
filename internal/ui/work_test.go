@@ -4,8 +4,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/romero927/lookout/internal/activity"
 )
 
 func TestCheckWorkAcrossRepos(t *testing.T) {
@@ -43,5 +46,44 @@ func TestCheckWorkAcrossRepos(t *testing.T) {
 	}
 	if msg := checkWork("k", []string{plain}, since); msg.err == nil {
 		t.Error("no repository at all should report an error")
+	}
+}
+
+func TestChangesGroupedByRepo(t *testing.T) {
+	var m Model
+	m.hasSess = true
+	m.sess.Cwd = "/w/site"
+	m.workTops = []string{"/w/site", "/w/tool"}
+	m.work = []activity.WorkChange{
+		{Path: "/w/tool/b.go", Status: " M"},
+		{Path: "/w/site/a.js", Status: " M"},
+		{Path: "/w/tool/c.go", Status: "??"},
+	}
+	m.committed = []activity.WorkChange{{Path: "/w/tool/d.go", Status: "M"}}
+
+	items := m.changeItems()
+	var got []string
+	for _, it := range items {
+		got = append(got, it.Path)
+	}
+	want := []string{"/w/site/a.js", "/w/tool/b.go", "/w/tool/c.go", "/w/tool/d.go"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("order = %v, want %v (own repo first, then others)", got, want)
+	}
+
+	text := plainText(strings.Join(m.changesList(50).lines, "\n"))
+	for _, s := range []string{"  site\n", "  tool\n", "    b.go", "Committed since the session started\n  tool\n    d.go"} {
+		if !strings.Contains(text, s) {
+			t.Errorf("missing %q in\n%s", s, text)
+		}
+	}
+	if strings.Count(text, "  tool\n") != 2 {
+		t.Errorf("tool heading should repeat in each group\n%s", text)
+	}
+
+	// One repository: no headings.
+	m.work, m.committed = m.work[1:2], nil
+	if text := plainText(strings.Join(m.changesList(50).lines, "\n")); strings.Contains(text, "  site\n") {
+		t.Errorf("single repo should have no heading\n%s", text)
 	}
 }
