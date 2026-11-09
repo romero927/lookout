@@ -331,3 +331,52 @@ func TestLimitsForAPIKeyAccount(t *testing.T) {
 		t.Errorf("reported context not shown\n%s", v)
 	}
 }
+
+func TestContextItemsSeeAllAndDetail(t *testing.T) {
+	core, db := setup(t)
+	var m tea.Model = New(Options{Core: core, Store: db, Version: "test"})
+	m = drive(m, tea.WindowSizeMsg{Width: 120, Height: 40}, LoadedMsg{}, key("4"))
+	v := plain(m.View())
+	if !strings.Contains(v, "LARGEST ITEMS") || !strings.Contains(v, "a see all") {
+		t.Fatalf("context list:\n%s", v)
+	}
+	m = drive(m, key("a"))
+	if v := plain(m.View()); !strings.Contains(v, "ALL ITEMS") {
+		t.Errorf("see all not shown:\n%s", v)
+	}
+	m = drive(m, key("enter"))
+	v = plain(m.View())
+	for _, want := range []string{"TO DROP IT FROM CLAUDE'S CONTEXT", "/compact Drop", "c copies it"} {
+		if !strings.Contains(v, want) {
+			t.Errorf("detail missing %q\n%s", want, v)
+		}
+	}
+	if _, cmd := m.Update(key("c")); cmd == nil {
+		t.Error("c should copy the /compact line")
+	}
+	m = drive(m, key("esc"))
+	if strings.Contains(plain(m.View()), "TO DROP IT") {
+		t.Error("esc should return to the list")
+	}
+}
+
+func TestCheatsheet(t *testing.T) {
+	core, db := setup(t)
+	var m tea.Model = New(Options{Core: core, Store: db, Version: "test"})
+	m = drive(m, tea.WindowSizeMsg{Width: 120, Height: 50}, LoadedMsg{}, key("7"))
+	v := plain(m.View())
+	for _, want := range []string{"CHEATSHEET", "FOR THIS SESSION", "/model opus", "claude --resume sess-ui", "/compact", "/rewind", "/resume"} {
+		if !strings.Contains(v, want) {
+			t.Errorf("missing %q\n%s", want, v)
+		}
+	}
+	if _, cmd := m.Update(key("enter")); cmd == nil {
+		t.Error("enter should copy the command")
+	}
+	if got := shellQuote("/work/my app"); got != "'/work/my app'" {
+		t.Errorf("shellQuote = %q", got)
+	}
+	if got := shellQuote("/work/demo"); got != "/work/demo" {
+		t.Errorf("shellQuote = %q", got)
+	}
+}

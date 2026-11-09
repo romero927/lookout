@@ -4,11 +4,17 @@ import (
 	"fmt"
 	"strings"
 
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
+
 	"github.com/romero927/lookout/internal/activity"
 )
 
+// topItems is how many items the Context panel lists until "see all".
+const topItems = 12
+
 // viewContext breaks the context window down by what filled it.
-func (m Model) viewContext() string {
+func (m Model) viewContext(h int) string {
 	w := m.width
 	v := m.ctxView
 	out := []string{section("Context", w)}
@@ -34,9 +40,9 @@ func (m Model) viewContext() string {
 		}
 		out = append(out, st.Render(clip(c.Message, w)))
 	}
-	out = append(out, "")
 
-	// Parts, largest first, as shares of the total.
+	// Parts, largest first, as shares of the total. In a short window only
+	// the biggest parts are listed.
 	labelW := min(42, max(20, w-36))
 	gw := max(8, min(30, w-labelW-18))
 	row := func(name string, tokens int64, note string) string {
@@ -48,66 +54,168 @@ func (m Model) viewContext() string {
 	if v.Compacted {
 		startup = "Startup + /compact summary"
 	}
-	out = append(out, row(startup, v.Startup, ""))
+	parts := []string{row(startup, v.Startup, "")}
 	for _, p := range v.Parts {
 		note := ""
 		if p.Count > 1 {
 			note = fmt.Sprintf("%d items", p.Count)
 		}
-		out = append(out, row(p.Name, p.Tokens, note))
+		parts = append(parts, row(p.Name, p.Tokens, note))
 	}
 	if v.Other > 0 {
-		out = append(out, row("Other: thinking, attachments, estimate gap", v.Other, ""))
+		parts = append(parts, row("Other: thinking, attachments, estimate gap", v.Other, ""))
 	}
+	maxParts := max(3, h/3)
+	if len(parts) > maxParts {
+		parts = append(parts[:maxParts-1], sMuted.Render(fmt.Sprintf("… %d smaller parts", len(parts)-maxParts+1)))
+	}
+	out = append(out, "")
+	out = append(out, parts...)
 
-	// Largest single items.
-	if len(v.Largest) > 0 {
-		out = append(out, "", section("Largest items", w))
-		for _, it := range v.Largest {
-			what := it.Tool
-			switch it.Kind {
-			case activity.KindPrompt:
-				what = "prompt"
-			case activity.KindReply:
-				what = "reply"
-			case activity.KindInjected:
-				what = "injected"
-			case activity.KindCall:
-				what = it.Tool + " input"
-			}
-			out = append(out, clip(fmt.Sprintf("%s  %s %s  %s", lpad("~"+Tokens(it.Tokens), 7), sPurple.Render(pad(clip(what, 14), 14)),
-				sText.Render(clip(it.Label, max(10, w-40))), sMuted.Render(Ago(it.At, m.now))), w+40))
-		}
+	// Items: a list, or one item's details.
+	title := fmt.Sprintf("Largest items (%d of %d)", len(v.Largest), v.Items)
+	if m.xAll {
+		title = fmt.Sprintf("All items (%d)", v.Items)
 	}
-
-	if tip := contextTip(v); tip != "" {
-		out = append(out, "", sYellow.Render(clip("Tip: "+tip, w)))
+	out = append(out, "", section(title, w))
+	room := max(3, h-len(out)-1)
+	if m.xFocus && m.xSel < len(v.Largest) {
+		out = append(out, m.itemDetail(v.Largest[m.xSel], v, w, room)...)
+	} else {
+		out = append(out, m.itemList(v, w, room)...)
 	}
-	out = append(out, "", sMuted.Render(clip("The total is what Claude Code reported; the parts are estimated from text length.", w)))
 	return strings.Join(out, "\n")
 }
 
-// contextTip suggests one way to keep the context smaller, based on what
-// takes the most room.
-func contextTip(v activity.ContextView) string {
-	if len(v.Parts) == 0 || v.Total == 0 {
-		return ""
+func itemKind(it activity.CtxItem) string {
+	switch it.Kind {
+	case activity.KindPrompt:
+		return "prompt"
+	case activity.KindReply:
+		return "reply"
+	case activity.KindInjected:
+		return "injected"
+	case activity.KindCall:
+		return it.Tool + " input"
 	}
-	p := v.Parts[0]
-	if float64(p.Tokens)/float64(v.Total) < 0.25 {
-		return ""
+	return it.Tool
+}
+
+func (m Model) itemList(v activity.ContextView, w, room int) []string {
+	var lines []string
+	for i, it := range v.Largest {
+		line := fmt.Sprintf("%s  %s %s  %s", lpad("~"+Tokens(it.Tokens), 7), pad(clip(itemKind(it.CtxItem), 14), 14),
+			clip(it.Label, max(10, w-42)), Ago(it.At, m.now))
+		if i == m.xSel {
+			lines = append(lines, sSelected.Render(pad(clip("▸"+line, w), w)))
+		} else {
+			lines = append(lines, " "+sPurple.Render(clip(line, w-1)))
+		}
 	}
-	switch p.Name {
-	case "Read output":
-		return "file reads fill most of the context. Pointing Claude at specific functions or line ranges keeps it smaller."
-	case "Bash output":
-		return "command output fills most of the context. Quieter commands (no -v, | tail, | head) keep it smaller."
-	case "Grep output", "Glob output":
-		return "search results fill most of the context. Narrower patterns or paths keep it smaller."
-	case "Tool inputs (incl. files Claude wrote)":
-		return "files Claude wrote stay in the context. /compact drops them and keeps a summary."
-	case "Claude's replies":
-		return "long replies fill most of the context. Asking for brief answers keeps it smaller."
+	if len(lines) == 0 {
+		return []string{sMuted.Render("no items yet")}
 	}
-	return ""
+	return scrollTo(lines, m.xSel, room)
+}
+
+// compactHint is the /compact instruction offered for an item.
+func compactHint(it activity.Sized) string {
+	what := "that " + itemKind(it.CtxItem)
+	switch it.Kind {
+	case activity.KindResult:
+		what = fmt.Sprintf("the %s output for %q", it.Tool, clip(it.Label, 60))
+	case activity.KindCall:
+		what = fmt.Sprintf("the %s input %q", it.Tool, clip(it.Label, 60))
+	case activity.KindReply:
+		what = fmt.Sprintf("your reply starting %q", clip(it.Label, 60))
+	case activity.KindPrompt:
+		what = fmt.Sprintf("my prompt starting %q", clip(it.Label, 60))
+	}
+	return fmt.Sprintf("/compact Drop %s (about %s tokens); keep the current task, decisions and file changes.", what, Tokens(it.Tokens))
+}
+
+func (m Model) itemDetail(it activity.Sized, v activity.ContextView, w, room int) []string {
+	wrap := lipgloss.NewStyle().Width(max(20, w-2))
+	share := 100 * float64(it.Tokens) / float64(max(1, v.Total))
+	lines := []string{
+		sBold.Render(clip(itemKind(it.CtxItem)+" · "+it.Label, w)),
+		sMuted.Render(fmt.Sprintf("~%s tokens · %.1f%% of the context · %s", Tokens(it.Tokens), share, Ago(it.At, m.now))),
+	}
+	if it.Images > 0 {
+		lines = append(lines, sMuted.Render(fmt.Sprintf("includes %d image(s)", it.Images)))
+	}
+	if it.Preview != "" {
+		lines = append(lines, "", sLabel.Render("STARTS WITH"))
+		lines = append(lines, strings.Split(wrap.Render(sText.Render(strings.ReplaceAll(it.Preview, "\t", "  "))), "\n")...)
+	}
+	lines = append(lines, "", sLabel.Render("TO DROP IT FROM CLAUDE'S CONTEXT"),
+		sMuted.Render("Lookout can't change Claude's context. In Claude Code, run:"))
+	lines = append(lines, strings.Split(wrap.Render(sGreen.Render(compactHint(it))), "\n")...)
+	lines = append(lines, sMuted.Render(clip("c copies it · or /rewind (Esc Esc) to go back to before it · esc back", w)))
+	if len(lines) > room {
+		lines = lines[:room]
+	}
+	return lines
+}
+
+func (m Model) contextKey(key string) (tea.Model, tea.Cmd) {
+	n := len(m.ctxView.Largest)
+	if m.xFocus {
+		switch key {
+		case "esc", "left", "h", "enter":
+			m.xFocus = false
+		case "c":
+			if m.xSel < n {
+				return m, copyText(compactHint(m.ctxView.Largest[m.xSel]))
+			}
+		}
+		return m, nil
+	}
+	switch key {
+	case "up", "k":
+		if m.xSel > 0 {
+			m.xSel--
+		}
+	case "down", "j":
+		if m.xSel < n-1 {
+			m.xSel++
+		}
+	case "home", "g":
+		m.xSel = 0
+	case "end", "G":
+		m.xSel = max(0, n-1)
+	case "pgdown":
+		m.xSel = min(max(0, n-1), m.xSel+10)
+	case "pgup":
+		m.xSel = max(0, m.xSel-10)
+	case "enter", "right", "l":
+		if n > 0 {
+			m.xFocus = true
+		}
+	case "a":
+		m.xAll = !m.xAll
+		m.xSel = 0
+		m.refreshContext()
+	case "c":
+		if m.xSel < n {
+			return m, copyText(compactHint(m.ctxView.Largest[m.xSel]))
+		}
+	}
+	return m, nil
+}
+
+// refreshContext reloads the breakdown (all items, or the largest few).
+func (m *Model) refreshContext() {
+	m.ctxView = activity.ContextView{}
+	if !m.hasSess {
+		return
+	}
+	top := topItems
+	if m.xAll {
+		top = 1 << 30
+	}
+	m.ctxView = m.o.Core.Activity.Context(m.sess.ID, top)
+	if n := len(m.ctxView.Largest); m.xSel >= n {
+		m.xSel = max(0, n-1)
+	}
 }

@@ -51,9 +51,10 @@ const (
 	tabContext
 	tabModels
 	tabFiles
+	tabCheatsheet
 )
 
-var tabNames = []string{"Usage", "Changes", "Activity", "Context", "Models", "Files"}
+var tabNames = []string{"Usage", "Changes", "Activity", "Context", "Models", "Files", "Cheatsheet"}
 
 // Options configure the model.
 type Options struct {
@@ -111,6 +112,10 @@ type Model struct {
 	aShown    string
 
 	ctxView activity.ContextView
+	xSel    int  // selected context item
+	xAll    bool // list every item, not just the largest
+	xFocus  bool // showing one item's details
+	kSel    int  // selected cheatsheet command
 
 	// Session picker
 	picking bool
@@ -198,6 +203,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(tick(), m.checkAlerts(), m.changesCmd())
 
+	case copiedMsg:
+		if msg.err != "" {
+			m.setFlash("copy failed: "+msg.err+" (select the text on screen instead)", sRed, 6*time.Second)
+		} else {
+			m.setFlash(msg.how, sGreen, 6*time.Second)
+		}
+		return m, nil
+
 	case diffMsg:
 		m.applyDiff(msg)
 		return m, m.changesCmd()
@@ -253,7 +266,7 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "esc", "left", "h", "enter":
 			*focus = false
 			return m, nil
-		case "q", "ctrl+c", "e", "1", "2", "3", "4", "5", "6", "tab", "shift+tab", "?", "s", "R":
+		case "q", "ctrl+c", "e", "1", "2", "3", "4", "5", "6", "7", "tab", "shift+tab", "?", "s", "R":
 		default:
 			var cmd tea.Cmd
 			*view, cmd = view.Update(k)
@@ -269,16 +282,25 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "?":
 		m.help = true
 		return m, nil
-	case "1", "2", "3", "4", "5", "6":
+	case "1", "2", "3", "4", "5", "6", "7":
 		m.tab = int(key[0] - '1')
+		if m.loaded {
+			m.refresh()
+		}
 		return m, nil
 	case "s":
 		return m.openPicker(), nil
 	case "tab":
 		m.tab = (m.tab + 1) % len(tabNames)
+		if m.loaded {
+			m.refresh()
+		}
 		return m, nil
 	case "shift+tab":
 		m.tab = (m.tab + len(tabNames) - 1) % len(tabNames)
+		if m.loaded {
+			m.refresh()
+		}
 		return m, nil
 	}
 
@@ -289,6 +311,10 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.changesKey(key)
 	case tabActivity:
 		return m.activityKey(key)
+	case tabContext:
+		return m.contextKey(key)
+	case tabCheatsheet:
+		return m.cheatsheetKey(key)
 	}
 	return m, nil
 }
@@ -359,9 +385,11 @@ func (m *Model) refresh() {
 		m.act = m.o.Core.Activity.Session(m.sess.ID)
 	}
 	m.refreshGone()
-	m.ctxView = activity.ContextView{}
-	if m.hasSess {
-		m.ctxView = m.o.Core.Activity.Context(m.sess.ID, 12)
+	if m.tab == tabContext || prev != m.act.ID {
+		if prev != m.act.ID {
+			m.xSel, m.xFocus = 0, false
+		}
+		m.refreshContext()
 	}
 	if m.act.ID != prev {
 		// Another session: start the lists at the top.
@@ -485,7 +513,9 @@ func (m Model) View() string {
 		case tabActivity:
 			body = m.viewActivity(bodyH)
 		case tabContext:
-			body = m.viewContext()
+			body = m.viewContext(bodyH)
+		case tabCheatsheet:
+			body = m.viewCheatsheet(bodyH)
 		case tabModels:
 			body = m.viewModels()
 		case tabFiles:
@@ -566,8 +596,16 @@ func (m Model) viewFooter() string {
 		keys = "↑↓ select · enter read diff · s sessions · ? help · q quit"
 	case m.tab == tabActivity:
 		keys = "↑↓ select · enter details · s sessions · ? help · q quit"
+	case m.tab == tabCheatsheet:
+		keys = "↑↓ select · enter/c copy · ? help · q quit"
+	case m.tab == tabContext && m.xFocus:
+		keys = "c copy the /compact line · esc back · q quit"
+	case m.tab == tabContext && m.xAll:
+		keys = "↑↓ select · enter details · c copy /compact · a largest only · ? help · q quit"
+	case m.tab == tabContext:
+		keys = "↑↓ select · enter details · c copy /compact · a see all · ? help · q quit"
 	default:
-		keys = "1-6/tab panels · s sessions · ? help · q quit"
+		keys = "1-7/tab panels · s sessions · ? help · q quit"
 	}
 	if m.newBuild {
 		keys = "R restart into new build · " + keys
@@ -589,9 +627,12 @@ func (m Model) viewHelp() string {
 		"  4 Context     what fills the context window, by kind and largest items",
 		"  5 Models      rules-based model suggestion; switch yourself with /model",
 		"  6 Files       Claude Code config and memory files, read-only by default",
+		"  7 Cheatsheet  Claude Code commands to copy and paste, incl. ones for this session",
 		"",
 		sBold.Render("Keys"),
-		"  1-6, tab      switch panel",
+		"  1-7, tab      switch panel",
+		"  c             copy (Context: a /compact line · Cheatsheet: the command)",
+		"  a             Context: see all items / only the largest",
 		"  s             pick which session to show (a: follow the latest again)",
 		"  ↑↓ / j k      move · enter to focus the viewer · esc to go back",
 		"  e             edit the selected file in $EDITOR (needs [files] allow_edit = true)",

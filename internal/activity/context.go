@@ -16,7 +16,8 @@ import (
 const (
 	bytesPerToken = 4
 	imageTokens   = 1600 // rough cost of one image
-	maxCtxItems   = 20000
+	maxCtxItems   = 10000
+	maxPreview    = 240
 )
 
 // Item kinds.
@@ -30,12 +31,13 @@ const (
 
 // CtxItem is one thing in the context.
 type CtxItem struct {
-	Kind   string
-	Tool   string // for calls and results
-	Label  string
-	Bytes  int
-	Images int
-	At     time.Time
+	Kind    string
+	Tool    string // for calls and results
+	Label   string
+	Bytes   int
+	Images  int
+	At      time.Time
+	Preview string // the start of the text, for the details view
 }
 
 func (it CtxItem) estimate() int64 {
@@ -78,7 +80,7 @@ func (c *ctxState) observe(r transcript.Record) {
 		for _, tr := range r.ToolResults {
 			call := c.calls[tr.ToolUseID]
 			delete(c.calls, tr.ToolUseID)
-			c.add(CtxItem{Kind: KindResult, Tool: orUnknown(call.Tool), Label: call.Label, Bytes: tr.Size, Images: tr.Images, At: r.Timestamp})
+			c.add(CtxItem{Kind: KindResult, Tool: orUnknown(call.Tool), Label: call.Label, Bytes: tr.Size, Images: tr.Images, At: r.Timestamp, Preview: preview(tr.Text)})
 		}
 		if len(r.ToolResults) > 0 {
 			return
@@ -86,7 +88,7 @@ func (c *ctxState) observe(r transcript.Record) {
 		switch {
 		case r.IsHumanPrompt() && r.Prompt != "":
 			line, _, _ := strings.Cut(r.Prompt, "\n")
-			c.add(CtxItem{Kind: KindPrompt, Label: line, Bytes: r.Size, At: r.Timestamp})
+			c.add(CtxItem{Kind: KindPrompt, Label: line, Bytes: r.Size, At: r.Timestamp, Preview: preview(r.Prompt)})
 		case r.Command != "":
 			c.add(CtxItem{Kind: KindInjected, Label: r.Command, Bytes: r.Size, At: r.Timestamp})
 		default:
@@ -114,7 +116,7 @@ func (c *ctxState) observe(r transcript.Record) {
 		}
 		if r.Text != "" {
 			line, _, _ := strings.Cut(strings.TrimSpace(r.Text), "\n")
-			c.add(CtxItem{Kind: KindReply, Label: line, Bytes: len(r.Text), At: r.Timestamp})
+			c.add(CtxItem{Kind: KindReply, Label: line, Bytes: len(r.Text), At: r.Timestamp, Preview: preview(r.Text)})
 		}
 		for _, tu := range r.ToolUses {
 			it := CtxItem{Kind: KindCall, Tool: orUnknown(tu.Name), Label: summary(tu), Bytes: tu.InputSize, At: r.Timestamp}
@@ -124,6 +126,19 @@ func (c *ctxState) observe(r transcript.Record) {
 			c.add(it)
 		}
 	}
+}
+
+// preview keeps the start of a text, cut at a rune boundary.
+func preview(s string) string {
+	s = strings.TrimSpace(s)
+	if len(s) <= maxPreview {
+		return s
+	}
+	r := []rune(s[:maxPreview])
+	if len(r) > 0 {
+		r = r[:len(r)-1] // the last rune may be cut
+	}
+	return string(r) + "…"
 }
 
 func orUnknown(s string) string {
@@ -156,6 +171,7 @@ type ContextView struct {
 	Parts     []Category
 	Other     int64 // not accounted for: attachments, images, estimate error
 	Largest   []Sized
+	Items     int  // all items counted
 	Estimated bool // the parts were scaled to fit the total
 }
 
@@ -197,6 +213,7 @@ func (c *ctxState) view(top int) ContextView {
 	}
 	sort.SliceStable(v.Parts, func(i, j int) bool { return v.Parts[i].Tokens > v.Parts[j].Tokens })
 	sort.SliceStable(sized, func(i, j int) bool { return sized[i].Tokens > sized[j].Tokens })
+	v.Items = len(sized)
 	if len(sized) > top {
 		sized = sized[:top]
 	}
