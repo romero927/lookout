@@ -153,9 +153,8 @@ func (m Model) itemDetail(it activity.Sized, v activity.ContextView, w, room int
 		lines = append(lines, strings.Split(wrap.Render(sText.Render(strings.ReplaceAll(it.Preview, "\t", "  "))), "\n")...)
 	}
 	lines = append(lines, "", sLabel.Render("TO FREE UP THIS ROOM"),
-		sMuted.Render(clip("Claude Code can't remove one item; Lookout can't change its context either. Two options:", w)),
-		sText.Render(clip("• /rewind (Esc Esc): go back to before it. Removes it and everything after it.", w)),
-		sText.Render(clip("• /compact: replaces the WHOLE conversation with a summary. This line asks the summary to leave it out:", w)))
+		sText.Render(clip("/rewind (Esc Esc): go back to before it. Removes it and everything after.", w)),
+		sText.Render(clip("/compact: summarizes the whole conversation, leaving this out:", w)))
 	lines = append(lines, strings.Split(wrap.Render(sGreen.Render(compactHint(it))), "\n")...)
 	lines = append(lines, sMuted.Render(clip("c copies the /compact line · esc back", w)))
 	if len(lines) > room {
