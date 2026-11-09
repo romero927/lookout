@@ -88,7 +88,7 @@ func TestPanelsRender(t *testing.T) {
 			want []string
 		}{
 			{"1", []string{"LOOKOUT", "LIMITS", "not connected", "THIS SESSION", "TOKENS", "last 10 min"}},
-			{"2", []string{"ACTIVITY", "this still doesn't work", "STEP BY STEP", "Edit"}},
+			{"2", []string{"ACTIVITY", "this still doesn't work", "WHAT CLAUDE DID", "Edit"}},
 			{"3", []string{"CHANGES", "1 edited file no longer"}},
 			{"4", []string{"CONTEXT", "Startup", "LARGEST ITEMS"}},
 			{"5", []string{"RECOMMENDATION", "Upgrade to opus", "frustration", "/model opus", "MODELS YOU CAN SWITCH TO", "Fastest for quick answers"}},
@@ -270,14 +270,17 @@ func TestActivityDetailAndSessionPicker(t *testing.T) {
 	var m tea.Model = New(Options{Core: core, Store: db, Version: "test"})
 	m = drive(m, tea.WindowSizeMsg{Width: 120, Height: 40}, LoadedMsg{}, key("2"), key("enter"))
 	v := plain(m.View())
-	for _, want := range []string{"│ this still doesn't work", "1 tool call", "FILES EDITED ─", "STEP BY STEP ─", "Edit", "CLAUDE'S LATEST MESSAGE ─", "┄┄┄", "│ done"} {
+	for _, want := range []string{"│ this still doesn't work", "1 tool call", "FILES EDITED ─", "WHAT CLAUDE DID · 1 STEP ─", "Edit", "CLAUDE'S LAST MESSAGE", "│ done"} {
 		if !strings.Contains(v, want) {
 			t.Errorf("activity detail missing %q\n%s", want, v)
 		}
 	}
-	// The latest message is at the top and also in full in the step-by-step list.
-	if n := strings.Count(v, "│ done"); n < 2 {
-		t.Errorf("latest message shown %d times, want it in both places\n%s", n, v)
+	// The latest message is shown once, after the steps, in reading order.
+	if n := strings.Count(v, "│ done"); n != 1 {
+		t.Errorf("latest message shown %d times, want once\n%s", n, v)
+	}
+	if you, did, last := strings.Index(v, "YOU ─"), strings.Index(v, "WHAT CLAUDE DID"), strings.Index(v, "CLAUDE'S LAST MESSAGE"); !(you >= 0 && you < did && did < last) {
+		t.Errorf("sections out of order (you %d, did %d, latest %d)\n%s", you, did, last, v)
 	}
 	// An older second session, so the picker has one to pin.
 	old := time.Now().UTC().Add(-2 * time.Hour).Format(time.RFC3339Nano)
@@ -682,5 +685,41 @@ func TestClickDoesNotHighlight(t *testing.T) {
 	m = drive(m, tea.MouseMsg{X: 70, Y: 10, Action: tea.MouseActionMotion})
 	if !strings.Contains(m.View(), "\x1b[0;7m") {
 		t.Error("dragging should highlight the selection")
+	}
+}
+
+func TestActivitySearch(t *testing.T) {
+	core, db := setup(t)
+	var m tea.Model = New(Options{Core: core, Store: db, Version: "test"})
+	typeText := func(s string) []tea.Msg {
+		var out []tea.Msg
+		for _, r := range s {
+			out = append(out, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{r}})
+		}
+		return out
+	}
+	m = drive(m, tea.WindowSizeMsg{Width: 120, Height: 40}, LoadedMsg{}, key("2"), key("/"))
+	m = drive(m, typeText("zzq")...)
+	if v := plain(m.View()); !strings.Contains(v, "/zzq") || !strings.Contains(v, "no matches") {
+		t.Fatalf("search not shown\n%s", v)
+	}
+	// Moving with no matches must not crash.
+	m = drive(m, tea.KeyMsg{Type: tea.KeyEnter}, key("up"), key("down"), key("G"), key("n"))
+	m = drive(m, key("/"))
+	// Typing q must not quit or switch tabs while searching.
+	if !m.(Model).aTyping || m.(Model).tab != tabActivity {
+		t.Fatal("search lost focus")
+	}
+	m = drive(m, tea.KeyMsg{Type: tea.KeyEsc}, key("/"))
+	m = drive(m, typeText("STILL")...)
+	m = drive(m, tea.KeyMsg{Type: tea.KeyEnter})
+	v := plain(m.View())
+	if !strings.Contains(v, "this still doesn't work") || strings.Contains(v, "no matches") {
+		t.Errorf("case-insensitive match not listed\n%s", v)
+	}
+	// n / p never move past the ends.
+	m = drive(m, key("n"), key("n"), key("p"), key("p"))
+	if m.(Model).aSel < 0 {
+		t.Error("selection lost")
 	}
 }

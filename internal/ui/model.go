@@ -125,6 +125,8 @@ type Model struct {
 	aDetail   map[string]activity.StepDetail // loaded step details, by tool ID
 	aStepAt   []string                       // tool ID per line of the shown turn
 	aRev      int                            // bumped when steps open or load
+	aFilter   string                         // Activity search text
+	aTyping   bool                           // typing the search
 
 	ctxView activity.ContextView
 	xSel    int  // selected context item
@@ -306,9 +308,26 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case m.tab == tabSkills && m.sFocus:
 		focus, view = &m.sFocus, &m.sView
 	}
-	if m.tab == tabActivity && key == "x" && m.loaded {
-		m.loadTurn()
-		return m.toggleAllSteps()
+	if m.tab == tabActivity && m.aTyping {
+		return m.searchKey(k)
+	}
+	if m.tab == tabActivity && m.loaded {
+		switch key {
+		case "x":
+			m.loadTurn()
+			return m.toggleAllSteps()
+		case "n", "p":
+			// Next / previous turn, even while reading one.
+			dir := 1
+			if key == "p" {
+				dir = -1
+			}
+			if j := m.stepTurn(m.aSel, dir); j >= 0 {
+				m.aSel = j
+			}
+			m.loadTurn()
+			return m, nil
+		}
 	}
 	if focus != nil {
 		switch key {
@@ -685,14 +704,16 @@ func (m Model) viewFooter() string {
 		keys = "↑↓/pgup/pgdn scroll · esc back · e edit · o open folder · q quit"
 	case m.tab == tabFiles:
 		keys = "↑↓ select · enter view · e edit · o open folder · r rescan · ? help · q quit"
+	case m.tab == tabActivity && m.aTyping:
+		keys = "type to search prompts and replies · enter keep · esc clear"
 	case m.tab == tabActivity && m.aFocus:
-		keys = "↑↓/pgup/pgdn scroll · click a step to open it · x open all · esc back · q quit"
+		keys = "↑↓/pgup/pgdn scroll · n/p next/previous turn · click a step to open it · x open all · esc back"
 	case m.tab == tabChanges && m.cFocus:
 		keys = "↑↓/pgup/pgdn scroll · esc back · q quit"
 	case m.tab == tabChanges:
 		keys = "↑↓ select · enter read diff · o open folder · y copy commit ID · s sessions · ? help · q quit"
 	case m.tab == tabActivity:
-		keys = "↑↓ select · enter details · x open all steps · s sessions · ? help · q quit"
+		keys = "↑↓ select · enter details · / search · x open all steps · s sessions · ? help · q quit"
 	case m.tab == tabSkills && m.sFocus:
 		keys = "↑↓/pgup/pgdn scroll · c copy · esc back · q quit"
 	case m.tab == tabSkills:

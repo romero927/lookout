@@ -52,17 +52,18 @@ func (m Model) turnStats(t activity.Turn, newest bool) string {
 	default:
 		parts = append(parts, Dur(t.End.Sub(t.Start)))
 	}
+	// Most useful first: the end is cut when the list is narrow.
 	if t.Tools > 0 {
-		parts = append(parts, plural(t.Tools, "tool"))
+		parts = append(parts, plural(t.Tools, "step"))
+	}
+	if len(t.Files) > 0 {
+		parts = append(parts, plural(len(t.Files), "file"))
 	}
 	if t.SubTools > 0 {
 		parts = append(parts, fmt.Sprintf("%d by subagents", t.SubTools))
 	}
 	if t.Queued > 0 {
 		parts = append(parts, fmt.Sprintf("+%d from you", t.Queued))
-	}
-	if len(t.Files) > 0 {
-		parts = append(parts, plural(len(t.Files), "file"))
 	}
 	if t.Output > 0 {
 		parts = append(parts, Tokens(t.Output)+" out")
@@ -73,11 +74,25 @@ func (m Model) turnStats(t activity.Turn, newest bool) string {
 // activityList is the turn list: two lines per turn.
 func (m Model) activityList(lw int) list {
 	var l list
-	l.add(sSection.Render("ACTIVITY")+" "+sMuted.Render("newest first"), -1)
+	switch {
+	case m.aTyping || m.aFilter != "":
+		cursor := ""
+		if m.aTyping {
+			cursor = "▏"
+		}
+		l.add(sSection.Render("ACTIVITY")+" "+sYellow.Render(clip("/"+m.aFilter+cursor, max(4, lw-10))), -1)
+	default:
+		l.add(sSection.Render("ACTIVITY")+" "+sMuted.Render("newest first"), -1)
+	}
 	if len(m.act.Turns) == 0 {
 		l.add(sMuted.Render("  nothing yet"), -1)
+	} else if m.aFilter != "" && m.stepTurn(-1, 1) == -1 {
+		l.add(sMuted.Render("  no matches"), -1)
 	}
 	for i, t := range m.act.Turns {
+		if !m.turnMatches(i) {
+			continue
+		}
 		if isCompact(t) {
 			// A slim divider; back-to-back /compact entries show once.
 			if i > 0 && isCompact(m.act.Turns[i-1]) && i != m.aSel {
@@ -145,19 +160,26 @@ func (m Model) viewActivity(h int) string {
 }
 
 func (m Model) activityKey(key string) (tea.Model, tea.Cmd) {
+	move := func(j int) {
+		if j >= 0 { // -1: nothing matches the search
+			m.aSel = j
+		}
+	}
 	switch key {
 	case "up", "k":
-		if m.aSel > 0 {
-			m.aSel--
-		}
+		move(m.stepTurn(m.aSel, -1))
 	case "down", "j":
-		if m.aSel < len(m.act.Turns)-1 {
-			m.aSel++
-		}
+		move(m.stepTurn(m.aSel, 1))
 	case "home", "g":
-		m.aSel = 0
+		move(m.stepTurn(-1, 1))
 	case "end", "G":
-		m.aSel = max(0, len(m.act.Turns)-1)
+		move(m.stepTurn(len(m.act.Turns), -1))
+	case "/":
+		m.aTyping = true
+	case "esc":
+		if m.aFilter != "" {
+			m.aFilter = ""
+		}
 	case "enter", "right", "l":
 		if len(m.act.Turns) > 0 {
 			m.aFocus = true
@@ -186,10 +208,16 @@ func (m *Model) loadTurn() {
 		prev = m.act.Turns[m.aSel+1].Reply
 	}
 	text, at := m.renderTurn(t, prev, max(20, m.aView.Width))
+	follow := !moved && m.aView.AtBottom()
 	m.aView.SetContent(text)
 	m.aStepAt = at
-	if moved {
+	switch {
+	case moved:
 		m.aView.GotoTop()
+	case follow:
+		// Reading the end of a turn that is still running: stay there as
+		// new steps arrive.
+		m.aView.GotoBottom()
 	}
 }
 
@@ -214,8 +242,13 @@ func (m Model) renderTurn(t activity.Turn, prev string, w int) (string, []string
 			b = append(b, indent+st.Render("│ ")+l)
 		}
 	}
+	gap := func() {
+		if len(b) > 0 && b[len(b)-1] != "" {
+			b = append(b, "")
+		}
+	}
 
-	// What it answers: the start of Claude's previous message.
+	// 1. Context, dimmed: the start of what Claude said before this prompt.
 	if prev != "" && (t.Prompt != "" || t.Command != "") {
 		var lines []string
 		for _, l := range markdown(prev, max(10, w-2)) {
@@ -227,59 +260,69 @@ func (m Model) renderTurn(t activity.Turn, prev string, w int) (string, []string
 		if more {
 			lines = lines[:inReplyLines]
 		}
-		b = append(b, sMuted.Render("Claude's last reply:"))
+		b = append(b, sFaint.Render("Claude's last reply:"))
 		for _, l := range lines {
-			b = append(b, sFaint.Render("│ ")+sMuted.Render(plainText(l)))
+			b = append(b, sFaint.Render("│ "+plainText(l)))
 		}
 		if more {
-			b = append(b, sFaint.Render("│ ")+sMuted.Render("… (full message: the next entry down)"))
+			b = append(b, sFaint.Render("│ … (full message: the next entry down)"))
 		}
-		b = append(b, "")
 	}
 
-	// What you asked (the time is in the header above).
+	// 2. What you asked.
 	switch {
 	case t.Prompt != "":
-		b = append(b, sYellow.Bold(true).Render("You"))
+		gap()
+		b = append(b, sectionIn(sYellow, "You", w))
 		quote(sYellow, t.Prompt, "")
 	case t.Command != "":
-		b = append(b, sYellow.Bold(true).Render("You ran "+t.Command))
+		gap()
+		b = append(b, sectionIn(sYellow, "You ran "+t.Command, w))
 	}
 
-	// Where it ended up.
-	if t.Reply != "" {
-		b = append(b, "", section("Claude's latest message", w))
-		quote(sBlue, t.Reply, "")
-	}
-	if len(t.Files) > 0 {
-		b = append(b, "", section("Files edited", w))
-		for _, f := range t.Files {
-			b = append(b, "  "+clip(m.relPath(f), w-2))
+	// The final message is shown once, in its own section after the steps,
+	// when nothing came after it.
+	last := -1
+	for i, c := range t.Calls {
+		if c.Agent == "" && !c.User {
+			last = i
 		}
 	}
+	reply := -1
+	if last >= 0 && t.Calls[last].Name == "" {
+		reply = last
+	}
 
-	// Everything in order.
-	if len(t.Calls) > 0 {
-		b = append(b, "", section("Step by step", w))
+	// 3. Everything Claude did, in order.
+	steps := 0
+	for _, c := range t.Calls {
+		if c.Name != "" {
+			steps++
+		}
+	}
+	if len(t.Calls) > 0 && (steps > 0 || reply != 0) {
+		gap()
+		title := "What Claude did"
+		if steps > 0 {
+			title += " · " + plural(steps, "step")
+		}
+		b = append(b, sectionIn(sBlue, title, w))
 	}
 	agent := ""
 	speaker := "" // who the last message header was for
-	divider := func() {
-		if len(b) > 0 && !strings.HasSuffix(b[len(b)-1], "─") {
-			b = append(b, sFaint.Render(strings.Repeat("┄", max(4, w))))
+	for i, c := range t.Calls {
+		if i == reply {
+			continue
 		}
-	}
-	for _, c := range t.Calls {
 		if c.Agent != agent {
+			gap()
 			if c.Agent != "" {
 				task := m.act.AgentTasks[c.Agent]
 				if task == "" {
 					task = "subagent " + shortAgent(c.Agent)
 				}
-				divider()
 				b = append(b, sPurple.Bold(true).Render(clip("↳ Subagent: "+task+at(c.At), w)))
 			} else {
-				divider()
 				b = append(b, sMuted.Render("↩ back in the main conversation"))
 			}
 			agent, speaker = c.Agent, ""
@@ -290,7 +333,7 @@ func (m Model) renderTurn(t activity.Turn, prev string, w int) (string, []string
 		}
 		switch {
 		case c.User:
-			divider()
+			gap()
 			b = append(b, sYellow.Bold(true).Render("You, while Claude was working"+at(c.At)))
 			quote(sYellow, c.Text, "")
 			speaker = ""
@@ -300,27 +343,30 @@ func (m Model) renderTurn(t activity.Turn, prev string, w int) (string, []string
 				st, who = sPurple, "Subagent"
 			}
 			if speaker != who {
-				if c.Agent == "" {
-					divider()
-				} else {
-					b = append(b, "")
-				}
+				gap()
 				b = append(b, indent+st.Bold(true).Render(who+at(c.At)))
 			}
 			quote(st, c.Text, indent)
 			speaker = who
 		default:
+			if speaker == "" || speaker == "You" {
+				speaker = "steps"
+			}
 			mark := sGreen.Render("✓")
 			if c.Fail {
 				mark = sRed.Render("✗")
 			}
-			name := sBold.Render(pad(clip(c.Name, 12), 12))
+			name := sBold.Render(pad(clip(c.Name, 10), 10))
 			if c.Agent != "" {
-				name = sPurple.Render(pad(clip(c.Name, 12), 12))
+				name = sPurple.Render(pad(clip(c.Name, 10), 10))
 			}
 			detail := shortPaths(c.Summary)
+			extra := ""
 			if c.Added > 0 || c.Removed > 0 {
-				detail += sGreen.Render(fmt.Sprintf("  +%d", c.Added)) + sRed.Render(fmt.Sprintf(" -%d", c.Removed))
+				extra += sGreen.Render(fmt.Sprintf("  +%d", c.Added)) + sRed.Render(fmt.Sprintf(" -%d", c.Removed))
+			}
+			if c.Took >= time.Second {
+				extra += sFaint.Render("  " + took(c.Took))
 			}
 			open := c.ID != "" && m.aOpen[c.ID]
 			fold := " "
@@ -330,8 +376,10 @@ func (m Model) renderTurn(t activity.Turn, prev string, w int) (string, []string
 					fold = sBlue.Render("▾")
 				}
 			}
+			head := fmt.Sprintf("%s%s %s %s ", indent, fold, mark, name)
+			room := max(10, w-lipgloss.Width(head)-lipgloss.Width(extra))
 			stepAt[len(b)] = c.ID
-			b = append(b, clip(fmt.Sprintf("%s%s %s %s %s", indent, fold, mark, name, sMuted.Render(detail)), w+60))
+			b = append(b, head+sText.Render(clip(detail, room))+extra)
 			if open {
 				d, ok := m.aDetail[c.ID]
 				for _, l := range stepLines(c, d, ok, max(10, w-len(indent)-5)) {
@@ -350,11 +398,40 @@ func (m Model) renderTurn(t activity.Turn, prev string, w int) (string, []string
 	if t.Dropped > 0 {
 		b = append(b, sMuted.Render(fmt.Sprintf("… and %d more steps not kept", t.Dropped)))
 	}
+
+	// 4. Where it ended up.
+	if reply >= 0 {
+		gap()
+		b = append(b, sectionIn(sBlue, "Claude's last message"+at(t.Calls[reply].At), w))
+		quote(sBlue, t.Calls[reply].Text, "")
+	}
+	if len(t.Files) > 0 {
+		gap()
+		b = append(b, section("Files edited", w))
+		for _, f := range t.Files {
+			b = append(b, "  "+clip(m.relPath(f), w-2))
+		}
+	}
+
 	ids := make([]string, len(b))
 	for i, id := range stepAt {
 		ids[i] = id
 	}
 	return strings.Join(b, "\n"), ids
+}
+
+// sectionIn is a section heading in the given colour.
+func sectionIn(st lipgloss.Style, title string, width int) string {
+	t := st.Bold(true).Render(strings.ToUpper(title))
+	return t + " " + sFaint.Render(strings.Repeat("─", max(0, width-lipgloss.Width(t)-1)))
+}
+
+// took is a step's duration: "4s", "1m 20s".
+func took(d time.Duration) string {
+	if d < time.Minute {
+		return fmt.Sprintf("%ds", int(d.Seconds()))
+	}
+	return fmt.Sprintf("%dm %02ds", int(d.Minutes()), int(d.Seconds())%60)
 }
 
 // plural is "1 tool" / "3 tools".
@@ -405,3 +482,59 @@ var ansiRe = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 
 // plainText drops colour codes, so quoted text can be shown dimmed.
 func plainText(s string) string { return ansiRe.ReplaceAllString(s, "") }
+
+// turnMatches reports whether turn i matches the search: its prompt,
+// command or Claude's reply contains the text, ignoring case.
+func (m Model) turnMatches(i int) bool {
+	if m.aFilter == "" {
+		return true
+	}
+	t := m.act.Turns[i]
+	q := strings.ToLower(m.aFilter)
+	for _, s := range []string{t.Prompt, t.Command, t.Reply} {
+		if strings.Contains(strings.ToLower(s), q) {
+			return true
+		}
+	}
+	return false
+}
+
+// stepTurn returns the next matching turn from i in direction dir (+1 is
+// older), i itself when there is none, or -1 when nothing matches at all.
+func (m Model) stepTurn(i, dir int) int {
+	for j := i + dir; j >= 0 && j < len(m.act.Turns); j += dir {
+		if m.turnMatches(j) {
+			return j
+		}
+	}
+	if i >= 0 && i < len(m.act.Turns) && m.turnMatches(i) {
+		return i
+	}
+	return -1
+}
+
+// searchKey handles typing a search in the Activity list.
+func (m Model) searchKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
+	switch k.Type {
+	case tea.KeyEsc:
+		m.aTyping, m.aFilter = false, ""
+	case tea.KeyEnter:
+		m.aTyping = false
+	case tea.KeyBackspace:
+		if r := []rune(m.aFilter); len(r) > 0 {
+			m.aFilter = string(r[:len(r)-1])
+		}
+	case tea.KeyRunes, tea.KeySpace:
+		m.aFilter += string(k.Runes)
+		if k.Type == tea.KeySpace {
+			m.aFilter += " "
+		}
+	default:
+		return m, nil
+	}
+	if len(m.act.Turns) > 0 && !m.turnMatches(m.aSel) {
+		m.aSel = max(0, m.stepTurn(-1, 1))
+	}
+	m.loadTurn()
+	return m, nil
+}

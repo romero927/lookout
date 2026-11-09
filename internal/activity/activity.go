@@ -35,7 +35,8 @@ type Call struct {
 	User    bool   // a message you sent while Claude was working
 	Agent   string // the subagent that made this step, if any
 	At      time.Time
-	Error   string // the start of a failed call's output
+	Error   string        // the start of a failed call's output
+	Took    time.Duration // from the call to its result; 0 until it returns
 	// Added / Removed are the estimated lines an edit changed.
 	Added, Removed int
 	Fail           bool
@@ -163,6 +164,11 @@ func (e *Engine) Observe(r transcript.Record, src transcript.Source) {
 				continue
 			}
 			delete(s.pending, tr.ToolUseID)
+			if p.turn != nil && p.call >= 0 && p.call < len(p.turn.Calls) {
+				if c := &p.turn.Calls[p.call]; !c.At.IsZero() && r.Timestamp.After(c.At) {
+					c.Took = r.Timestamp.Sub(c.At)
+				}
+			}
 			if !tr.IsError {
 				continue
 			}
@@ -341,6 +347,11 @@ func (e *Engine) Session(id string) Session {
 // summary is a one-line description of a tool call.
 func summary(tu transcript.ToolUse) string {
 	switch {
+	case tu.Command != "" && strings.TrimSpace(tu.Detail) != "":
+		// Bash: the description Claude gave says what the command is for;
+		// the command itself is shown when the step is opened.
+		line, _, _ := strings.Cut(strings.TrimSpace(tu.Detail), "\n")
+		return line
 	case tu.Command != "":
 		line, _, _ := strings.Cut(strings.TrimSpace(tu.Command), "\n")
 		return line
