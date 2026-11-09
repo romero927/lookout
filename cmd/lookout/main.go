@@ -1,4 +1,4 @@
-// Command overwatch is a read-only dashboard that runs beside an interactive
+// Command lookout is a read-only dashboard that runs beside an interactive
 // Claude Code session. Unofficial; not affiliated with Anthropic or OpenAI.
 package main
 
@@ -10,6 +10,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"sort"
 	"strings"
 	"text/tabwriter"
@@ -18,13 +19,13 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/romero927/overwatch/internal/app"
-	"github.com/romero927/overwatch/internal/config"
-	"github.com/romero927/overwatch/internal/crosscheck"
-	"github.com/romero927/overwatch/internal/limits"
-	"github.com/romero927/overwatch/internal/paths"
-	"github.com/romero927/overwatch/internal/store"
-	"github.com/romero927/overwatch/internal/ui"
+	"github.com/romero927/lookout/internal/app"
+	"github.com/romero927/lookout/internal/config"
+	"github.com/romero927/lookout/internal/crosscheck"
+	"github.com/romero927/lookout/internal/limits"
+	"github.com/romero927/lookout/internal/paths"
+	"github.com/romero927/lookout/internal/store"
+	"github.com/romero927/lookout/internal/ui"
 )
 
 // Set by the release build.
@@ -33,35 +34,50 @@ var (
 	commit  = ""
 )
 
-const usage = `Overwatch — a dashboard for Claude Code sessions (unofficial).
+const usage = `Lookout — a dashboard for Claude Code sessions (unofficial).
 
 Usage:
-  overwatch [--cwd DIR | --here]     open the dashboard
-  overwatch stats [--cwd DIR]        print usage and the model suggestion once, then exit
-  overwatch statusline               status line entry point (Claude Code runs this)
-  overwatch statusline install --print   print the settings.json snippet for it
-  overwatch hook stop                Stop hook entry point (Claude Code runs this)
-  overwatch hook install --print     print the settings.json snippet for the hook
-  overwatch crosscheck on|off|status turn Codex cross-check reviews on or off
-  overwatch config init|path         write the default config / show its path
-  overwatch paths                    show every directory Overwatch uses
-  overwatch version
+  lookout [--cwd DIR | --here]     open the dashboard
+  lookout stats [--cwd DIR]        print usage and the model suggestion once, then exit
+  lookout statusline               status line entry point (Claude Code runs this)
+  lookout statusline install --print   print the settings.json snippet for it
+  lookout hook stop                Stop hook entry point (Claude Code runs this)
+  lookout hook install --print     print the settings.json snippet for the hook
+  lookout crosscheck on|off|status turn Codex cross-check reviews on or off
+  lookout config init|path         write the default config / show its path
+  lookout paths                    show every directory Lookout uses
+  lookout version
 
 Flags for the dashboard and stats:
   --cwd DIR   focus on the latest session started in DIR
   --here      same as --cwd "$PWD"
 
 Environment:
-  OVERWATCH_THEME=dark|light   skip terminal background detection
+  LOOKOUT_THEME=dark|light   skip terminal background detection
 
 Keys: 1-4 or tab switch panels · x toggle cross-check · ? help · q quit
 `
+
+// appVersion is the release version, or the module version for builds made
+// with `go install ...@vX.Y.Z` (which don't set ldflags).
+func appVersion() string {
+	if version != "dev" {
+		return version
+	}
+	if bi, ok := debug.ReadBuildInfo(); ok && bi.Main.Version != "" && bi.Main.Version != "(devel)" {
+		return strings.TrimPrefix(bi.Main.Version, "v")
+	}
+	return version
+}
 
 func main() {
 	os.Exit(run(os.Args[1:], os.Stdin, os.Stdout, os.Stderr))
 }
 
 func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
+	if err := paths.MigrateLegacy(); err != nil {
+		fmt.Fprintf(stderr, "lookout: moving data from the old overwatch folders: %v\n", err)
+	}
 	if len(args) > 0 {
 		switch args[0] {
 		case "hook":
@@ -79,7 +95,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 		case "paths":
 			return cmdPaths(stdout)
 		case "version", "--version", "-v":
-			fmt.Fprintf(stdout, "overwatch %s %s\n", version, commit)
+			fmt.Fprintln(stdout, strings.TrimSpace("lookout "+appVersion()+" "+commit))
 			return 0
 		case "help", "--help", "-h":
 			fmt.Fprint(stdout, usage)
@@ -92,7 +108,7 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 func loadConfig(stderr io.Writer) config.Config {
 	cfg, err := config.Load(paths.ConfigFile())
 	if err != nil {
-		fmt.Fprintf(stderr, "overwatch: config: %v (using defaults)\n", err)
+		fmt.Fprintf(stderr, "lookout: config: %v (using defaults)\n", err)
 	}
 	return cfg
 }
@@ -119,13 +135,13 @@ func focusFlags(name string, args []string, stderr io.Writer) (string, bool) {
 }
 
 func cmdTUI(args []string, stderr io.Writer) int {
-	dir, ok := focusFlags("overwatch", args, stderr)
+	dir, ok := focusFlags("lookout", args, stderr)
 	if !ok {
 		return 2
 	}
 	cfg, cfgErr := config.Load(paths.ConfigFile())
 	theme := cfg.UI.Theme
-	if t := os.Getenv("OVERWATCH_THEME"); t != "" {
+	if t := os.Getenv("LOOKOUT_THEME"); t != "" {
 		theme = t
 	}
 	switch theme {
@@ -147,7 +163,7 @@ func cmdTUI(args []string, stderr io.Writer) int {
 	}
 	exe, _ := os.Executable()
 	model := ui.New(ui.Options{
-		Core: core, Store: db, StoreErr: dbErr, ConfigErr: cfgErr, Version: version, Exe: exe,
+		Core: core, Store: db, StoreErr: dbErr, ConfigErr: cfgErr, Version: appVersion(), Exe: exe,
 	})
 	prog = tea.NewProgram(model, tea.WithAltScreen())
 
@@ -159,7 +175,7 @@ func cmdTUI(args []string, stderr io.Writer) int {
 		_ = core.Watcher.Run(ctx)
 	}()
 	if _, err := prog.Run(); err != nil {
-		fmt.Fprintf(stderr, "overwatch: %v\n", err)
+		fmt.Fprintf(stderr, "lookout: %v\n", err)
 		return 1
 	}
 	return 0
@@ -261,7 +277,7 @@ func cmdStats(args []string, stdout, stderr io.Writer) int {
 func printLimits(w io.Writer, st limits.State, now time.Time) {
 	five, week := st.Paces(now)
 	if five == nil && week == nil {
-		fmt.Fprintln(w, "\nLimits: no data yet. See: overwatch statusline install --print")
+		fmt.Fprintln(w, "\nLimits: no data yet. See: lookout statusline install --print")
 		return
 	}
 	fmt.Fprintf(w, "\nLimits (from Claude Code, updated %s):\n", ui.Ago(st.Updated(), now))
@@ -291,11 +307,11 @@ func cmdCrossCheck(args []string, stdout, stderr io.Writer) int {
 		_, err = crosscheck.Toggle(flagPath)
 	case "status":
 	default:
-		fmt.Fprintln(stderr, "usage: overwatch crosscheck on|off|toggle|status")
+		fmt.Fprintln(stderr, "usage: lookout crosscheck on|off|toggle|status")
 		return 2
 	}
 	if err != nil {
-		fmt.Fprintf(stderr, "overwatch: %v\n", err)
+		fmt.Fprintf(stderr, "lookout: %v\n", err)
 		return 1
 	}
 	state := "OFF"
@@ -304,7 +320,7 @@ func cmdCrossCheck(args []string, stdout, stderr io.Writer) int {
 	}
 	fmt.Fprintf(stdout, "Cross-check is %s (flag file: %s)\n", state, flagPath)
 	if !crosscheck.HookInstalled(filepath.Join(paths.ClaudeDir(), "settings.json")) {
-		fmt.Fprintln(stdout, "Note: the Stop hook isn't installed. See: overwatch hook install --print")
+		fmt.Fprintln(stdout, "Note: the Stop hook isn't installed. See: lookout hook install --print")
 	}
 	return 0
 }
@@ -320,7 +336,7 @@ func cmdConfig(args []string, stdout, stderr io.Writer) int {
 	case "init":
 		wrote, err := config.WriteDefault(paths.ConfigFile())
 		if err != nil {
-			fmt.Fprintf(stderr, "overwatch: %v\n", err)
+			fmt.Fprintf(stderr, "lookout: %v\n", err)
 			return 1
 		}
 		if wrote {
@@ -331,7 +347,7 @@ func cmdConfig(args []string, stdout, stderr io.Writer) int {
 	case "default":
 		fmt.Fprint(stdout, config.DefaultTOML)
 	default:
-		fmt.Fprintln(stderr, "usage: overwatch config init|path|default")
+		fmt.Fprintln(stderr, "usage: lookout config init|path|default")
 		return 2
 	}
 	return 0
@@ -373,7 +389,7 @@ func hookLog(format string, a ...any) {
 
 func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "usage: overwatch hook stop | overwatch hook install --print")
+		fmt.Fprintln(stderr, "usage: lookout hook stop | lookout hook install --print")
 		return 2
 	}
 	switch args[0] {
@@ -410,16 +426,16 @@ func cmdHook(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 	case "install":
 		exe := selfPath()
 		settings := filepath.Join(paths.ClaudeDir(), "settings.json")
-		fmt.Fprintf(stdout, "Overwatch never edits your settings. To install the Stop hook, merge this into\n%s (or a project's .claude/settings.json):\n\n", settings)
+		fmt.Fprintf(stdout, "Lookout never edits your settings. To install the Stop hook, merge this into\n%s (or a project's .claude/settings.json):\n\n", settings)
 		fmt.Fprintln(stdout, crosscheck.HookSnippet(exe))
 		fmt.Fprintln(stdout, "\nIf you already have a \"hooks\" section, add the Stop entry to it rather than replacing it.")
-		fmt.Fprintln(stdout, "The hook does nothing until you turn cross-check on (x in the dashboard, or `overwatch crosscheck on`).")
+		fmt.Fprintln(stdout, "The hook does nothing until you turn cross-check on (x in the dashboard, or `lookout crosscheck on`).")
 		if crosscheck.HookInstalled(settings) {
-			fmt.Fprintln(stdout, "\nStatus: an Overwatch Stop hook already appears in that file.")
+			fmt.Fprintln(stdout, "\nStatus: an Lookout Stop hook already appears in that file.")
 		}
 		return 0
 	default:
-		fmt.Fprintf(stderr, "overwatch: unknown hook %q\n", args[0])
+		fmt.Fprintf(stderr, "lookout: unknown hook %q\n", args[0])
 		return 2
 	}
 }
@@ -428,16 +444,16 @@ func cmdStatusLine(args []string, stdin io.Reader, stdout, stderr io.Writer) int
 	settings := filepath.Join(paths.ClaudeDir(), "settings.json")
 	if len(args) > 0 {
 		if args[0] != "install" {
-			fmt.Fprintln(stderr, "usage: overwatch statusline | overwatch statusline install --print")
+			fmt.Fprintln(stderr, "usage: lookout statusline | lookout statusline install --print")
 			return 2
 		}
-		fmt.Fprintf(stdout, "Overwatch never edits your settings. To show your 5-hour and weekly limits, merge this into\n%s:\n\n", settings)
+		fmt.Fprintf(stdout, "Lookout never edits your settings. To show your 5-hour and weekly limits, merge this into\n%s:\n\n", settings)
 		fmt.Fprintln(stdout, limits.StatusLineSnippet(selfPath()))
-		fmt.Fprintln(stdout, "\nClaude Code then runs it after each reply and passes it your usage limits. Overwatch")
+		fmt.Fprintln(stdout, "\nClaude Code then runs it after each reply and passes it your usage limits. Lookout")
 		fmt.Fprintln(stdout, "saves only those numbers and prints a short line under the prompt.")
 		switch configured, ours := limits.StatusLineSetting(settings); {
 		case ours:
-			fmt.Fprintln(stdout, "\nStatus: Overwatch's status line is already set up in that file.")
+			fmt.Fprintln(stdout, "\nStatus: Lookout's status line is already set up in that file.")
 		case configured:
 			fmt.Fprintln(stdout, "\nNote: that file already has a different statusLine. It can only have one, so this would replace it.")
 		}
@@ -450,7 +466,7 @@ func cmdStatusLine(args []string, stdin io.Reader, stdout, stderr io.Writer) int
 	defer func() {
 		if r := recover(); r != nil {
 			hookLog("statusline panic: %v", r)
-			fmt.Fprintln(stdout, "overwatch")
+			fmt.Fprintln(stdout, "lookout")
 		}
 	}()
 	in, err := limits.ParseInput(stdin)
@@ -472,7 +488,7 @@ func cmdStatusLine(args []string, stdin io.Reader, stdout, stderr io.Writer) int
 func selfPath() string {
 	exe, err := os.Executable()
 	if err != nil {
-		return "overwatch"
+		return "lookout"
 	}
 	if resolved, err := filepath.EvalSymlinks(exe); err == nil {
 		exe = resolved

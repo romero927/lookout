@@ -1,5 +1,5 @@
 // Package configfiles finds and reads Claude Code and Codex config and memory
-// files. Read-only unless editing is enabled in Overwatch's config, and every
+// files. Read-only unless editing is enabled in Lookout's config, and every
 // edit is preceded by a timestamped backup.
 package configfiles
 
@@ -49,7 +49,7 @@ type Sources struct {
 // MaxProjects caps how many project directories are listed.
 const MaxProjects = 8
 
-// Discover lists the files Overwatch knows about. Missing global files are
+// Discover lists the files Lookout knows about. Missing global files are
 // still listed (marked absent) so users can see what's expected.
 func Discover(s Sources) []File {
 	var out []File
@@ -120,7 +120,7 @@ const MaxView = 1 << 20
 // masked. Credential files are refused.
 func Read(p string) (string, error) {
 	if blockedNames[filepath.Base(p)] {
-		return "", fmt.Errorf("%s holds credentials; Overwatch does not open it", filepath.Base(p))
+		return "", fmt.Errorf("%s holds credentials; Lookout does not open it", filepath.Base(p))
 	}
 	f, err := os.Open(p)
 	if err != nil {

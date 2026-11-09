@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/romero927/overwatch/internal/transcript"
+	"github.com/romero927/lookout/internal/transcript"
 )
 
 func line(id string) string {

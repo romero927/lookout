@@ -6,7 +6,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/romero927/overwatch/internal/strategy"
+	"github.com/romero927/lookout/internal/strategy"
 )
 
 func (m Model) viewModels() string {

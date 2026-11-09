@@ -17,7 +17,7 @@ import (
 
 	"github.com/fsnotify/fsnotify"
 
-	"github.com/romero927/overwatch/internal/transcript"
+	"github.com/romero927/lookout/internal/transcript"
 )
 
 // Handler receives each parsed record.
@@ -50,7 +50,7 @@ func New(root string, maxAge time.Duration, h Handler, onChange func()) *Watcher
 func (w *Watcher) Health() transcript.Health { return w.tailer.Health() }
 
 // Scan reads every transcript once (oldest first) and returns the number of
-// records delivered. It is used for the initial load and by `overwatch stats`.
+// records delivered. It is used for the initial load and by `lookout stats`.
 func (w *Watcher) Scan() int {
 	type file struct {
 		path string

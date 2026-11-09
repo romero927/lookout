@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/romero927/overwatch/internal/transcript"
+	"github.com/romero927/lookout/internal/transcript"
 )
 
 var t0 = time.Date(2026, 1, 10, 10, 0, 0, 0, time.UTC)

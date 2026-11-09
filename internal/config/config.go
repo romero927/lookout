@@ -1,4 +1,4 @@
-// Package config loads Overwatch's config.toml. Every field has a default, so
+// Package config loads Lookout's config.toml. Every field has a default, so
 // a missing or partial file is fine.
 package config
 
@@ -204,8 +204,8 @@ func WriteDefault(path string) (bool, error) {
 	return true, os.WriteFile(path, []byte(DefaultTOML), 0o644)
 }
 
-// DefaultTOML is the commented config written by `overwatch config init`.
-const DefaultTOML = `# Overwatch configuration. Every value shown is the default.
+// DefaultTOML is the commented config written by `lookout config init`.
+const DefaultTOML = `# Lookout configuration. Every value shown is the default.
 
 [ui]
 theme = "auto"             # "auto" asks the terminal (inside tmux, dark is assumed); or "dark" / "light"

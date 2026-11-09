@@ -102,7 +102,7 @@ func Run(id string, o WorkerOptions) error {
 	r.Status, r.StartedAt, r.PID = StatusRunning, time.Now(), os.Getpid()
 	_ = Save(o.Dirs.Reviews, r)
 
-	tmp, err := os.MkdirTemp("", "overwatch-review-")
+	tmp, err := os.MkdirTemp("", "lookout-review-")
 	if err != nil {
 		return fail(err.Error())
 	}
@@ -160,7 +160,7 @@ func Run(id string, o WorkerOptions) error {
 	return Save(o.Dirs.Reviews, r)
 }
 
-// Events is what Overwatch extracts from `codex exec --json` output.
+// Events is what Lookout extracts from `codex exec --json` output.
 type Events struct {
 	LastMessage string
 	Usage       *CodexUsage

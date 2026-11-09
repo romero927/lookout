@@ -1,9 +1,9 @@
 // Package limits records the subscription usage limits that Claude Code
 // passes to its status line command, and projects them forward.
 //
-// Claude Code runs `overwatch statusline` itself and hands it JSON on stdin.
+// Claude Code runs `lookout statusline` itself and hands it JSON on stdin.
 // That JSON carries rate_limits.five_hour / seven_day (percent used and reset
-// time) for Claude.ai subscribers. Overwatch never asks Anthropic for these
+// time) for Claude.ai subscribers. Lookout never asks Anthropic for these
 // numbers; it only keeps what Claude Code already gave the status line.
 package limits
 
@@ -48,7 +48,7 @@ type Sample struct {
 	SevenDay *float64 `json:"d,omitempty"`
 }
 
-// State is what Overwatch keeps on disk for one session.
+// State is what Lookout keeps on disk for one session.
 type State struct {
 	UpdatedAt int64    `json:"updated_at"`
 	FiveHour  *Window  `json:"five_hour,omitempty"`
@@ -67,7 +67,7 @@ func (s State) Updated() time.Time {
 // HasData reports whether any limit has ever been recorded.
 func (s State) HasData() bool { return s.FiveHour != nil || s.SevenDay != nil }
 
-// StatusInput is the part of Claude Code's status line JSON Overwatch uses.
+// StatusInput is the part of Claude Code's status line JSON Lookout uses.
 type StatusInput struct {
 	SessionID string `json:"session_id"`
 	Model     struct {
@@ -303,7 +303,7 @@ func StatusLine(in StatusInput, s State, now time.Time) string {
 		parts = append(parts, fmt.Sprintf("week %.0f%%", week.Used))
 	}
 	if len(parts) == 0 {
-		return "overwatch"
+		return "lookout"
 	}
 	return strings.Join(parts, " · ")
 }

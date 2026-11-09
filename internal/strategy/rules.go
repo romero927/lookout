@@ -7,7 +7,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/romero927/overwatch/internal/config"
+	"github.com/romero927/lookout/internal/config"
 )
 
 // Action is what the suggestion asks for.

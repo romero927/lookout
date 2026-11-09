@@ -2,7 +2,7 @@
 // (~/.claude/projects/<project>/<session>.jsonl).
 //
 // The format is undocumented and changes between Claude Code releases, so
-// the parser decodes only the handful of fields Overwatch needs, ignores
+// the parser decodes only the handful of fields Lookout needs, ignores
 // everything else, and never panics on bad input. Each line gets a Status
 // so callers can notice when parsing starts failing.
 //
@@ -22,11 +22,11 @@ package transcript
 
 import "time"
 
-// Kind is the coarse record category Overwatch cares about.
+// Kind is the coarse record category Lookout cares about.
 type Kind uint8
 
 const (
-	KindOther     Kind = iota // any record type Overwatch doesn't use
+	KindOther     Kind = iota // any record type Lookout doesn't use
 	KindAssistant             // a model response line (carries usage)
 	KindUser                  // a human prompt or a tool result
 	KindCompact               // a compaction boundary
@@ -49,7 +49,7 @@ func (k Kind) String() string {
 type Status uint8
 
 const (
-	StatusOK        Status = iota // parsed fine (including records Overwatch ignores)
+	StatusOK        Status = iota // parsed fine (including records Lookout ignores)
 	StatusBlank                   // empty line; not counted
 	StatusMalformed               // not valid JSON
 	StatusDegraded                // valid JSON but expected fields missing or mistyped

@@ -1,4 +1,4 @@
-// Package ui is Overwatch's Bubble Tea interface.
+// Package ui is Lookout's Bubble Tea interface.
 package ui
 
 import (
@@ -12,15 +12,15 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/romero927/overwatch/internal/app"
-	"github.com/romero927/overwatch/internal/configfiles"
-	"github.com/romero927/overwatch/internal/crosscheck"
-	"github.com/romero927/overwatch/internal/limits"
-	"github.com/romero927/overwatch/internal/paths"
-	"github.com/romero927/overwatch/internal/store"
-	"github.com/romero927/overwatch/internal/strategy"
-	"github.com/romero927/overwatch/internal/telemetry"
-	"github.com/romero927/overwatch/internal/transcript"
+	"github.com/romero927/lookout/internal/app"
+	"github.com/romero927/lookout/internal/configfiles"
+	"github.com/romero927/lookout/internal/crosscheck"
+	"github.com/romero927/lookout/internal/limits"
+	"github.com/romero927/lookout/internal/paths"
+	"github.com/romero927/lookout/internal/store"
+	"github.com/romero927/lookout/internal/strategy"
+	"github.com/romero927/lookout/internal/telemetry"
+	"github.com/romero927/lookout/internal/transcript"
 )
 
 // Messages sent into the program from outside.
@@ -39,7 +39,7 @@ type (
 	}
 )
 
-// UsageRow pairs usage with a message count (shared with `overwatch stats`).
+// UsageRow pairs usage with a message count (shared with `lookout stats`).
 type UsageRow struct {
 	U transcript.Usage
 	N int
@@ -248,7 +248,7 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case on:
 			msg := "cross-check ON — Claude's replies will be sent to Codex"
 			if !m.hookOK {
-				msg += " (hook not installed: overwatch hook install --print)"
+				msg += " (hook not installed: lookout hook install --print)"
 			}
 			m.setFlash(msg, sGreen, 6*time.Second)
 		default:
@@ -306,7 +306,7 @@ func (m Model) editSelected() (tea.Model, tea.Cmd) {
 	}
 	f := m.files[m.gSel]
 	if !f.Exists {
-		m.setFlash("file doesn't exist; Overwatch only edits existing files", sYellow, 5*time.Second)
+		m.setFlash("file doesn't exist; Lookout only edits existing files", sYellow, 5*time.Second)
 		return m, nil
 	}
 	backup, err := configfiles.Backup(f.Path, paths.BackupDir(), time.Now())
@@ -459,7 +459,7 @@ func (m Model) listWidth() int {
 // View renders the screen.
 func (m Model) View() string {
 	if m.width == 0 {
-		return "starting overwatch…"
+		return "starting lookout…"
 	}
 	header := m.viewHeader()
 	footer := m.viewFooter()
@@ -488,7 +488,7 @@ func (m Model) View() string {
 }
 
 func (m Model) viewHeader() string {
-	brand := sBrand.Render("◉ OVERWATCH")
+	brand := sBrand.Render("◉ LOOKOUT")
 	tabsFor := func(short bool) string {
 		var tabs []string
 		for i, n := range tabNames {
@@ -582,7 +582,7 @@ func (m Model) viewHelp() string {
 		"  config   " + ShortPath(paths.ConfigFile()),
 		"  data     " + ShortPath(paths.DataDir()),
 		"",
-		sMuted.Render("Overwatch only reads what Claude Code writes to disk. It never calls Claude."),
+		sMuted.Render("Lookout only reads what Claude Code writes to disk. It never calls Claude."),
 		sMuted.Render("Unofficial. Not affiliated with Anthropic or OpenAI. " + m.o.Version),
 		"",
 		sMuted.Render("press any key"),

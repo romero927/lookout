@@ -1,4 +1,4 @@
-module github.com/romero927/overwatch
+module github.com/romero927/lookout
 
 go 1.26.0
 

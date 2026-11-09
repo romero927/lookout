@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/romero927/overwatch/internal/config"
-	"github.com/romero927/overwatch/internal/transcript"
+	"github.com/romero927/lookout/internal/config"
+	"github.com/romero927/lookout/internal/transcript"
 )
 
 var now = time.Date(2026, 1, 10, 12, 0, 0, 0, time.UTC)

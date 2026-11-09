@@ -23,7 +23,7 @@ linters:
         - (*database/sql.Rows).Close
         - (*text/tabwriter.Writer).Flush
         - (*github.com/fsnotify/fsnotify.Watcher).Close
-        - (*github.com/romero927/overwatch/internal/store.Store).Close
+        - (*github.com/romero927/lookout/internal/store.Store).Close
     revive:
       rules:
         - name: exported

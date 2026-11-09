@@ -283,13 +283,13 @@ func TestParseEventsLegacyShape(t *testing.T) {
 }
 
 func TestHookSnippet(t *testing.T) {
-	s := HookSnippet("/usr/local/bin/overwatch")
-	for _, want := range []string{`"Stop"`, `"command": "/usr/local/bin/overwatch hook stop"`, `"type": "command"`} {
+	s := HookSnippet("/usr/local/bin/lookout")
+	for _, want := range []string{`"Stop"`, `"command": "/usr/local/bin/lookout hook stop"`, `"type": "command"`} {
 		if !strings.Contains(s, want) {
 			t.Fatalf("snippet missing %s:\n%s", want, s)
 		}
 	}
-	if got := HookCommand("/My Apps/overwatch"); got != `'/My Apps/overwatch' hook stop` {
+	if got := HookCommand("/My Apps/lookout"); got != `'/My Apps/lookout' hook stop` {
 		t.Fatalf("quoted = %s", got)
 	}
 	p := filepath.Join(t.TempDir(), "settings.json")

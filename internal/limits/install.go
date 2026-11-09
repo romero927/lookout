@@ -15,7 +15,7 @@ func StatusLineCommand(exe string) string {
 }
 
 // StatusLineSnippet is the settings.json fragment that installs the status
-// line. Overwatch prints it; it never edits settings.json itself.
+// line. Lookout prints it; it never edits settings.json itself.
 func StatusLineSnippet(exe string) string {
 	b, _ := json.MarshalIndent(map[string]any{
 		"statusLine": map[string]any{"type": "command", "command": StatusLineCommand(exe)},
@@ -24,7 +24,7 @@ func StatusLineSnippet(exe string) string {
 }
 
 // StatusLineSetting reads settings.json and reports whether a status line is
-// configured at all, and whether it is Overwatch's. Read-only.
+// configured at all, and whether it is Lookout's. Read-only.
 func StatusLineSetting(settingsPath string) (configured, ours bool) {
 	b, err := os.ReadFile(settingsPath)
 	if err != nil {
@@ -39,5 +39,5 @@ func StatusLineSetting(settingsPath string) (configured, ours bool) {
 		return false, false
 	}
 	c := s.StatusLine.Command
-	return true, strings.Contains(c, "overwatch") && strings.Contains(c, "statusline")
+	return true, strings.Contains(c, "lookout") && strings.Contains(c, "statusline")
 }

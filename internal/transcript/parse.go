@@ -124,7 +124,7 @@ func ParseLine(line []byte) (rec Record, st Status) {
 }
 
 // parseAssistant fills assistant fields. It returns false when the fields
-// Overwatch depends on (model, usage) are missing or mistyped.
+// Lookout depends on (model, usage) are missing or mistyped.
 func parseAssistant(rec *Record, msg []byte) bool {
 	ok := true
 	var content, usage []byte

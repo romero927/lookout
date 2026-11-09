@@ -8,8 +8,8 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/romero927/overwatch/internal/limits"
-	"github.com/romero927/overwatch/internal/paths"
+	"github.com/romero927/lookout/internal/limits"
+	"github.com/romero927/lookout/internal/paths"
 )
 
 // refreshLimits loads the focused session's limits (or the latest session's)
@@ -64,7 +64,7 @@ func paceText(p limits.Pace) string {
 	return fmt.Sprintf("%s %s → ~%.0f%% by reset", kind, rate, min(p.Projected, 100))
 }
 
-// PaceSummary is a one-line plain-text summary (used by `overwatch stats`).
+// PaceSummary is a one-line plain-text summary (used by `lookout stats`).
 func PaceSummary(p limits.Pace, now time.Time) string {
 	if p.Expired {
 		return fmt.Sprintf("reset at %s; new figures arrive with Claude's next reply", p.ResetsAt.Local().Format("Mon 15:04"))
@@ -148,10 +148,10 @@ func (m Model) viewLimitsMissing(w int) []string {
 			sMuted.Render(clip("Only Claude.ai subscriptions report limits; API-key use doesn't.", w)))
 	case m.slConfigured:
 		out = append(out, sYellow.Render(clip("Real 5-hour and weekly limits: not connected.", w)),
-			sMuted.Render(clip("Your settings.json already has a different statusLine. See: overwatch statusline install --print", w)))
+			sMuted.Render(clip("Your settings.json already has a different statusLine. See: lookout statusline install --print", w)))
 	default:
 		out = append(out, sYellow.Render(clip("Real 5-hour and weekly limits: not connected.", w)),
-			sMuted.Render("Connect them: ")+sBold.Render("overwatch statusline install --print"))
+			sMuted.Render("Connect them: ")+sBold.Render("lookout statusline install --print"))
 	}
 	if b := m.snap.Block; b != nil && b.Active {
 		span := b.End.Sub(b.Start)

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/romero927/overwatch/internal/strategy"
+	"github.com/romero927/lookout/internal/strategy"
 )
 
 func TestSuggestionLog(t *testing.T) {

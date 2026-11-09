@@ -1,5 +1,5 @@
-BINARY  := overwatch
-PKG     := ./cmd/overwatch
+BINARY  := lookout
+PKG     := ./cmd/lookout
 VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo dev)
 COMMIT  ?= $(shell git rev-parse --short HEAD 2>/dev/null)
 LDFLAGS := -s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT)

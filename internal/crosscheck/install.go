@@ -15,7 +15,7 @@ func HookCommand(exe string) string {
 }
 
 // HookSnippet is the settings.json fragment that installs the hook.
-// Overwatch prints it; it never edits settings.json itself.
+// Lookout prints it; it never edits settings.json itself.
 func HookSnippet(exe string) string {
 	snippet := map[string]any{
 		"hooks": map[string]any{
@@ -32,7 +32,7 @@ func HookSnippet(exe string) string {
 	return string(b)
 }
 
-// HookInstalled reports whether settings.json appears to run `overwatch hook stop`.
+// HookInstalled reports whether settings.json appears to run `lookout hook stop`.
 // Read-only.
 func HookInstalled(settingsPath string) bool {
 	b, err := os.ReadFile(settingsPath)
@@ -51,7 +51,7 @@ func HookInstalled(settingsPath string) bool {
 	}
 	for _, m := range s.Hooks["Stop"] {
 		for _, h := range m.Hooks {
-			if strings.Contains(h.Command, "overwatch") && strings.Contains(h.Command, "hook stop") {
+			if strings.Contains(h.Command, "lookout") && strings.Contains(h.Command, "hook stop") {
 				return true
 			}
 		}

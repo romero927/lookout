@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/romero927/overwatch/internal/transcript"
+	"github.com/romero927/lookout/internal/transcript"
 )
 
 // Turn is everything that happened between two human prompts.

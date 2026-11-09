@@ -1,5 +1,5 @@
 version: 2
-project_name: overwatch
+project_name: lookout
 
 before:
   hooks:
@@ -7,8 +7,8 @@ before:
     - go test ./...
 
 builds:
-  - main: ./cmd/overwatch
-    binary: overwatch
+  - main: ./cmd/lookout
+    binary: lookout
     env:
       - CGO_ENABLED=0
     flags:

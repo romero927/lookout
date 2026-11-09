@@ -8,7 +8,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/romero927/overwatch/internal/transcript"
+	"github.com/romero927/lookout/internal/transcript"
 )
 
 func (m Model) viewUsage() string {

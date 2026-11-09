@@ -1,5 +1,5 @@
 // Package crosscheck runs optional Codex cross-check reviews of Claude's
-// responses. Claude Code's Stop hook runs `overwatch hook stop`, which queues
+// responses. Claude Code's Stop hook runs `lookout hook stop`, which queues
 // a review and starts a detached worker, then exits at once. The worker runs
 // `codex exec --json` and saves the result for the TUI.
 //

@@ -173,7 +173,7 @@ func TestStatusLine(t *testing.T) {
 	if got != want {
 		t.Fatalf("got %q\nwant %q", got, want)
 	}
-	if got := StatusLine(StatusInput{}, State{}, t0); got != "overwatch" {
+	if got := StatusLine(StatusInput{}, State{}, t0); got != "lookout" {
 		t.Fatalf("empty = %q", got)
 	}
 }
@@ -193,7 +193,7 @@ func TestStatusLineSetting(t *testing.T) {
 	}{
 		{`{}`, false, false},
 		{`{"statusLine":{"type":"command","command":"~/bin/my-line.sh"}}`, true, false},
-		{`{"statusLine":{"type":"command","command":"/x/bin/overwatch statusline"}}`, true, true},
+		{`{"statusLine":{"type":"command","command":"/x/bin/lookout statusline"}}`, true, true},
 		{`not json`, false, false},
 	}
 	for _, tt := range tests {
@@ -202,8 +202,8 @@ func TestStatusLineSetting(t *testing.T) {
 			t.Errorf("%s: got %v %v", tt.content, c, o)
 		}
 	}
-	if !strings.Contains(StatusLineSnippet("/a b/overwatch"), `"'/a b/overwatch' statusline"`) {
-		t.Errorf("snippet should quote paths with spaces: %s", StatusLineSnippet("/a b/overwatch"))
+	if !strings.Contains(StatusLineSnippet("/a b/lookout"), `"'/a b/lookout' statusline"`) {
+		t.Errorf("snippet should quote paths with spaces: %s", StatusLineSnippet("/a b/lookout"))
 	}
 }
 

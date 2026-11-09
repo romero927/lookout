@@ -1,6 +1,6 @@
 // Package telemetry tallies token usage from transcript records.
 //
-// Tokens only: Overwatch never converts usage into money.
+// Tokens only: Lookout never converts usage into money.
 package telemetry
 
 import (
@@ -9,7 +9,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/romero927/overwatch/internal/transcript"
+	"github.com/romero927/lookout/internal/transcript"
 )
 
 // Entry is the usage of one API response.
@@ -22,7 +22,7 @@ type Entry struct {
 	key       string
 }
 
-// Session is what Overwatch knows about one Claude Code session.
+// Session is what Lookout knows about one Claude Code session.
 type Session struct {
 	ID           string
 	Project      string

@@ -1,4 +1,4 @@
-// Package store is Overwatch's SQLite log (pure Go, no cgo).
+// Package store is Lookout's SQLite log (pure Go, no cgo).
 //
 // It records each Strategy suggestion and the model the user actually used
 // next, so the thresholds can be tuned against real behaviour.
@@ -15,7 +15,7 @@ import (
 
 	_ "modernc.org/sqlite"
 
-	"github.com/romero927/overwatch/internal/strategy"
+	"github.com/romero927/lookout/internal/strategy"
 )
 
 // Store wraps the database.

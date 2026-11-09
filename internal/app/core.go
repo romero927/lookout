@@ -1,20 +1,20 @@
 // Package app wires the watcher, telemetry and strategy together. It is
-// shared by the TUI and the `overwatch stats` command.
+// shared by the TUI and the `lookout stats` command.
 package app
 
 import (
 	"path/filepath"
 	"time"
 
-	"github.com/romero927/overwatch/internal/config"
-	"github.com/romero927/overwatch/internal/paths"
-	"github.com/romero927/overwatch/internal/strategy"
-	"github.com/romero927/overwatch/internal/telemetry"
-	"github.com/romero927/overwatch/internal/transcript"
-	"github.com/romero927/overwatch/internal/watch"
+	"github.com/romero927/lookout/internal/config"
+	"github.com/romero927/lookout/internal/paths"
+	"github.com/romero927/lookout/internal/strategy"
+	"github.com/romero927/lookout/internal/telemetry"
+	"github.com/romero927/lookout/internal/transcript"
+	"github.com/romero927/lookout/internal/watch"
 )
 
-// Core holds Overwatch's in-memory state.
+// Core holds Lookout's in-memory state.
 type Core struct {
 	Cfg      config.Config
 	Agg      *telemetry.Aggregator

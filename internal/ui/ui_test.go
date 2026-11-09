@@ -10,12 +10,12 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
-	"github.com/romero927/overwatch/internal/app"
-	"github.com/romero927/overwatch/internal/config"
-	"github.com/romero927/overwatch/internal/crosscheck"
-	"github.com/romero927/overwatch/internal/limits"
-	"github.com/romero927/overwatch/internal/paths"
-	"github.com/romero927/overwatch/internal/store"
+	"github.com/romero927/lookout/internal/app"
+	"github.com/romero927/lookout/internal/config"
+	"github.com/romero927/lookout/internal/crosscheck"
+	"github.com/romero927/lookout/internal/limits"
+	"github.com/romero927/lookout/internal/paths"
+	"github.com/romero927/lookout/internal/store"
 )
 
 var ansi = regexp.MustCompile(`\x1b\[[0-9;?]*[a-zA-Z]`)
@@ -29,8 +29,8 @@ func setup(t *testing.T) (*app.Core, *store.Store) {
 	claude := filepath.Join(root, "claude")
 	t.Setenv("CLAUDE_CONFIG_DIR", claude)
 	t.Setenv("CODEX_HOME", filepath.Join(root, "codex"))
-	t.Setenv("OVERWATCH_DATA_DIR", filepath.Join(root, "data"))
-	t.Setenv("OVERWATCH_CONFIG_DIR", filepath.Join(root, "config"))
+	t.Setenv("LOOKOUT_DATA_DIR", filepath.Join(root, "data"))
+	t.Setenv("LOOKOUT_CONFIG_DIR", filepath.Join(root, "config"))
 	t.Setenv("PATH", root) // no codex on PATH
 
 	proj := filepath.Join(claude, "projects", "-work-demo")
@@ -47,7 +47,7 @@ func setup(t *testing.T) (*app.Core, *store.Store) {
 
 	cfg := config.Default()
 	core := app.New(cfg, "", nil)
-	db, err := store.Open(filepath.Join(root, "data", "overwatch.db"))
+	db, err := store.Open(filepath.Join(root, "data", "lookout.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -91,7 +91,7 @@ func TestPanelsRender(t *testing.T) {
 			key  string
 			want []string
 		}{
-			{"1", []string{"OVERWATCH", "LIMITS", "not connected", "SESSION", "sess-ui", "TOKENS", "burn"}},
+			{"1", []string{"LOOKOUT", "LIMITS", "not connected", "SESSION", "sess-ui", "TOKENS", "burn"}},
 			{"2", []string{"RECOMMENDATION", "Upgrade to opus", "frustration", "/model opus"}},
 			{"3", []string{"FILES", "settings.json"}},
 			{"4", []string{"CROSS-CHECK", "CONCERNS"}},
@@ -114,7 +114,7 @@ func TestPanelsRender(t *testing.T) {
 			if n := strings.Count(v, "\n") + 1; n > size.Height {
 				t.Errorf("%dx%d panel %s is %d lines tall", size.Width, size.Height, p.key, n)
 			}
-			if os.Getenv("OVERWATCH_SHOW") != "" && (size.Width == 70 || p.key == "4") {
+			if os.Getenv("LOOKOUT_SHOW") != "" && (size.Width == 70 || p.key == "4") {
 				t.Logf("panel %s:\n%s", p.key, v)
 			}
 		}
@@ -206,7 +206,7 @@ func TestLimitsPanel(t *testing.T) {
 func TestLimitsWaitingWhenStatusLineInstalled(t *testing.T) {
 	core, db := setup(t)
 	settings := filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "settings.json")
-	if err := os.WriteFile(settings, []byte(`{"statusLine":{"type":"command","command":"/x/overwatch statusline"}}`), 0o644); err != nil {
+	if err := os.WriteFile(settings, []byte(`{"statusLine":{"type":"command","command":"/x/lookout statusline"}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	var m tea.Model = New(Options{Core: core, Store: db, Version: "test"})

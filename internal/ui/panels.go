@@ -8,9 +8,9 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 
-	"github.com/romero927/overwatch/internal/configfiles"
-	"github.com/romero927/overwatch/internal/crosscheck"
-	"github.com/romero927/overwatch/internal/paths"
+	"github.com/romero927/lookout/internal/configfiles"
+	"github.com/romero927/lookout/internal/crosscheck"
+	"github.com/romero927/lookout/internal/paths"
 )
 
 func removeFile(p string) error { return os.Remove(p) }
@@ -114,7 +114,7 @@ func (m Model) viewCrossCheck(h int) string {
 	}
 	hook := sGreen.Render("installed")
 	if !m.hookOK {
-		hook = sYellow.Render("not installed — run: overwatch hook install --print")
+		hook = sYellow.Render("not installed — run: lookout hook install --print")
 	}
 	top = append(top, clip(sLabel.Render("codex ")+codex, w+40), clip(sLabel.Render("hook  ")+hook, w+40))
 	if m.crossOn {
@@ -182,7 +182,7 @@ func (m *Model) loadReview() {
 		if m.rShown != "-" {
 			m.rShown = "-"
 			txt := "Reviews appear here when cross-check is on and Claude finishes a reply.\n\n" +
-				"1. Install the hook:   overwatch hook install --print   (paste into settings.json)\n" +
+				"1. Install the hook:   lookout hook install --print   (paste into settings.json)\n" +
 				"2. Turn cross-check on: press x\n\n" +
 				"Reviews are stored in " + ShortPath(paths.ReviewsDir())
 			m.rView.SetContent(lipgloss.NewStyle().Width(m.rView.Width).Render(sMuted.Render(txt)))

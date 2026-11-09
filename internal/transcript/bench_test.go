@@ -5,12 +5,12 @@ import (
 	"testing"
 )
 
-// BenchmarkReadFile parses a real transcript named by OVERWATCH_BENCH_FILE.
+// BenchmarkReadFile parses a real transcript named by LOOKOUT_BENCH_FILE.
 // It is skipped by default; no transcript is stored in the repo.
 func BenchmarkReadFile(b *testing.B) {
-	p := os.Getenv("OVERWATCH_BENCH_FILE")
+	p := os.Getenv("LOOKOUT_BENCH_FILE")
 	if p == "" {
-		b.Skip("set OVERWATCH_BENCH_FILE to a transcript path")
+		b.Skip("set LOOKOUT_BENCH_FILE to a transcript path")
 	}
 	fi, err := os.Stat(p)
 	if err != nil {

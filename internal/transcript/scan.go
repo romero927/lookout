@@ -7,10 +7,10 @@ import (
 )
 
 // A minimal JSON walker. Transcript lines can be megabytes (tool output,
-// file contents, thinking), and Overwatch needs only a few small fields, so
+// file contents, thinking), and Lookout needs only a few small fields, so
 // instead of decoding whole lines this skips over values it doesn't need.
 // It checks structure (balanced brackets, terminated strings) but is not a
-// full validator; values Overwatch actually uses are decoded strictly.
+// full validator; values Lookout actually uses are decoded strictly.
 
 func isSpace(c byte) bool { return c == ' ' || c == '\t' || c == '\n' || c == '\r' }
 

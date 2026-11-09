@@ -9,10 +9,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/romero927/overwatch/internal/transcript"
+	"github.com/romero927/lookout/internal/transcript"
 )
 
-// HookInput is the subset of Claude Code's Stop hook input Overwatch uses.
+// HookInput is the subset of Claude Code's Stop hook input Lookout uses.
 type HookInput struct {
 	SessionID            string `json:"session_id"`
 	TranscriptPath       string `json:"transcript_path"`

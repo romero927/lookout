@@ -1,13 +1,13 @@
 # Binaries and build output
 /bin/
 /dist/
-/overwatch
+/lookout
 *.exe
 *.test
 *.out
 *.prof
 
-# Overwatch runtime data (if pointed inside the repo)
+# Lookout runtime data (if pointed inside the repo)
 *.db
 *.db-shm
 *.db-wal
