@@ -323,8 +323,15 @@ func (s State) Paces(now time.Time) (five, week *Pace) {
 	return five, week
 }
 
-// StatusLine is the short text printed under Claude Code's prompt.
-func StatusLine(in StatusInput, s State, now time.Time) string {
+// FiveHourPending is shown when a subscriber's session has no current 5-hour
+// reading yet. Claude Code only sends one after a reply, so rather than guess
+// (or reuse another session's old number) the line says when it will appear.
+const FiveHourPending = "5h: shows after next reply"
+
+// StatusLine is the short text printed under Claude Code's prompt. subscriber
+// says the account is known to have usage limits, even if this session has
+// not been sent them yet.
+func StatusLine(in StatusInput, s State, now time.Time, subscriber bool) string {
 	var parts []string
 	if m := in.Model.DisplayName; m != "" {
 		parts = append(parts, m)
@@ -335,11 +342,13 @@ func StatusLine(in StatusInput, s State, now time.Time) string {
 	five, week := s.Paces(now)
 	if five != nil && !five.Expired {
 		parts = append(parts, fmt.Sprintf("5h %.0f%% (resets %s)", five.Used, shortDur(five.ResetsAt.Sub(now))))
+	} else if subscriber || week != nil {
+		parts = append(parts, FiveHourPending)
 	}
 	if week != nil && !week.Expired {
 		parts = append(parts, fmt.Sprintf("week %.0f%%", week.Used))
 	}
-	if c := in.Cost.TotalCostUSD; c != nil && in.RateLimits == nil && !s.HasData() {
+	if c := in.Cost.TotalCostUSD; c != nil && in.RateLimits == nil && !s.HasData() && !subscriber {
 		parts = append(parts, Money(*c))
 	}
 	if len(parts) == 0 {

@@ -421,7 +421,8 @@ func cmdStatusLine(args []string, stdin io.Reader, stdout, stderr io.Writer) int
 			hookLog("statusline history: %v", err)
 		}
 	}
-	fmt.Fprintln(stdout, limits.StatusLine(in, st, now))
+	subscriber := st.HasData() || limits.HasLimits(paths.LimitsDir())
+	fmt.Fprintln(stdout, limits.StatusLine(in, st, now, subscriber))
 	return 0
 }
 

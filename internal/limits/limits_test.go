@@ -168,12 +168,12 @@ func TestStatusLine(t *testing.T) {
 		t.Fatal(err)
 	}
 	s := State{FiveHour: &Window{42, t0.Add(2*time.Hour + 23*time.Minute).Unix()}, SevenDay: &Window{23, t0.Add(80 * time.Hour).Unix()}}
-	got := StatusLine(in, s, t0)
+	got := StatusLine(in, s, t0, false)
 	want := "Opus 5.5 · ctx 12% · 5h 42% (resets 2h23m) · week 23%"
 	if got != want {
 		t.Fatalf("got %q\nwant %q", got, want)
 	}
-	if got := StatusLine(StatusInput{}, State{}, t0); got != "lookout" {
+	if got := StatusLine(StatusInput{}, State{}, t0, false); got != "lookout" {
 		t.Fatalf("empty = %q", got)
 	}
 }
@@ -274,7 +274,7 @@ func TestApplyContextWithoutLimits(t *testing.T) {
 	if s.CostUSD == nil || *s.CostUSD != cost {
 		t.Errorf("cost not recorded: %+v", s)
 	}
-	if got := StatusLine(in, s, now); got != "Opus 5.5 · ctx 37% · $1.23" {
+	if got := StatusLine(in, s, now, false); got != "Opus 5.5 · ctx 37% · $1.23" {
 		t.Errorf("status line %q", got)
 	}
 	if Money(0.004) != "<$0.01" || Money(0) != "$0.00" {

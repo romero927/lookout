@@ -73,3 +73,21 @@ func Prune(dir string, now time.Time) {
 		}
 	}
 }
+
+// HasLimits reports whether any saved session has ever received usage limits
+// from Claude Code, which means this account is a Claude.ai subscriber.
+func HasLimits(dir string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") || strings.HasPrefix(e.Name(), ".") {
+			continue
+		}
+		if Load(filepath.Join(dir, e.Name())).HasData() {
+			return true
+		}
+	}
+	return false
+}
