@@ -670,3 +670,17 @@ func TestActivityStepsOpen(t *testing.T) {
 		t.Errorf("click should close the step\n%s", v)
 	}
 }
+
+func TestClickDoesNotHighlight(t *testing.T) {
+	core, db := setup(t)
+	var m tea.Model = New(Options{Core: core, Store: db, Version: "test"})
+	m = drive(m, tea.WindowSizeMsg{Width: 120, Height: 40}, LoadedMsg{},
+		tea.MouseMsg{X: 60, Y: 10, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft})
+	if strings.Contains(m.View(), "\x1b[0;7m") {
+		t.Error("a press without a drag should not highlight anything")
+	}
+	m = drive(m, tea.MouseMsg{X: 70, Y: 10, Action: tea.MouseActionMotion})
+	if !strings.Contains(m.View(), "\x1b[0;7m") {
+		t.Error("dragging should highlight the selection")
+	}
+}

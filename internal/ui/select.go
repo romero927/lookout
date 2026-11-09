@@ -103,8 +103,8 @@ func (s selection) text(lines []string) string {
 
 // highlight shows the selection in reverse video while dragging.
 func (s selection) highlight(view string) string {
-	if !s.on {
-		return view
+	if !s.on || s.from == s.to {
+		return view // a click, not a drag: nothing to show yet
 	}
 	lines := strings.Split(view, "\n")
 	for y, line := range lines {
