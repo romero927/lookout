@@ -36,6 +36,7 @@ var (
 	sCard     = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(cFaint).Padding(0, 1)
 	sCardHot  = sCard.BorderForeground(cBlue)
 	sSection  = lipgloss.NewStyle().Bold(true).Foreground(cBlue)
+	sFaint    = lipgloss.NewStyle().Foreground(cFaint)
 )
 
 // section renders a panel heading with a rule.

@@ -262,7 +262,7 @@ func TestActivityDetailAndSessionPicker(t *testing.T) {
 	var m tea.Model = New(Options{Core: core, Store: db, Version: "test"})
 	m = drive(m, tea.WindowSizeMsg{Width: 120, Height: 40}, LoadedMsg{}, key("2"), key("enter"))
 	v := plain(m.View())
-	for _, want := range []string{"You · ", "│ this still doesn't work", "1 tool call", "FILES EDITED", "STEP BY STEP", "Edit", "CLAUDE'S FINAL MESSAGE", "│ done", "(final message, shown above)"} {
+	for _, want := range []string{"│ this still doesn't work", "1 tool call", "FILES EDITED ─", "STEP BY STEP ─", "Edit", "CLAUDE'S FINAL MESSAGE ─", "┄┄┄", "│ done", "(final message, shown above)"} {
 		if !strings.Contains(v, want) {
 			t.Errorf("activity detail missing %q\n%s", want, v)
 		}
@@ -400,5 +400,22 @@ func TestMarkdownAndJSONHighlight(t *testing.T) {
 	}
 	if got := plain(highlightLine("x.json", `  "model": "opus",`)); got != `  "model": "opus",` {
 		t.Errorf("json highlight changed text: %q", got)
+	}
+}
+
+func TestActivityPromptShownOnce(t *testing.T) {
+	core, db := setup(t)
+	var m tea.Model = New(Options{Core: core, Store: db, Version: "test"})
+	m = drive(m, tea.WindowSizeMsg{Width: 120, Height: 40}, LoadedMsg{}, key("2"), key("enter"))
+	v := plain(m.View())
+	// Once in the turn list on the left, once in the viewer: never twice in the viewer.
+	right := ""
+	for _, l := range strings.Split(v, "\n") {
+		if _, r, ok := strings.Cut(l, "│"); ok {
+			right += r + "\n"
+		}
+	}
+	if n := strings.Count(right, "this still doesn't work"); n != 1 {
+		t.Errorf("prompt shown %d times in the viewer:\n%s", n, right)
 	}
 }

@@ -91,7 +91,6 @@ func (m Model) viewActivity(h int) string {
 	var title, meta string
 	if m.aSel < len(m.act.Turns) {
 		t := m.act.Turns[m.aSel]
-		title = sBold.Render(clip(turnTitle(t), m.aView.Width))
 		took := "took " + Dur(t.End.Sub(t.Start))
 		switch {
 		case t.Start.IsZero():
@@ -99,7 +98,14 @@ func (m Model) viewActivity(h int) string {
 		case m.aSel == 0 && m.now.Sub(t.End) < 2*time.Minute:
 			took = "in progress, " + Dur(m.now.Sub(t.Start)) + " so far"
 		}
-		meta = sMuted.Render(clip(fmt.Sprintf("%s · %s · %s", m.turnTime(t), took, ShortModel(t.Model)), m.aView.Width))
+		// The prompt itself opens the viewer, so the header says when and
+		// how it went instead of repeating it.
+		head := strings.TrimSpace(m.turnTime(t)) + " · " + took
+		if t.Model != "" {
+			head += " · " + ShortModel(t.Model)
+		}
+		title = sBold.Render(clip(head, m.aView.Width))
+		meta = sMuted.Render(clip(turnSummary(t), m.aView.Width))
 	} else {
 		title = sMuted.Render("Each prompt you send becomes a turn here.")
 	}
@@ -169,47 +175,22 @@ func (m Model) renderTurn(t activity.Turn, w int) string {
 		}
 	}
 
-	// What you asked.
+	// What you asked (the time is in the header above).
 	switch {
 	case t.Prompt != "":
-		b = append(b, sYellow.Bold(true).Render("You"+at(t.Start)))
+		b = append(b, sYellow.Bold(true).Render("You"))
 		quote(sYellow, t.Prompt, "")
 	case t.Command != "":
-		b = append(b, sYellow.Bold(true).Render("You ran "+t.Command+at(t.Start)))
-	}
-
-	// Summary.
-	var sum []string
-	if t.Tools > 0 {
-		f := plural(t.Tools, "tool call")
-		if t.Failed > 0 {
-			f += fmt.Sprintf(" (%d failed)", t.Failed)
-		}
-		sum = append(sum, f)
-	}
-	if t.SubTools > 0 {
-		sum = append(sum, fmt.Sprintf("%d by subagents", t.SubTools))
-	}
-	if len(t.Files) > 0 {
-		sum = append(sum, plural(len(t.Files), "file")+" edited")
-	}
-	if t.Queued > 0 {
-		sum = append(sum, plural(t.Queued, "extra message")+" from you")
-	}
-	if t.Output > 0 {
-		sum = append(sum, Tokens(t.Output)+" output tokens")
-	}
-	if len(sum) > 0 {
-		b = append(b, "", sMuted.Render(lipgloss.NewStyle().Width(max(10, w)).Render(strings.Join(sum, " · "))))
+		b = append(b, sYellow.Bold(true).Render("You ran "+t.Command))
 	}
 
 	// Where it ended up.
 	if t.Reply != "" {
-		b = append(b, "", sSection.Render("CLAUDE'S FINAL MESSAGE"))
+		b = append(b, "", section("Claude's final message", w))
 		quote(sBlue, t.Reply, "")
 	}
 	if len(t.Files) > 0 {
-		b = append(b, "", sSection.Render("FILES EDITED"))
+		b = append(b, "", section("Files edited", w))
 		for _, f := range t.Files {
 			b = append(b, "  "+clip(m.relPath(f), w-2))
 		}
@@ -217,7 +198,7 @@ func (m Model) renderTurn(t activity.Turn, w int) string {
 
 	// Everything in order.
 	if len(t.Calls) > 0 {
-		b = append(b, "", sSection.Render("STEP BY STEP"))
+		b = append(b, "", section("Step by step", w))
 	}
 	agent, lastReply := "", -1
 	for i, c := range t.Calls {
@@ -226,6 +207,11 @@ func (m Model) renderTurn(t activity.Turn, w int) string {
 		}
 	}
 	speaker := "" // who the last message header was for
+	divider := func() {
+		if len(b) > 0 && !strings.HasSuffix(b[len(b)-1], "─") {
+			b = append(b, sFaint.Render(strings.Repeat("┄", max(4, w))))
+		}
+	}
 	for i, c := range t.Calls {
 		if c.Agent != agent {
 			if c.Agent != "" {
@@ -233,9 +219,11 @@ func (m Model) renderTurn(t activity.Turn, w int) string {
 				if task == "" {
 					task = "subagent " + shortAgent(c.Agent)
 				}
-				b = append(b, "", sPurple.Bold(true).Render(clip("↳ Subagent: "+task+at(c.At), w)))
+				divider()
+				b = append(b, sPurple.Bold(true).Render(clip("↳ Subagent: "+task+at(c.At), w)))
 			} else {
-				b = append(b, "", sMuted.Render("↩ back in the main conversation"))
+				divider()
+				b = append(b, sMuted.Render("↩ back in the main conversation"))
 			}
 			agent, speaker = c.Agent, ""
 		}
@@ -245,12 +233,14 @@ func (m Model) renderTurn(t activity.Turn, w int) string {
 		}
 		switch {
 		case c.User:
-			b = append(b, "", sYellow.Bold(true).Render("You, while Claude was working"+at(c.At)))
+			divider()
+			b = append(b, sYellow.Bold(true).Render("You, while Claude was working"+at(c.At)))
 			quote(sYellow, c.Text, "")
 			speaker = ""
 		case c.Name == "":
 			if i == lastReply && t.Reply != "" {
-				b = append(b, "", sBlue.Bold(true).Render("Claude"+at(c.At))+sMuted.Render("  (final message, shown above)"))
+				divider()
+				b = append(b, sBlue.Bold(true).Render("Claude"+at(c.At))+sMuted.Render("  (final message, shown above)"))
 				speaker = ""
 				continue
 			}
@@ -259,7 +249,12 @@ func (m Model) renderTurn(t activity.Turn, w int) string {
 				st, who = sPurple, "Subagent"
 			}
 			if speaker != who {
-				b = append(b, "", indent+st.Bold(true).Render(who+at(c.At)))
+				if c.Agent == "" {
+					divider()
+				} else {
+					b = append(b, "")
+				}
+				b = append(b, indent+st.Bold(true).Render(who+at(c.At)))
 			}
 			quote(st, c.Text, indent)
 			speaker = who
@@ -303,4 +298,33 @@ func shortAgent(id string) string {
 		return id[:8]
 	}
 	return id
+}
+
+// turnSummary is one line about a turn: tool calls, failures, subagents,
+// files, extra messages and output.
+func turnSummary(t activity.Turn) string {
+	var sum []string
+	if t.Tools > 0 {
+		f := plural(t.Tools, "tool call")
+		if t.Failed > 0 {
+			f += fmt.Sprintf(" (%d failed)", t.Failed)
+		}
+		sum = append(sum, f)
+	}
+	if t.SubTools > 0 {
+		sum = append(sum, fmt.Sprintf("%d by subagents", t.SubTools))
+	}
+	if len(t.Files) > 0 {
+		sum = append(sum, plural(len(t.Files), "file")+" edited")
+	}
+	if t.Queued > 0 {
+		sum = append(sum, plural(t.Queued, "extra message")+" from you")
+	}
+	if t.Output > 0 {
+		sum = append(sum, Tokens(t.Output)+" output tokens")
+	}
+	if len(sum) == 0 {
+		return "no tool calls"
+	}
+	return strings.Join(sum, " · ")
 }
