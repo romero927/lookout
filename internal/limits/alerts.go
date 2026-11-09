@@ -91,3 +91,31 @@ func SaveFired(path string, f Fired, now time.Time) error {
 	}
 	return writeJSON(path, f)
 }
+
+// Pressure is the most worrying limit right now, for the model suggestion.
+func (s State) Pressure(now time.Time) (Level, string) {
+	five, week := s.Paces(now)
+	level, detail := LevelOK, ""
+	for _, x := range []struct {
+		name string
+		p    *Pace
+	}{{"5-hour", five}, {"weekly", week}} {
+		if x.p == nil || x.p.Expired {
+			continue
+		}
+		l := x.p.Level()
+		if l <= level {
+			continue
+		}
+		level = l
+		switch {
+		case x.p.Used >= 100:
+			detail = fmt.Sprintf("Your %s limit is used up", x.name)
+		case !x.p.HitsAt.IsZero():
+			detail = fmt.Sprintf("At this pace you'll reach your %s limit at %s, before it resets", x.name, x.p.HitsAt.Local().Format("15:04"))
+		default:
+			detail = fmt.Sprintf("Your %s limit is %.0f%% used", x.name, x.p.Used)
+		}
+	}
+	return level, detail
+}

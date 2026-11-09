@@ -21,15 +21,13 @@ func write(t *testing.T, p, s string) {
 func TestDiscover(t *testing.T) {
 	root := t.TempDir()
 	claude := filepath.Join(root, "claude")
-	codex := filepath.Join(root, "codex")
 	proj := filepath.Join(root, "work", "app")
 	write(t, filepath.Join(claude, "settings.json"), `{"model":"opus"}`)
 	write(t, filepath.Join(claude, ".credentials.json"), `secret`)
 	write(t, filepath.Join(claude, "projects", "-work-app", "memory", "MEMORY.md"), "- note")
 	write(t, filepath.Join(proj, "CLAUDE.md"), "# app")
-	write(t, filepath.Join(codex, "auth.json"), `secret`)
 
-	files := Discover(Sources{ClaudeDir: claude, CodexDir: codex, ProjectDirs: []string{proj, proj}})
+	files := Discover(Sources{ClaudeDir: claude, ProjectDirs: []string{proj, proj}})
 	byLabel := map[string]File{}
 	for _, f := range files {
 		byLabel[f.Label] = f
@@ -44,9 +42,8 @@ func TestDiscover(t *testing.T) {
 	}{
 		{"settings.json", true, true},
 		{"CLAUDE.md (global)", false, true}, // missing globals are still shown
-		{"config.toml", false, true},
 		{"app/CLAUDE.md", true, true},
-		{"app/AGENTS.md", false, false}, // missing project files are hidden
+		{"app/CLAUDE.local.md", false, false}, // missing project files are hidden
 		{"app/MEMORY.md", true, true},
 		{"settings.local.json", false, false},
 	}

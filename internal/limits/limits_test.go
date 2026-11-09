@@ -245,3 +245,26 @@ func TestPerSessionFiles(t *testing.T) {
 		t.Fatal("recent file pruned")
 	}
 }
+
+func TestApplyContextWithoutLimits(t *testing.T) {
+	now := time.Unix(1_800_000_000, 0)
+	var in StatusInput
+	c := 37.0
+	in.ContextWindow.UsedPercentage = &c
+	var s State
+	if !s.Apply(in, now) {
+		t.Fatal("context-only input should be recorded")
+	}
+	if !s.SeenNoLimits() || s.HasData() {
+		t.Errorf("API-key style state: %+v", s)
+	}
+	if p, ok := s.ContextPercent(now.Add(time.Minute), 30*time.Minute); !ok || p != 37 {
+		t.Errorf("context %v %v", p, ok)
+	}
+	if _, ok := s.ContextPercent(now.Add(time.Hour), 30*time.Minute); ok {
+		t.Error("stale context should not be used")
+	}
+	if (&State{}).Apply(StatusInput{}, now) {
+		t.Error("empty input should not be recorded")
+	}
+}

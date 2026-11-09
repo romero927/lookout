@@ -41,6 +41,7 @@ type ContextAdvice struct {
 	Tokens     int64
 	Window     int64
 	AutoWindow bool // the window was raised because usage exceeded the configured size
+	Reported   bool // Percent is what Claude Code reported, not an estimate
 	Percent    float64
 	Message    string
 }
@@ -55,6 +56,22 @@ type Suggestion struct {
 	Signals   []Signal
 	Context   ContextAdvice
 	At        time.Time
+}
+
+// Pressure is how close the usage limits are, from the status line.
+type Pressure int
+
+const (
+	PressureNone  Pressure = iota // fine, or unknown (no subscription limits)
+	PressureWatch                 // 80% or more used or projected
+	PressureOver                  // the limit will run out before it resets
+)
+
+// Extra is what the rules know besides the transcript.
+type Extra struct {
+	Pressure       Pressure
+	PressureDetail string   // e.g. "At this pace you'll reach your 5-hour limit at 15:10"
+	ContextPercent *float64 // reported by Claude Code; nil to estimate from tokens
 }
 
 // largeWindow is assumed when a session's context exceeds the configured window.
@@ -73,9 +90,9 @@ func TierOf(model string, tiers []string) int {
 }
 
 // Evaluate applies the rules to a session. It is pure: same input, same output.
-func Evaluate(s SessionState, c config.Models, now time.Time) Suggestion {
+func Evaluate(s SessionState, c config.Models, now time.Time, x Extra) Suggestion {
 	sg := Suggestion{SessionID: s.ID, Current: s.Model, Suggested: s.Model, Action: Keep, At: now}
-	sg.Context = contextAdvice(s, c)
+	sg.Context = contextAdvice(s, c, x.ContextPercent)
 
 	active := activeTurns(s.Turns)
 	if s.Model == "" || len(active) == 0 {
@@ -86,15 +103,27 @@ func Evaluate(s SessionState, c config.Models, now time.Time) Suggestion {
 	up := upgradeSignals(s, recent, c)
 	top := len(c.ModelTiers) - 1
 	cur := TierOf(s.Model, c.ModelTiers)
+	// Near a limit, a lighter model is suggested sooner: one simple turn
+	// on the top model is enough.
+	if x.Pressure >= PressureWatch {
+		c.SimpleTurnStreak = 1
+	}
 	down := downgradeSignals(s, active, cur == top, c)
-	sg.Signals = append(append([]Signal{}, up...), down...)
+	if x.Pressure == PressureOver && x.PressureDetail != "" {
+		down = append([]Signal{{Downgrade, "limits", x.PressureDetail}}, down...)
+	} else if x.Pressure == PressureWatch && x.PressureDetail != "" {
+		sg.Signals = append(sg.Signals, Signal{Downgrade, "limits", x.PressureDetail})
+	}
+	sg.Signals = append(append(sg.Signals, up...), down...)
 
 	switch {
 	case cur < 0:
 		sg.Reason = fmt.Sprintf("%s isn't in model_tiers; add it to the config to get suggestions.", s.Model)
+	case len(up) > 0 && cur < top && x.Pressure == PressureOver:
+		sg.Reason = up[0].Detail + ", but " + lowerFirst(x.PressureDetail) + " — a stronger model would use it up faster. Narrow the task instead."
 	case len(up) > 0 && cur < top:
 		next := cur + 1
-		if len(up) >= 2 {
+		if len(up) >= 2 && x.Pressure == PressureNone {
 			next = top
 		}
 		sg.Action, sg.Suggested = Upgrade, c.ModelTiers[next]
@@ -104,6 +133,9 @@ func Evaluate(s SessionState, c config.Models, now time.Time) Suggestion {
 	case len(down) > 0 && cur > 0:
 		sg.Action, sg.Suggested = Downgrade, c.ModelTiers[cur-1]
 		sg.Reason = down[0].Detail + " — a lighter model should handle this and save limits."
+		if down[0].Name == "limits" {
+			sg.Reason = down[0].Detail + " — a lighter model makes the rest last longer."
+		}
 	default:
 		sg.Reason = "No strong signals; the current model fits the work."
 	}
@@ -123,8 +155,9 @@ func activeTurns(turns []*Turn) []*Turn {
 func upgradeSignals(s SessionState, recent []*Turn, c config.Models) []Signal {
 	var sig []Signal
 
-	// Frustration in the latest prompt.
-	if p := strings.ToLower(s.LastPrompt()); p != "" {
+	// Frustration in the latest prompt. Only short prompts count: a long
+	// request that quotes an error message isn't a complaint.
+	if p := strings.ToLower(s.LastPrompt()); p != "" && len(p) <= maxFrustratedPrompt {
 		for _, ph := range c.FrustrationPhrases {
 			if ph != "" && strings.Contains(p, strings.ToLower(ph)) {
 				sig = append(sig, Signal{Upgrade, "frustration", fmt.Sprintf("Your last prompt says %q", ph)})
@@ -216,15 +249,23 @@ func downgradeSignals(s SessionState, active []*Turn, onTop bool, c config.Model
 	return sig
 }
 
-func contextAdvice(s SessionState, c config.Models) ContextAdvice {
+func contextAdvice(s SessionState, c config.Models, reported *float64) ContextAdvice {
 	a := ContextAdvice{Tokens: s.Context, Window: int64(c.ContextWindowTokens)}
-	if s.MaxContext > a.Window || s.Context > a.Window {
-		a.Window, a.AutoWindow = largeWindow, true
+	if reported != nil && *reported > 0 {
+		// Claude Code knows the real window; derive it from the two figures.
+		a.Percent, a.Reported = *reported, true
+		if a.Tokens > 0 {
+			a.Window = int64(float64(a.Tokens) * 100 / a.Percent)
+		}
+	} else {
+		if s.MaxContext > a.Window || s.Context > a.Window {
+			a.Window, a.AutoWindow = largeWindow, true
+		}
+		if a.Window <= 0 || a.Tokens <= 0 {
+			return a
+		}
+		a.Percent = 100 * float64(a.Tokens) / float64(a.Window)
 	}
-	if a.Window <= 0 || a.Tokens <= 0 {
-		return a
-	}
-	a.Percent = 100 * float64(a.Tokens) / float64(a.Window)
 	switch {
 	case a.Percent >= float64(c.FreshSessionAtPercent):
 		a.Level = ContextFresh
@@ -250,3 +291,13 @@ func maxEntry(m map[string]int) (string, int) {
 	}
 	return best, n
 }
+
+func lowerFirst(s string) string {
+	if s == "" {
+		return s
+	}
+	return strings.ToLower(s[:1]) + s[1:]
+}
+
+// maxFrustratedPrompt is the longest prompt checked for frustration phrases.
+const maxFrustratedPrompt = 300

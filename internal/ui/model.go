@@ -348,7 +348,7 @@ func (m *Model) refresh() {
 	now := time.Now()
 	m.snap, m.sess, m.hasSess = m.o.Core.Snapshot(now)
 	m.health = m.o.Core.Watcher.Health()
-	m.sugg, m.sstate = m.o.Core.Suggest(now)
+	m.sugg, m.sstate = m.o.Core.Suggest(now, SuggestExtra(m.limits, m.limitsExact(), now))
 	prev := m.act.ID
 	m.act = activity.Session{}
 	if m.hasSess {
@@ -385,7 +385,6 @@ func (m *Model) refreshFiles() {
 	c := m.o.Core
 	m.files = configfiles.Discover(configfiles.Sources{
 		ClaudeDir:    paths.ClaudeDir(),
-		CodexDir:     paths.CodexDir(),
 		ProjectDirs:  c.ProjectDirs(),
 		ProjectNames: c.ProjectNames(),
 		Extra:        c.Cfg.Files.ExtraFiles,
@@ -578,7 +577,7 @@ func (m Model) viewHelp() string {
 		"  2 Changes     files Claude edited this session, with the uncommitted git diff",
 		"  3 Activity    one entry per prompt: tools used, failures, files edited, Claude's last message",
 		"  4 Models      rules-based model suggestion; switch yourself with /model",
-		"  5 Files       Claude Code (and Codex) config and memory files, read-only by default",
+		"  5 Files       Claude Code config and memory files, read-only by default",
 		"",
 		sBold.Render("Keys"),
 		"  1-5, tab      switch panel",

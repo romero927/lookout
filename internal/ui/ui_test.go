@@ -27,10 +27,9 @@ func setup(t *testing.T) (*app.Core, *store.Store) {
 	root := t.TempDir()
 	claude := filepath.Join(root, "claude")
 	t.Setenv("CLAUDE_CONFIG_DIR", claude)
-	t.Setenv("CODEX_HOME", filepath.Join(root, "codex"))
 	t.Setenv("LOOKOUT_DATA_DIR", filepath.Join(root, "data"))
 	t.Setenv("LOOKOUT_CONFIG_DIR", filepath.Join(root, "config"))
-	t.Setenv("PATH", root) // no codex on PATH
+	t.Setenv("PATH", root) // no git or notifier on PATH
 
 	proj := filepath.Join(claude, "projects", "-work-demo")
 	_ = os.MkdirAll(proj, 0o755)
@@ -307,5 +306,27 @@ func TestChangesListsExistingFiles(t *testing.T) {
 	}
 	if strings.Contains(v, "no longer exist") {
 		t.Errorf("existing file counted as gone\n%s", v)
+	}
+}
+
+func TestLimitsForAPIKeyAccount(t *testing.T) {
+	core, db := setup(t)
+	settings := filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "settings.json")
+	if err := os.WriteFile(settings, []byte(`{"statusLine":{"type":"command","command":"/x/lookout statusline"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c := 12.0
+	st := limits.State{Context: &c, ContextAt: time.Now().Unix()}
+	if err := limits.Save(limits.FileFor(paths.LimitsDir(), "sess-ui"), st); err != nil {
+		t.Fatal(err)
+	}
+	var m tea.Model = New(Options{Core: core, Store: db, Version: "test"})
+	v := plain(drive(m, tea.WindowSizeMsg{Width: 120, Height: 40}, LoadedMsg{}).View())
+	if !strings.Contains(v, "API key or pay-as-you-go") || strings.Contains(v, "Waiting for Claude Code") {
+		t.Errorf("API-key account not recognised\n%s", v)
+	}
+	// The reported context replaces the token estimate.
+	if !strings.Contains(v, " 12%") {
+		t.Errorf("reported context not shown\n%s", v)
 	}
 }

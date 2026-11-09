@@ -255,7 +255,7 @@ func TestEvaluate(t *testing.T) {
 			if tt.cfg != nil {
 				tt.cfg(&c)
 			}
-			sg := Evaluate(tt.st, c, now)
+			sg := Evaluate(tt.st, c, now, Extra{})
 			if sg.Action != tt.action {
 				t.Fatalf("action = %s, want %s (reason %q, signals %+v)", sg.Action, tt.action, sg.Reason, sg.Signals)
 			}
@@ -304,7 +304,7 @@ func TestContextAdvice(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			s := SessionState{Context: tt.ctx, MaxContext: tt.maxCtx}
-			a := contextAdvice(s, cfg)
+			a := contextAdvice(s, cfg, nil)
 			if a.Level != tt.level || a.AutoWindow != tt.auto || int(a.Percent) != int(tt.percent) {
 				t.Fatalf("advice = %+v", a)
 			}
@@ -358,7 +358,7 @@ func TestEngineFromFixture(t *testing.T) {
 	}
 	c := config.Default().Models
 	c.RepeatedEditThreshold = 3
-	sg := Evaluate(st, c, now)
+	sg := Evaluate(st, c, now, Extra{})
 	if sg.Action != Upgrade || sg.Suggested != "opus" {
 		t.Fatalf("suggestion = %+v", sg)
 	}
@@ -384,5 +384,53 @@ func TestLooksFailing(t *testing.T) {
 		if got := looksFailing(in); got != want {
 			t.Errorf("looksFailing(%q) = %v, want %v", in, got, want)
 		}
+	}
+}
+
+func TestEvaluateWithLimitPressure(t *testing.T) {
+	cfg := config.Default().Models
+	now := time.Now()
+	over := Extra{Pressure: PressureOver, PressureDetail: "At this pace you'll reach your 5-hour limit at 15:10, before it resets"}
+	watch := Extra{Pressure: PressureWatch, PressureDetail: "Your 5-hour limit is 85% used"}
+
+	// Over: on the top model with ordinary work, step down.
+	sg := Evaluate(state(opus, turn(opus, "add a field to the struct", tools(8))), cfg, now, over)
+	if sg.Action != Downgrade || sg.Suggested != "sonnet" || !strings.Contains(sg.Reason, "last longer") {
+		t.Errorf("over: %+v", sg)
+	}
+	// Over: struggling on sonnet, but no upgrade (it would burn the limit).
+	struggling := state(sonnet, turn(sonnet, "run the tests", errs(2, 2)), turn(sonnet, "fix those", errs(1, 1)))
+	sg = Evaluate(struggling, cfg, now, over)
+	if sg.Action == Upgrade || !strings.Contains(sg.Reason, "Narrow the task") {
+		t.Errorf("over + struggling: %+v", sg)
+	}
+	// Without pressure the same session upgrades.
+	if sg = Evaluate(struggling, cfg, now, Extra{}); sg.Action != Upgrade {
+		t.Errorf("no pressure: %+v", sg)
+	}
+	// Watch: one simple turn on the top model is enough to step down.
+	simple := state(opus, turn(opus, "please rename the variable foo to bar in the request handler file", tools(1)))
+	if sg = Evaluate(simple, cfg, now, Extra{}); sg.Action != Keep {
+		t.Errorf("simple, no pressure: %+v", sg)
+	}
+	sg = Evaluate(simple, cfg, now, watch)
+	if sg.Action != Downgrade {
+		t.Errorf("simple + watch: %+v", sg)
+	}
+	found := false
+	for _, s := range sg.Signals {
+		found = found || s.Name == "limits"
+	}
+	if !found {
+		t.Errorf("watch should show a limits signal: %+v", sg.Signals)
+	}
+
+	// Reported context replaces the estimate.
+	p := 42.0
+	st := state(opus, turn(opus, "hi", tools(1)))
+	st.Context = 84000
+	sg = Evaluate(st, cfg, now, Extra{ContextPercent: &p})
+	if !sg.Context.Reported || sg.Context.Percent != 42 || sg.Context.Window != 200000 {
+		t.Errorf("reported context: %+v", sg.Context)
 	}
 }

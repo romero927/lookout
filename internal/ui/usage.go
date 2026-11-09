@@ -45,8 +45,13 @@ func (m Model) viewUsage() string {
 			st = sYellow
 		}
 		auto := ""
-		if c.AutoWindow {
+		switch {
+		case c.Reported:
+			auto = ""
+		case c.AutoWindow:
 			auto = sMuted.Render(" (1M assumed)")
+		default:
+			auto = sMuted.Render(" (est.)")
 		}
 		out = append(out,
 			fmt.Sprintf("%s %s %s  %s of %s%s", sMuted.Render("context"), bar(c.Percent/100, gw, st), st.Render(fmt.Sprintf("%3.0f%%", c.Percent)),

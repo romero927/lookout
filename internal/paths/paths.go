@@ -1,6 +1,6 @@
 // Package paths resolves the directories Lookout reads from and writes to.
 //
-// Lookout reads Claude Code's and Codex's directories, and keeps its own
+// Lookout reads Claude Code's directory, and keeps its own
 // config and data in standard per-OS locations:
 //
 //	Linux:  $XDG_CONFIG_HOME/lookout (~/.config/lookout)
@@ -37,14 +37,6 @@ func ClaudeDir() string {
 
 // ClaudeProjectsDir holds the session transcripts.
 func ClaudeProjectsDir() string { return filepath.Join(ClaudeDir(), "projects") }
-
-// CodexDir is Codex's home directory (honours CODEX_HOME).
-func CodexDir() string {
-	if d := os.Getenv("CODEX_HOME"); d != "" {
-		return d
-	}
-	return filepath.Join(home(), ".codex")
-}
 
 // ConfigDir is where Lookout's config.toml lives.
 func ConfigDir() string {

@@ -1,4 +1,4 @@
-// Package configfiles finds and reads Claude Code and Codex config and memory
+// Package configfiles finds and reads Claude Code config and memory
 // files. Read-only unless editing is enabled in Lookout's config, and every
 // edit is preceded by a timestamped backup.
 package configfiles
@@ -21,7 +21,6 @@ const (
 	GroupClaude  Group = "Claude"
 	GroupProject Group = "Project"
 	GroupMemory  Group = "Memory"
-	GroupCodex   Group = "Codex"
 	GroupExtra   Group = "Extra"
 )
 
@@ -38,7 +37,6 @@ type File struct {
 // Sources tells Discover where to look.
 type Sources struct {
 	ClaudeDir   string
-	CodexDir    string
 	ProjectDirs []string // working directories of recent sessions
 	// ProjectNames maps a projects/ directory name to a readable name
 	// (usually the base of the session's working directory).
@@ -84,7 +82,7 @@ func Discover(s Sources) []File {
 	}
 	for _, dir := range projects {
 		name := filepath.Base(dir)
-		for _, rel := range []string{"CLAUDE.md", "CLAUDE.local.md", ".claude/CLAUDE.md", ".claude/settings.json", ".claude/settings.local.json", "AGENTS.md"} {
+		for _, rel := range []string{"CLAUDE.md", "CLAUDE.local.md", ".claude/CLAUDE.md", ".claude/settings.json", ".claude/settings.local.json"} {
 			add(GroupProject, name+"/"+rel, filepath.Join(dir, rel), false)
 		}
 	}
@@ -100,9 +98,6 @@ func Discover(s Sources) []File {
 		}
 		add(GroupMemory, name+"/"+filepath.Base(m), m, false)
 	}
-
-	add(GroupCodex, "config.toml", filepath.Join(s.CodexDir, "config.toml"), true)
-	add(GroupCodex, "AGENTS.md (global)", filepath.Join(s.CodexDir, "AGENTS.md"), false)
 
 	for _, e := range s.Extra {
 		add(GroupExtra, filepath.Base(expand(e)), e, true)

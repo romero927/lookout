@@ -54,7 +54,24 @@ type State struct {
 	FiveHour  *Window  `json:"five_hour,omitempty"`
 	SevenDay  *Window  `json:"seven_day,omitempty"`
 	Samples   []Sample `json:"samples,omitempty"`
+
+	// Context is the context window use Claude Code last reported, in
+	// percent, and ContextAt when. Reported for every account type.
+	Context   *float64 `json:"ctx,omitempty"`
+	ContextAt int64    `json:"ctx_at,omitempty"`
 }
+
+// ContextPercent returns the reported context use if it is recent.
+func (s State) ContextPercent(now time.Time, maxAge time.Duration) (float64, bool) {
+	if s.Context == nil || s.ContextAt == 0 || now.Sub(time.Unix(s.ContextAt, 0)) > maxAge {
+		return 0, false
+	}
+	return *s.Context, true
+}
+
+// SeenNoLimits reports whether Claude Code has run the status line but never
+// sent limits: an API-key (pay-as-you-go) account, most likely.
+func (s State) SeenNoLimits() bool { return s.ContextAt != 0 && !s.HasData() }
 
 // Updated returns when Claude Code last reported limits.
 func (s State) Updated() time.Time {
@@ -106,10 +123,15 @@ func Load(path string) State {
 }
 
 // Apply merges a status line reading into the state. It returns false when
-// the input had no limits (e.g. an API-key user, or before the first reply).
+// there was nothing to record.
 func (s *State) Apply(in StatusInput, now time.Time) bool {
+	ctx := false
+	if c := in.ContextWindow.UsedPercentage; c != nil {
+		v := *c
+		s.Context, s.ContextAt, ctx = &v, now.Unix(), true
+	}
 	if in.RateLimits == nil || (in.RateLimits.FiveHour == nil && in.RateLimits.SevenDay == nil) {
-		return false
+		return ctx
 	}
 	s.UpdatedAt = now.Unix()
 	if w := in.RateLimits.FiveHour; w != nil {

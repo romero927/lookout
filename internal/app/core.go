@@ -78,13 +78,13 @@ func (c *Core) Snapshot(now time.Time) (telemetry.Snapshot, telemetry.Session, b
 }
 
 // Suggest evaluates the Strategy rules for the current session.
-func (c *Core) Suggest(now time.Time) (strategy.Suggestion, strategy.SessionState) {
+func (c *Core) Suggest(now time.Time, x strategy.Extra) (strategy.Suggestion, strategy.SessionState) {
 	s, ok := c.Current()
 	if !ok {
 		return strategy.Suggestion{Action: strategy.Keep, Reason: "No Claude Code sessions found yet.", At: now}, strategy.SessionState{}
 	}
 	st, _ := c.Strategy.State(s.ID)
-	return strategy.Evaluate(st, c.Cfg.Models, now), st
+	return strategy.Evaluate(st, c.Cfg.Models, now, x), st
 }
 
 // ProjectNames maps transcript project directory names to the base name of

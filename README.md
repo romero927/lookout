@@ -12,7 +12,7 @@ Lookout is a **dashboard, not a wrapper**:
 
 - It **never calls Claude**. It doesn't use `claude -p`, the Agent SDK, or the Anthropic API, and it never types into Claude Code through a pty or scripted input. All of your Claude usage stays on your normal interactive limits.
 - It **only reads** what Claude Code writes to disk (`~/.claude/`), plus what Claude Code itself passes to an optional status line command.
-- It **never handles credentials**. It doesn't read `~/.claude/.credentials.json` or `~/.codex/auth.json`, and the Files panel refuses to open them.
+- It **never handles credentials**. It doesn't read `~/.claude/.credentials.json`, and the Files panel refuses to open it.
 - It **sends nothing anywhere**. No network calls, no telemetry. The only programs it starts are `git` (read-only `diff` and `status`, for the Changes panel), a desktop notifier for alerts, and your `$EDITOR` if you enable editing.
 
 ## Panels
@@ -22,8 +22,8 @@ Lookout is a **dashboard, not a wrapper**:
 | 1 | **Usage** | Your real **5-hour and weekly limits** (percent used, percent left, reset time) with a pace projection: where you'll be at reset, or when you'll hit the limit. Below that: the current session and its context fill, token counts for the session, today and the last 5 hours, burn rate, usage by model, the last 7 days, and how much of the weekly limit each day used. **Tokens and percentages only, never dollars.** |
 | 2 | **Changes** | Every file Claude edited in the session (including through subagents), with estimated lines added and removed, and its uncommitted `git diff`. New files show in full. Other uncommitted files in the repository are listed below, so changes made by shell commands aren't missed. |
 | 3 | **Activity** | One entry per prompt you sent: how long the turn took, the tools Claude used (failures marked), the files it edited, and its last message. Useful for catching up on what happened while you were away. |
-| 4 | **Models** | The current model, a suggested model, and a one-line reason, from tunable rules. You switch yourself with `/model`. It also flags when `/compact` or a fresh session is worth it, and logs each suggestion together with the model you actually used next. |
-| 5 | **Files** | Browse `~/.claude/settings.json`, the global and project `CLAUDE.md` files, auto-memory files, and `~/.codex/config.toml` / `AGENTS.md`. Read-only by default, with secret-looking values masked on screen. |
+| 4 | **Models** | The current model, a suggested model, and a one-line reason, from tunable rules. Near a usage limit it suggests a lighter model to make the rest last, and holds off on upgrades that would use the limit up faster. You switch yourself with `/model`. It also flags when `/compact` or a fresh session is worth it, and logs each suggestion together with the model you actually used next. |
+| 5 | **Files** | Browse `~/.claude/settings.json`, the global and project `CLAUDE.md` files, and auto-memory files. Read-only by default, with secret-looking values masked on screen. |
 
 Keys: `1`–`5` or `tab` switch panels · `s` picks which session to show (`a` in the picker follows the latest again) · `↑↓`/`jk` move · `enter` focuses a viewer · `esc` goes back · `e` edits (if enabled) · `R` restarts · `?` help · `q` quits.
 
@@ -62,7 +62,7 @@ Claude Code passes your subscription's 5-hour and weekly usage (percent used and
 lookout statusline install --print
 ```
 
-Claude Code then runs `lookout statusline` after each update. It saves only the limit numbers (one small file per session under `limits/` in the data directory, so sessions on different accounts stay separate, plus a per-day total in `history.json`) and prints a short line under your prompt, e.g. `Opus 5.5 · ctx 12% · 5h 42% (resets 2h23m) · week 23%`. Settings allow only one status line, so this replaces any you already have. Limits are reported for Claude.ai subscriptions only; without them, Lookout falls back to a token-based estimate.
+Claude Code then runs `lookout statusline` after each update. It saves only the limit numbers (one small file per session under `limits/` in the data directory, so sessions on different accounts stay separate, plus a per-day total in `history.json`) and prints a short line under your prompt, e.g. `Opus 5.5 · ctx 12% · 5h 42% (resets 2h23m) · week 23%`. Settings allow only one status line, so this replaces any you already have. Limits are reported for Claude.ai subscriptions only. With an API key or pay-as-you-go account there are no 5-hour or weekly limits to show, so that section says so, and everything else (tokens, context, Changes, Activity, Models, Files) works the same.
 
 ## Configuration
 
@@ -80,7 +80,7 @@ Highlights:
 - `[alerts]`: `bell`, `desktop`, `thresholds` (default `[80, 95]`; `[]` turns them off) and `pace`.
 - `[ui] theme`: `auto`, `dark` or `light`. Inside tmux the terminal can't be asked, so dark is assumed. `LOOKOUT_THEME` overrides it.
 
-Lookout honours `CLAUDE_CONFIG_DIR` and `CODEX_HOME`.
+Lookout honours `CLAUDE_CONFIG_DIR`.
 
 ## How the numbers are computed
 
@@ -89,7 +89,7 @@ Lookout honours `CLAUDE_CONFIG_DIR` and `CODEX_HOME`.
 - **Limits.** The percentages and reset times are exactly what Claude Code passes to the status line. They cover all your Claude usage, on any device, but only update when Claude Code refreshes its status line. The 5-hour pace is the change over the last 30 minutes (idle time counts); the weekly pace is the average since the week started. The projection assumes that pace holds.
 - **Weekly limit by day.** Each time Claude Code reports limits, the rise since the previous reading is added to that local day. After a window resets, the new window's usage counts in full. The first reading ever only sets a starting point, so the chart fills in from the day you connect the status line.
 - **Usage block (estimated, fallback).** Shown only when real limits aren't available: a 5-hour window that starts at the first message after a break, floored to the hour. It is a heuristic, not Anthropic's actual limit meter.
-- **Context.** Context ≈ input + cache read + cache write of the latest main-chain response. If a session goes past the configured window (default 200k), a 1M window is assumed.
+- **Context.** With the status line connected, this is the percentage Claude Code itself reports. Otherwise it is estimated: input + cache read + cache write of the latest main-chain response, against the configured window (default 200k, or 1M once a session goes past it).
 
 ### ⚠️ The transcript format is undocumented
 

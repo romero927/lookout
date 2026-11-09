@@ -113,7 +113,7 @@ func Default() Config {
 			LongPromptChars:       1500,
 			FrustrationPhrases: []string{
 				"still broken", "doesn't work", "does not work", "still not working",
-				"still failing", "not working", "same error", "still wrong", "try again",
+				"still failing", "not working", "same error", "still wrong",
 				"that's wrong", "you broke", "didn't work", "did not work",
 			},
 			SimpleTurnStreak:      3,
@@ -222,7 +222,7 @@ repeated_edit_threshold = 4   # same file edited N times recently -> upgrade
 tool_error_threshold = 3      # N failing tool results recently -> upgrade
 multi_file_threshold = 5      # N distinct files edited in one turn -> upgrade
 long_prompt_chars = 1500      # a prompt this long is a large task -> upgrade
-frustration_phrases = ["still broken", "doesn't work", "does not work", "still not working", "still failing", "not working", "same error", "still wrong", "try again", "that's wrong", "you broke", "didn't work", "did not work"]
+frustration_phrases = ["still broken", "doesn't work", "does not work", "still not working", "still failing", "not working", "same error", "still wrong", "that's wrong", "you broke", "didn't work", "did not work"]
 simple_turn_streak = 3        # N simple, successful turns on the top tier -> downgrade
 simple_max_tool_calls = 3
 simple_max_output_tokens = 1500

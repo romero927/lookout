@@ -31,7 +31,6 @@ func TestScreenshot(t *testing.T) {
 	root := t.TempDir()
 	claude := filepath.Join(root, "claude")
 	t.Setenv("CLAUDE_CONFIG_DIR", claude)
-	t.Setenv("CODEX_HOME", filepath.Join(root, "codex"))
 	t.Setenv("LOOKOUT_DATA_DIR", filepath.Join(root, "data"))
 	t.Setenv("LOOKOUT_CONFIG_DIR", filepath.Join(root, "config"))
 	t.Setenv("PATH", root)

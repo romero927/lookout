@@ -23,6 +23,7 @@ import (
 	"github.com/romero927/lookout/internal/limits"
 	"github.com/romero927/lookout/internal/paths"
 	"github.com/romero927/lookout/internal/store"
+	"github.com/romero927/lookout/internal/strategy"
 	"github.com/romero927/lookout/internal/ui"
 )
 
@@ -195,7 +196,13 @@ func cmdStats(args []string, stdout, stderr io.Writer) int {
 	n := core.Load()
 	now := time.Now()
 	snap, sess, hasSess := core.Snapshot(now)
-	sg, _ := core.Suggest(now)
+	var extra strategy.Extra
+	if hasSess {
+		if p, _, ok := limits.Pick(paths.LimitsDir(), sess.ID); ok {
+			extra = ui.SuggestExtra(limits.Load(p), p == limits.FileFor(paths.LimitsDir(), sess.ID), now)
+		}
+	}
+	sg, _ := core.Suggest(now, extra)
 	h := core.Watcher.Health()
 
 	fmt.Fprintf(stdout, "Scanned %d records in %s from %s\n", n, time.Since(start).Round(time.Millisecond), ui.ShortPath(paths.ClaudeProjectsDir()))
@@ -266,7 +273,10 @@ func cmdStats(args []string, stdout, stderr io.Writer) int {
 	}
 	if sg.Context.Tokens > 0 {
 		fmt.Fprintf(stdout, "  context %s of %s (%.0f%%)", ui.Tokens(sg.Context.Tokens), ui.Tokens(sg.Context.Window), sg.Context.Percent)
-		if sg.Context.AutoWindow {
+		switch {
+		case sg.Context.Reported:
+			fmt.Fprint(stdout, " [reported by Claude Code]")
+		case sg.Context.AutoWindow:
 			fmt.Fprint(stdout, " [window auto-raised]")
 		}
 		fmt.Fprintln(stdout)
@@ -332,7 +342,6 @@ func cmdPaths(stdout io.Writer) int {
 	tw := tabwriter.NewWriter(stdout, 0, 0, 2, ' ', 0)
 	for _, kv := range [][2]string{
 		{"claude transcripts (read)", paths.ClaudeProjectsDir()},
-		{"codex dir (read)", paths.CodexDir()},
 		{"config", paths.ConfigFile()},
 		{"database", paths.DBFile()},
 		{"backups", paths.BackupDir()},

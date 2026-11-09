@@ -13,6 +13,7 @@ import (
 
 	"github.com/romero927/lookout/internal/limits"
 	"github.com/romero927/lookout/internal/paths"
+	"github.com/romero927/lookout/internal/strategy"
 )
 
 // refreshLimits loads the focused session's limits (or the latest session's)
@@ -147,6 +148,10 @@ func (m Model) viewLimits(w int) []string {
 func (m Model) viewLimitsMissing(w int) []string {
 	out := []string{section("Limits", w)}
 	switch {
+	case m.slOurs && m.limits.SeenNoLimits():
+		out = append(out, sMuted.Render(clip("This account doesn't report 5-hour or weekly limits (API key or pay-as-you-go).", w)),
+			sMuted.Render(clip("Tokens below are what you're billed on.", w)))
+		return out
 	case m.slOurs:
 		out = append(out, sYellow.Render(clip("Waiting for Claude Code: limits arrive after its next reply.", w)),
 			sMuted.Render(clip("Only Claude.ai subscriptions report limits; API-key use doesn't.", w)))
@@ -301,3 +306,27 @@ func (m *Model) checkBuild() {
 
 // RestartRequested reports whether the user asked to restart into a new build.
 func (m Model) RestartRequested() bool { return m.restart }
+
+// SuggestExtra turns limits into input for the model suggestion. exact says
+// whether st belongs to the session being evaluated (context use is
+// per session; limits are per account).
+func SuggestExtra(st limits.State, exact bool, now time.Time) strategy.Extra {
+	var x strategy.Extra
+	switch lvl, detail := st.Pressure(now); lvl {
+	case limits.LevelOver:
+		x.Pressure, x.PressureDetail = strategy.PressureOver, detail
+	case limits.LevelWatch:
+		x.Pressure, x.PressureDetail = strategy.PressureWatch, detail
+	}
+	if exact {
+		if p, ok := st.ContextPercent(now, 30*time.Minute); ok {
+			x.ContextPercent = &p
+		}
+	}
+	return x
+}
+
+// limitsExact reports whether the loaded limits file is the focused session's.
+func (m Model) limitsExact() bool {
+	return m.hasSess && m.limitsPath == limits.FileFor(paths.LimitsDir(), m.sess.ID)
+}
