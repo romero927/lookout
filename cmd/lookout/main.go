@@ -3,6 +3,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"flag"
 	"fmt"
@@ -39,6 +40,7 @@ Usage:
   lookout [--cwd DIR | --here]     open the dashboard
   lookout stats [--cwd DIR]        print usage and the model suggestion once, then exit
   lookout statusline               status line entry point (Claude Code runs this)
+  lookout statusline --wrap CMD    run your existing status line CMD too and add Lookout's line to it
   lookout statusline install --print   print the settings.json snippet for it
   lookout config init|path         write the default config / show its path
   lookout paths                    show every directory Lookout uses
@@ -375,24 +377,27 @@ func hookLog(format string, a ...any) {
 	fmt.Fprintf(f, "%s %s\n", time.Now().Format(time.RFC3339), fmt.Sprintf(format, a...))
 }
 
+const statusLineUsage = `usage: lookout statusline [--wrap CMD] [--order after|before] [--sep TEXT] [--timeout DUR]
+       lookout statusline install --print
+`
+
 func cmdStatusLine(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
-	settings := filepath.Join(paths.ClaudeDir(), "settings.json")
-	if len(args) > 0 {
-		if args[0] != "install" {
-			fmt.Fprintln(stderr, "usage: lookout statusline | lookout statusline install --print")
-			return 2
-		}
-		fmt.Fprintf(stdout, "Lookout never edits your settings. To show your 5-hour and weekly limits, merge this into\n%s:\n\n", settings)
-		fmt.Fprintln(stdout, limits.StatusLineSnippet(selfPath()))
-		fmt.Fprintln(stdout, "\nClaude Code then runs it after each reply and passes it your usage limits, context use and cost. Lookout")
-		fmt.Fprintln(stdout, "saves only those few numbers and prints a short line under the prompt.")
-		switch configured, ours := limits.StatusLineSetting(settings); {
-		case ours:
-			fmt.Fprintln(stdout, "\nStatus: Lookout's status line is already set up in that file.")
-		case configured:
-			fmt.Fprintln(stdout, "\nNote: that file already has a different statusLine. It can only have one, so this would replace it.")
-		}
-		return 0
+	if len(args) > 0 && args[0] == "install" {
+		return cmdStatusLineInstall(stdout)
+	}
+	fs := flag.NewFlagSet("statusline", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	fs.Usage = func() { fmt.Fprint(stderr, statusLineUsage) }
+	wrap := fs.String("wrap", "", "another status line command to run first; Lookout's line is added to its output")
+	order := fs.String("order", "after", `where Lookout's line goes relative to the wrapped output: "after" or "before"`)
+	sep := fs.String("sep", limits.DefaultWrapSeparator, "text between the wrapped output and Lookout's line")
+	timeout := fs.Duration("timeout", limits.DefaultWrapTimeout, "how long the wrapped command may run")
+	if err := fs.Parse(args); err != nil {
+		return 2
+	}
+	if fs.NArg() > 0 || (*order != "after" && *order != "before") {
+		fs.Usage()
+		return 2
 	}
 
 	// Claude Code runs this on every status line update. Stay fast, always
@@ -404,7 +409,25 @@ func cmdStatusLine(args []string, stdin io.Reader, stdout, stderr io.Writer) int
 			fmt.Fprintln(stdout, "lookout")
 		}
 	}()
-	in, err := limits.ParseInput(stdin)
+	raw, err := io.ReadAll(io.LimitReader(stdin, 4<<20))
+	if err != nil {
+		hookLog("statusline: reading stdin: %v", err)
+	}
+	// Start the wrapped command first so it runs while Lookout saves.
+	type result struct {
+		out string
+		err error
+	}
+	var wrapped chan result
+	if *wrap != "" {
+		wrapped = make(chan result, 1)
+		go func() {
+			out, err := limits.RunWrapped(*wrap, raw, *timeout)
+			wrapped <- result{out, err}
+		}()
+	}
+
+	in, err := limits.ParseInput(bytes.NewReader(raw))
 	if err != nil {
 		hookLog("statusline: %v", err)
 	}
@@ -422,7 +445,39 @@ func cmdStatusLine(args []string, stdin io.Reader, stdout, stderr io.Writer) int
 		}
 	}
 	subscriber := st.HasData() || limits.HasLimits(paths.LimitsDir())
-	fmt.Fprintln(stdout, limits.StatusLine(in, st, now, subscriber))
+	line := limits.StatusLine(in, st, now, subscriber)
+	if wrapped != nil {
+		r := <-wrapped
+		if r.err != nil {
+			hookLog("statusline --wrap %q: %v", *wrap, r.err)
+		}
+		line = limits.ComposeWrapped(r.out, line, *sep, *order == "before")
+	}
+	fmt.Fprintln(stdout, line)
+	return 0
+}
+
+func cmdStatusLineInstall(stdout io.Writer) int {
+	settings := filepath.Join(paths.ClaudeDir(), "settings.json")
+	configured, ours := limits.StatusLineSetting(settings)
+	existing, wrappable := limits.ExistingStatusLine(settings)
+	fmt.Fprintf(stdout, "Lookout never edits your settings. To show your 5-hour and weekly limits, merge this into\n%s:\n\n", settings)
+	if configured && !ours && wrappable {
+		fmt.Fprintln(stdout, limits.WrappedSnippet(selfPath(), existing))
+	} else {
+		fmt.Fprintln(stdout, limits.StatusLineSnippet(selfPath()))
+	}
+	fmt.Fprintln(stdout, "\nClaude Code then runs it after each reply and passes it your usage limits, context use and cost. Lookout")
+	fmt.Fprintln(stdout, "saves only those few numbers and prints a short line under the prompt.")
+	switch {
+	case ours:
+		fmt.Fprintln(stdout, "\nStatus: Lookout's status line is already set up in that file.")
+	case configured && wrappable:
+		fmt.Fprintln(stdout, "\nNote: that file already has a statusLine. This keeps it: Lookout runs your command with the same input,")
+		fmt.Fprintln(stdout, "prints its output, then adds its own line. Use --order before or --sep TEXT to change the layout.")
+	case configured:
+		fmt.Fprintln(stdout, "\nNote: that file already has a different statusLine. It can only have one, so this would replace it.")
+	}
 	return 0
 }
 
