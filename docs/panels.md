@@ -2,6 +2,8 @@
 
 Full detail for each of Lookout's panels. Press `1`–`9` or `tab` to switch between them. The [README](../README.md#panels) has the short version.
 
+Until Lookout finds a session (for example, `lookout --here` in a folder where Claude Code hasn't run yet), Activity, Changes, Context, Models and Tools show a placeholder saying which folder it's waiting on; `s` picks another session. Usage still shows your limits, and Skills, Config and the Cheatsheet work as usual.
+
 ## 1. Usage
 
 Your real **5-hour and weekly limits** (percent used, percent left, reset time) with a pace projection: where you'll be at reset, or when you'll hit the limit, and an estimate of how much of each limit the current session used (its share of the Claude Code usage on this computer in that window, with tokens weighted by model price; usage on claude.ai or other computers isn't seen). Below that: the current session and its context fill, token counts for the session, today and the last 5 hours, burn rate, usage by model, the last 7 days, and how much of the weekly limit each day used. Tokens and percentages, not dollars, except on pay-as-you-go accounts: there it shows the session cost Claude Code reports, estimated dollars for today, the last 5 hours, each model and each day (tokens at API list prices, pay-as-you-go sessions only, marked `~`). The Limits heading links your usage page on claude.ai for every account (`o` opens it).

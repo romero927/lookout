@@ -872,3 +872,24 @@ func TestUpdateNotice(t *testing.T) {
 		t.Error("no check should run while [updates] check is off")
 	}
 }
+
+func TestNoSessionPlaceholder(t *testing.T) {
+	core, db := setup(t)
+	core.CwdFilter = "/work/elsewhere" // --here in a folder with no session
+	var m tea.Model = New(Options{Core: core, Store: db, Version: "test"})
+	m = drive(m, tea.WindowSizeMsg{Width: 100, Height: 30}, LoadedMsg{})
+	for _, k := range []string{"2", "3", "4", "5", "6"} {
+		v := plain(drive(m, key(k)).View())
+		for _, w := range []string{"Waiting for a Claude Code session in /work/elsewhere", "Start `claude`", "Press s"} {
+			if !strings.Contains(v, w) {
+				t.Errorf("panel %s: missing %q\n%s", k, w, v)
+			}
+		}
+	}
+	if v := plain(drive(m, key("1")).View()); !strings.Contains(v, "LIMITS") || !strings.Contains(v, "Waiting for a Claude Code session") {
+		t.Errorf("usage panel should keep limits and say it's waiting:\n%s", v)
+	}
+	if v := plain(drive(m, key("7")).View()); strings.Contains(v, "Waiting for a Claude Code session") {
+		t.Errorf("skills panel works without a session:\n%s", v)
+	}
+}

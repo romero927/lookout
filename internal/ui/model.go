@@ -651,6 +651,8 @@ func (m Model) render() string {
 		body = m.viewPicker(bodyH)
 	case !m.loaded:
 		body = "\n  " + sMuted.Render("scanning transcripts in "+ShortPath(paths.ClaudeProjectsDir())+" …")
+	case !m.hasSess && needsSession(m.tab):
+		body = m.viewNoSession()
 	default:
 		switch m.tab {
 		case tabUsage:

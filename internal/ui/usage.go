@@ -29,9 +29,9 @@ func (m Model) viewUsage() string {
 			sLabel.Render(pad("FOLDER", 9)), sText.Render(ShortPath(s.Cwd)), sPurple.Render(ShortModel(s.Model)),
 			live, sMuted.Render(Ago(s.LastActivity, m.now)+" · "+ShortID(s.ID))), w+80))
 	} else {
-		out = append(out, sMuted.Render("No Claude Code sessions found in "+ShortPath(m.o.Core.Watcher.Root)+" yet."))
+		out = append(out, sMuted.Render("Waiting for a Claude Code session in "+m.waitingFor()+". Start `claude` there and it shows up here."))
 	}
-	if m.o.Core.CwdFilter != "" {
+	if m.hasSess && m.o.Core.CwdFilter != "" {
 		out = append(out, sMuted.Render("focused on "+ShortPath(m.o.Core.CwdFilter)))
 	}
 	if c := m.sugg.Context; c.Tokens > 0 {

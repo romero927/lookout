@@ -136,3 +136,38 @@ func (m Model) togglePin() Model {
 	m.refresh()
 	return m
 }
+
+// needsSession reports whether a panel has nothing to show without a
+// session. Usage, Skills, Config and the Cheatsheet still work without one.
+func needsSession(tab int) bool {
+	switch tab {
+	case tabActivity, tabChanges, tabContext, tabModels, tabTools:
+		return true
+	}
+	return false
+}
+
+// waitingFor names where Lookout is looking for a session: the --here
+// folder when set, otherwise the transcripts folder.
+func (m Model) waitingFor() string {
+	if d := m.o.Core.CwdFilter; d != "" {
+		return ShortPath(d)
+	}
+	return ShortPath(m.o.Core.Watcher.Root)
+}
+
+// viewNoSession is the placeholder shown on session panels until a
+// Claude Code session appears.
+func (m Model) viewNoSession() string {
+	w := max(10, m.width-4)
+	out := []string{
+		"",
+		"  " + sBold.Render(clip("Waiting for a Claude Code session in "+m.waitingFor(), w)),
+		"",
+		"  " + sMuted.Render(clip("Start `claude` in this folder and Lookout picks it up on its own.", w)),
+	}
+	if len(m.o.Core.Agg.Sessions()) > 0 {
+		out = append(out, "  "+sMuted.Render(clip("Press s to choose another session.", w)))
+	}
+	return strings.Join(out, "\n")
+}
