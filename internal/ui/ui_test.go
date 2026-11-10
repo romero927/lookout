@@ -399,8 +399,8 @@ func TestLimitsForAPIKeyAccount(t *testing.T) {
 		t.Errorf("reported context not shown\n%s", v)
 	}
 	// Dollars across the panel: the session's own figure, estimates for the
-	// rest, and a link to the Console.
-	for _, want := range []string{"cost", "$3.50", "~$", "estimated from tokens", ConsoleCostURL, "o open usage & cost"} {
+	// rest, and a link to the claude.ai usage page.
+	for _, want := range []string{"cost", "$3.50", "~$", "estimated from tokens", UsagePageURL, "o open usage on claude.ai"} {
 		if !strings.Contains(v, want) {
 			t.Errorf("pay-as-you-go view missing %q\n%s", want, v)
 		}
@@ -421,8 +421,11 @@ func TestNoCostsForSubscribers(t *testing.T) {
 	}
 	var m tea.Model = New(Options{Core: core, Store: db, Version: "test"})
 	v := plain(drive(m, tea.WindowSizeMsg{Width: 120, Height: 40}, LoadedMsg{}).View())
-	if strings.Contains(v, "$") || strings.Contains(v, ConsoleCostURL) {
-		t.Errorf("subscriber view shows dollars or the Console link\n%s", v)
+	if strings.Contains(v, "$") {
+		t.Errorf("subscriber view shows dollars\n%s", v)
+	}
+	if !strings.Contains(v, UsagePageURL) || !strings.Contains(v, "o open usage on claude.ai") {
+		t.Errorf("usage link missing for subscribers\n%s", v)
 	}
 }
 

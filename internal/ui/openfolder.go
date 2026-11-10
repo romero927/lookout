@@ -32,9 +32,8 @@ func openFolder(path string) tea.Cmd {
 	}
 }
 
-// ConsoleCostURL is the Claude Console page with an API account's usage and
-// spend.
-const ConsoleCostURL = "https://platform.claude.com/cost"
+// UsagePageURL is the claude.ai page with the account's usage.
+const UsagePageURL = "https://claude.ai/settings/usage"
 
 // openURL opens a web page in the default browser.
 func openURL(url string) tea.Cmd {

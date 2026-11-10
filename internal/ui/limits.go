@@ -110,7 +110,7 @@ func (m Model) viewLimits(w int) []string {
 	if five == nil && week == nil {
 		return m.viewLimitsMissing(w)
 	}
-	out := []string{section("Limits", w)}
+	out := []string{limitsHeading(w)}
 	gw := max(10, min(40, w-28))
 	for _, x := range []struct {
 		name string
@@ -160,10 +160,22 @@ func (m Model) viewLimits(w int) []string {
 	return out
 }
 
+// limitsHeading is the Limits section heading, with the claude.ai usage
+// page at its right end ("o" opens it) when there is room.
+func limitsHeading(w int) string {
+	link := sBlue.Render(UsagePageURL) + sMuted.Render(" (o)")
+	t := sSection.Render("LIMITS")
+	rule := w - lipgloss.Width(t) - lipgloss.Width(link) - 2
+	if rule < 3 {
+		return section("Limits", w)
+	}
+	return t + " " + sMuted.Render(strings.Repeat("─", rule)) + " " + link
+}
+
 // viewLimitsMissing explains how to get real limits and falls back to the
 // token-based block estimate.
 func (m Model) viewLimitsMissing(w int) []string {
-	out := []string{section("Limits", w)}
+	out := []string{limitsHeading(w)}
 	switch {
 	case m.slOurs && m.limits.SeenNoLimits():
 		if c := m.limits.CostUSD; c != nil && m.limitsExact() {
@@ -171,10 +183,6 @@ func (m Model) viewLimitsMissing(w int) []string {
 				sMuted.Render(clip(" this session, as reported by Claude Code", max(0, w-18))))
 		}
 		out = append(out, sMuted.Render(clip("No 5-hour or weekly limits: this is an API key or pay-as-you-go account.", w)))
-		if m.showCost() {
-			out = append(out, sLabel.Render("CONSOLE ")+sBlue.Render(ConsoleCostURL)+
-				sMuted.Render(clip("  o opens it", max(0, w-8-len(ConsoleCostURL)))))
-		}
 		return out
 	case m.slOurs:
 		out = append(out, sYellow.Render(clip("Waiting for Claude Code: limits arrive after its next reply.", w)),

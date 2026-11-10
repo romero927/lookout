@@ -86,6 +86,7 @@ More on each panel: [docs/panels.md](docs/panels.md). All screenshots below use 
 | `c` | Copy a command (Context, Skills, Cheatsheet) |
 | `y` | Copy an ID (a commit in Changes, a session in the picker) |
 | `e` | Edit the file (Config, only if [enabled](#configuration)) |
+| `o` | Open your usage page on claude.ai (Usage), or the selected file's folder (Config, Changes) |
 | `R` | Restart |
 | `?` | Help |
 | `q` | Quit |
@@ -165,7 +166,7 @@ These accounts (including enterprise accounts billed by usage) have no 5-hour or
 
 - The cost is Claude Code's own estimate at list API prices, so negotiated pricing isn't reflected.
 - It's decided per session: a session with a cost but no limits after its first reply shows its cost, even if another account on the same computer has limits.
-- The Usage panel shows dollars beside the tokens too: today, the last 5 hours, each model and each of the last 7 days. These are Lookout's estimates (marked `~`): tokens priced at API list prices, counting only pay-as-you-go sessions, so a subscription on the same computer isn't priced in. `o` opens your usage and cost in the [Claude Console](https://platform.claude.com/cost).
+- The Usage panel shows dollars beside the tokens too: today, the last 5 hours, each model and each of the last 7 days. These are Lookout's estimates (marked `~`): tokens priced at API list prices, counting only pay-as-you-go sessions, so a subscription on the same computer isn't priced in.
 
 ### Uninstall
 
