@@ -14,7 +14,9 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
+	"strings"
 )
 
 const appName = "lookout"
@@ -160,4 +162,18 @@ func moveDir(from, to string) error {
 		return err
 	}
 	return os.Rename(from, to)
+}
+
+// ScratchRe matches Claude Code's per-session scratchpad folder.
+var ScratchRe = regexp.MustCompile(`/tmp/claude-\d+/[^/\s'"]+/[0-9a-f-]{36}/scratchpad`)
+
+// IsScratchpad reports whether p is Claude Code's session scratchpad or
+// inside it. Files there are throwaway, so Changes leaves them out.
+func IsScratchpad(p string) bool {
+	loc := ScratchRe.FindStringIndex(filepath.ToSlash(p))
+	if loc == nil {
+		return false
+	}
+	rest := filepath.ToSlash(p)[loc[1]:]
+	return rest == "" || strings.HasPrefix(rest, "/")
 }

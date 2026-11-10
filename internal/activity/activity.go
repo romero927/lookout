@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/romero927/lookout/internal/paths"
 	"github.com/romero927/lookout/internal/transcript"
 )
 
@@ -268,10 +269,17 @@ func (e *Engine) Observe(r transcript.Record, src transcript.Source) {
 					s.addDir(d)
 				}
 			}
-			if editTools[tu.Name] && filepath.IsAbs(tu.FilePath) {
+			// Scratchpad files are throwaway: leave them out of the session's
+			// changed files and folders. The turn still lists them.
+			scratch := paths.IsScratchpad(tu.FilePath)
+			if editTools[tu.Name] && filepath.IsAbs(tu.FilePath) && !scratch {
 				s.addDir(filepath.Dir(tu.FilePath))
 			}
-			if editTools[tu.Name] && tu.FilePath != "" {
+			if editTools[tu.Name] && tu.FilePath != "" && t != nil && !t.files[tu.FilePath] {
+				t.files[tu.FilePath] = true
+				t.Files = append(t.Files, tu.FilePath)
+			}
+			if editTools[tu.Name] && tu.FilePath != "" && !scratch {
 				f := s.files[tu.FilePath]
 				if f == nil {
 					f = &FileChange{Path: tu.FilePath, First: r.Timestamp}
@@ -286,10 +294,6 @@ func (e *Engine) Observe(r transcript.Record, src transcript.Source) {
 					f.Last = r.Timestamp
 				}
 				p.file, p.added, p.removed = tu.FilePath, tu.Added, tu.Removed
-				if t != nil && !t.files[tu.FilePath] {
-					t.files[tu.FilePath] = true
-					t.Files = append(t.Files, tu.FilePath)
-				}
 			}
 			if tu.ID != "" {
 				s.pending[tu.ID] = p

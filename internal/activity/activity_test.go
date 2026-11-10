@@ -233,3 +233,29 @@ func TestQueuedMessagesAndSubagentOrder(t *testing.T) {
 		t.Errorf("agent task: %v", s.AgentTasks)
 	}
 }
+
+func TestScratchpadEditsLeftOutOfFiles(t *testing.T) {
+	e := New()
+	src := transcript.Source{SessionID: "s1"}
+	at := time.Date(2026, 11, 10, 10, 0, 0, 0, time.UTC)
+	scratch := "/tmp/claude-1000/-p/9dc527ab-eabc-49a1-8d31-ca0e63b3e824/scratchpad/notes.md"
+	e.Observe(transcript.Record{Kind: transcript.KindUser, SessionID: "s1", Timestamp: at, Prompt: "go"}, src)
+	e.Observe(transcript.Record{Kind: transcript.KindAssistant, SessionID: "s1", Timestamp: at.Add(time.Minute), MessageID: "m1",
+		Model: "claude-opus-x", ToolUses: []transcript.ToolUse{
+			{ID: "t1", Name: "Write", FilePath: scratch, Added: 4, Whole: true},
+			{ID: "t2", Name: "Edit", FilePath: "/p/a.go", Added: 1},
+		}}, src)
+
+	s := e.Session("s1")
+	if len(s.Files) != 1 || s.Files[0].Path != "/p/a.go" {
+		t.Errorf("files: %+v", s.Files)
+	}
+	for _, d := range s.Dirs {
+		if strings.Contains(d, "scratchpad") {
+			t.Errorf("scratchpad folder kept: %v", s.Dirs)
+		}
+	}
+	if len(s.Turns) != 1 || len(s.Turns[0].Files) != 2 {
+		t.Errorf("turn should still list both edits: %+v", s.Turns)
+	}
+}

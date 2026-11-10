@@ -5,9 +5,10 @@ import (
 	"math"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"time"
+
+	"github.com/romero927/lookout/internal/paths"
 )
 
 // Tokens formats a token count compactly: 999, 12.3k, 4.56M, 1.2B.
@@ -98,13 +99,10 @@ func ShortPath(p string) string {
 	return p
 }
 
-// scratchRe matches Claude Code's per-session temp folders.
-var scratchRe = regexp.MustCompile(`/tmp/claude-\d+/[^/\s'"]+/[0-9a-f-]{36}/scratchpad`)
-
 // shortPaths shortens paths inside a command or label: Claude Code's
 // session scratchpad becomes "scratchpad", your home folder "~".
 func shortPaths(s string) string {
-	s = scratchRe.ReplaceAllString(s, "scratchpad")
+	s = paths.ScratchRe.ReplaceAllString(s, "scratchpad")
 	if h, err := os.UserHomeDir(); err == nil && len(h) > 1 {
 		s = strings.ReplaceAll(s, h+"/", "~/")
 	}
