@@ -255,8 +255,8 @@ func TestApplyContextWithoutLimits(t *testing.T) {
 	if !s.Apply(in, now) {
 		t.Fatal("context-only input should be recorded")
 	}
-	if !s.SeenNoLimits() || s.HasData() {
-		t.Errorf("API-key style state: %+v", s)
+	if s.PayAsYouGo() || s.HasData() {
+		t.Errorf("no reply yet, so not known to be pay-as-you-go: %+v", s)
 	}
 	if p, ok := s.ContextPercent(now.Add(time.Minute), 30*time.Minute); !ok || p != 37 {
 		t.Errorf("context %v %v", p, ok)

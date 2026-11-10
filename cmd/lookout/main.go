@@ -327,7 +327,7 @@ func cmdStats(args []string, stdout, stderr io.Writer) int {
 
 func printLimits(w io.Writer, st limits.State, now time.Time) {
 	five, week := st.Paces(now)
-	if st.SeenNoLimits() {
+	if st.PayAsYouGo() {
 		fmt.Fprint(w, "\nLimits: none reported (API key or pay-as-you-go account).")
 		if st.CostUSD != nil {
 			fmt.Fprintf(w, " Cost of the latest session so far: %s.", limits.Money(*st.CostUSD))

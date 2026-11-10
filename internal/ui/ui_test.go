@@ -209,6 +209,25 @@ func TestLimitsWaitingWhenStatusLineInstalled(t *testing.T) {
 	}
 }
 
+// A session that opened but hasn't replied yet has context but no cost or
+// limits; it must not be taken for an API-key account.
+func TestLimitsWaitingBeforeFirstReply(t *testing.T) {
+	c, zero := 3.0, 0.0
+	m := Model{slOurs: true, hasSess: true, limits: limits.State{Context: &c, ContextAt: time.Now().Unix(), CostUSD: &zero}}
+	v := plain(strings.Join(m.viewLimitsMissing(100), "\n"))
+	if strings.Contains(v, "pay-as-you-go") || !strings.Contains(v, "Waiting for Claude Code") {
+		t.Errorf("fresh session shown as API account:\n%s", v)
+	}
+}
+
+func TestLimitsWaitingWithoutSession(t *testing.T) {
+	m := Model{slOurs: true}
+	v := plain(strings.Join(m.viewLimitsMissing(100), "\n"))
+	if !strings.Contains(v, "No Claude Code session yet") || strings.Contains(v, "next reply") {
+		t.Errorf("no-session message wrong:\n%s", v)
+	}
+}
+
 func ptrF(v float64) *float64 { return &v }
 
 func TestHistoryAlertsAndRestart(t *testing.T) {

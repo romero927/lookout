@@ -74,10 +74,6 @@ func (s State) ContextPercent(now time.Time, maxAge time.Duration) (float64, boo
 	return *s.Context, true
 }
 
-// SeenNoLimits reports whether Claude Code has run the status line but never
-// sent limits: an API-key (pay-as-you-go) account, most likely.
-func (s State) SeenNoLimits() bool { return s.ContextAt != 0 && !s.HasData() }
-
 // Updated returns when Claude Code last reported limits.
 func (s State) Updated() time.Time {
 	if s.UpdatedAt == 0 {

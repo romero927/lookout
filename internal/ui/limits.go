@@ -177,7 +177,7 @@ func limitsHeading(w int) string {
 func (m Model) viewLimitsMissing(w int) []string {
 	out := []string{limitsHeading(w)}
 	switch {
-	case m.slOurs && m.limits.SeenNoLimits():
+	case m.slOurs && m.limits.PayAsYouGo():
 		if c := m.limits.CostUSD; c != nil && m.limitsExact() {
 			out = append(out, sLabel.Render("COST    ")+sBold.Render(limits.Money(*c))+
 				sMuted.Render(clip(" this session, as reported by Claude Code", max(0, w-18))))
@@ -185,7 +185,11 @@ func (m Model) viewLimitsMissing(w int) []string {
 		out = append(out, sMuted.Render(clip("No 5-hour or weekly limits: this is an API key or pay-as-you-go account.", w)))
 		return out
 	case m.slOurs:
-		out = append(out, sYellow.Render(clip("Waiting for Claude Code: limits arrive after its next reply.", w)),
+		wait := "Waiting for Claude Code: limits arrive after its next reply."
+		if !m.hasSess {
+			wait = "No Claude Code session yet: limits arrive after its first reply."
+		}
+		out = append(out, sYellow.Render(clip(wait, w)),
 			sMuted.Render(clip("Only Claude.ai subscriptions report limits; API-key use doesn't.", w)))
 	default:
 		out = append(out, m.statusLineWarning(w)...)
