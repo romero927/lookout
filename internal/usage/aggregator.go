@@ -1,7 +1,7 @@
-// Package telemetry tallies token usage from transcript records.
+// Package usage tallies token usage from transcript records.
 //
 // Tokens only: Lookout never converts usage into money.
-package telemetry
+package usage
 
 import (
 	"sort"

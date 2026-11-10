@@ -19,8 +19,8 @@ import (
 	"github.com/romero927/lookout/internal/skills"
 	"github.com/romero927/lookout/internal/store"
 	"github.com/romero927/lookout/internal/strategy"
-	"github.com/romero927/lookout/internal/telemetry"
 	"github.com/romero927/lookout/internal/transcript"
+	"github.com/romero927/lookout/internal/usage"
 )
 
 // Messages sent into the program from outside.
@@ -84,8 +84,8 @@ type Model struct {
 	now    time.Time
 
 	// Usage
-	snap    telemetry.Snapshot
-	sess    telemetry.Session
+	snap    usage.Snapshot
+	sess    usage.Session
 	hasSess bool
 	health  transcript.Health
 
@@ -157,7 +157,7 @@ type Model struct {
 	// Session picker
 	picking bool
 	pSel    int
-	pList   []telemetry.Session
+	pList   []usage.Session
 
 	// Skills
 	skills []skills.Item
@@ -474,7 +474,7 @@ func (m Model) editSelected() (tea.Model, tea.Cmd) {
 	})
 }
 
-// refresh recomputes telemetry and strategy.
+// refresh recomputes usage and strategy.
 func (m *Model) refresh() {
 	now := time.Now()
 	m.snap, m.sess, m.hasSess = m.o.Core.Snapshot(now)

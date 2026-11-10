@@ -1,4 +1,4 @@
-// Package app wires the watcher, telemetry and strategy together. It is
+// Package app wires the watcher, usage tallies and strategy together. It is
 // shared by the TUI and the `lookout stats` command.
 package app
 
@@ -10,15 +10,15 @@ import (
 	"github.com/romero927/lookout/internal/config"
 	"github.com/romero927/lookout/internal/paths"
 	"github.com/romero927/lookout/internal/strategy"
-	"github.com/romero927/lookout/internal/telemetry"
 	"github.com/romero927/lookout/internal/transcript"
+	"github.com/romero927/lookout/internal/usage"
 	"github.com/romero927/lookout/internal/watch"
 )
 
 // Core holds Lookout's in-memory state.
 type Core struct {
 	Cfg      config.Config
-	Agg      *telemetry.Aggregator
+	Agg      *usage.Aggregator
 	Strategy *strategy.Engine
 	Activity *activity.Engine
 	Watcher  *watch.Watcher
@@ -33,7 +33,7 @@ type Core struct {
 func New(cfg config.Config, cwdFilter string, onChange func()) *Core {
 	c := &Core{
 		Cfg:       cfg,
-		Agg:       telemetry.New(),
+		Agg:       usage.New(),
 		Strategy:  strategy.NewEngine(),
 		Activity:  activity.New(),
 		CwdFilter: cwdFilter,
@@ -54,7 +54,7 @@ func (c *Core) Load() int { return c.Watcher.Scan() }
 
 // Current returns the session in focus: the pinned one if it still exists,
 // else the latest (in CwdFilter, when set).
-func (c *Core) Current() (telemetry.Session, bool) {
+func (c *Core) Current() (usage.Session, bool) {
 	if c.Pinned != "" {
 		for _, s := range c.Agg.Sessions() {
 			if s.ID == c.Pinned {
@@ -65,10 +65,10 @@ func (c *Core) Current() (telemetry.Session, bool) {
 	return c.Agg.Current(c.CwdFilter)
 }
 
-// Snapshot computes telemetry for the current session.
-func (c *Core) Snapshot(now time.Time) (telemetry.Snapshot, telemetry.Session, bool) {
+// Snapshot computes usage for the current session.
+func (c *Core) Snapshot(now time.Time) (usage.Snapshot, usage.Session, bool) {
 	s, ok := c.Current()
-	snap := c.Agg.Snapshot(now, telemetry.Options{
+	snap := c.Agg.Snapshot(now, usage.Options{
 		SessionID:   s.ID,
 		BurnWindow:  time.Duration(c.Cfg.Usage.BurnWindowMinutes) * time.Minute,
 		BlockLength: time.Duration(c.Cfg.Usage.BlockHours) * time.Hour,
