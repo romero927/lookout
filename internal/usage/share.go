@@ -1,44 +1,86 @@
 package usage
 
 import (
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/romero927/lookout/internal/transcript"
 )
 
-// price is a model's API list price in US dollars per million tokens. It is
+// Price is a model's API list price in US dollars per million tokens. It is
 // used only as a relative weight: how much more of a subscription limit a
 // token of one model uses than a token of another. Anthropic doesn't publish
 // those weights, so anything built on this is an estimate.
-type price struct{ in, out, cacheWrite, cacheRead float64 }
+//
+// The built-in prices below are hardcoded from Anthropic's published API
+// prices and updated by hand in Lookout releases. [usage.price_weights] in
+// config.toml overrides them.
+type Price struct{ Input, Output, CacheWrite, CacheRead float64 }
 
-// priceFor maps a model ID to its price. Unknown models get Sonnet 4.6's.
-func priceFor(model string) price {
+// priceFor maps a model ID to its built-in price. Unknown models get Sonnet
+// 4.6's.
+func priceFor(model string) Price {
 	m := strings.ToLower(model)
 	switch {
 	case strings.Contains(m, "fable"), strings.Contains(m, "mythos"):
-		return price{10, 50, 12.5, 0.25}
+		return Price{10, 50, 12.5, 0.25}
 	case strings.Contains(m, "opus-5-5"):
-		return price{4, 20, 5, 0.20}
+		return Price{4, 20, 5, 0.20}
 	case strings.Contains(m, "opus"):
-		return price{5, 25, 6.25, 0.50}
+		return Price{5, 25, 6.25, 0.50}
 	case strings.Contains(m, "sonnet-5"):
-		return price{2, 10, 2.5, 0.20}
+		return Price{2, 10, 2.5, 0.20}
 	case strings.Contains(m, "haiku-5"):
-		return price{0.10, 0.50, 0.125, 0.01}
+		return Price{0.10, 0.50, 0.125, 0.01}
 	case strings.Contains(m, "haiku"):
-		return price{1, 5, 1.25, 0.10}
+		return Price{1, 5, 1.25, 0.10}
 	default:
-		return price{3, 15, 3.75, 0.30}
+		return Price{3, 15, 3.75, 0.30}
 	}
 }
 
-// Weight is the token usage priced at the model's API rate, in dollars.
-func Weight(model string, u transcript.Usage) float64 {
-	p := priceFor(model)
-	return (float64(u.Input)*p.in + float64(u.Output)*p.out +
-		float64(u.CacheCreate)*p.cacheWrite + float64(u.CacheRead)*p.cacheRead) / 1e6
+// SetPrices sets price overrides, keyed by a substring of the model ID
+// (matched case-insensitively; the longest matching key wins). Models no key
+// matches keep their built-in price.
+func (a *Aggregator) SetPrices(p map[string]Price) {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	a.prices = make(map[string]Price, len(p))
+	for k, v := range p {
+		a.prices[strings.ToLower(k)] = v
+	}
+}
+
+// priceLocked is the override for model, or its built-in price. a.mu must
+// be held.
+func (a *Aggregator) priceLocked(model string) Price {
+	m := strings.ToLower(model)
+	keys := make([]string, 0, len(a.prices))
+	for k := range a.prices {
+		if k != "" && strings.Contains(m, k) {
+			keys = append(keys, k)
+		}
+	}
+	if len(keys) == 0 {
+		return priceFor(model)
+	}
+	sort.Slice(keys, func(i, j int) bool {
+		if len(keys[i]) != len(keys[j]) {
+			return len(keys[i]) > len(keys[j])
+		}
+		return keys[i] < keys[j]
+	})
+	return a.prices[keys[0]]
+}
+
+// Weight is the token usage priced at the model's built-in API rate, in
+// dollars. Only meaningful relative to other weights.
+func Weight(model string, u transcript.Usage) float64 { return weigh(priceFor(model), u) }
+
+func weigh(p Price, u transcript.Usage) float64 {
+	return (float64(u.Input)*p.Input + float64(u.Output)*p.Output +
+		float64(u.CacheCreate)*p.CacheWrite + float64(u.CacheRead)*p.CacheRead) / 1e6
 }
 
 // Share returns the weighted usage of one session (its subagents included)
@@ -46,11 +88,17 @@ func Weight(model string, u transcript.Usage) float64 {
 func (a *Aggregator) Share(sessionID string, from, to time.Time) (session, all float64) {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	prices := map[string]Price{}
 	for _, e := range a.entries {
 		if e.Time.Before(from) || e.Time.After(to) {
 			continue
 		}
-		w := Weight(e.Model, e.Usage)
+		p, ok := prices[e.Model]
+		if !ok {
+			p = a.priceLocked(e.Model)
+			prices[e.Model] = p
+		}
+		w := weigh(p, e.Usage)
 		all += w
 		if e.SessionID == sessionID {
 			session += w

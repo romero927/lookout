@@ -29,3 +29,28 @@ func TestShare(t *testing.T) {
 		t.Error("unknown models should fall back to Sonnet 4.6")
 	}
 }
+
+func TestSharePriceOverrides(t *testing.T) {
+	now := time.Now()
+	a := New()
+	add := func(sid, model string, out int64) {
+		a.entries = append(a.entries, Entry{Time: now.Add(-time.Hour), SessionID: sid, Model: model, Usage: transcript.Usage{Output: out}})
+	}
+	add("s1", "claude-opus-5-5", 1_000_000)
+	add("s2", "claude-sonnet-5-5", 1_000_000)
+	add("s3", "claude-haiku-5-5", 1_000_000) // no override: built-in $0.50
+
+	a.SetPrices(map[string]Price{
+		"OPUS":     {Output: 100}, // case-insensitive
+		"opus-5-5": {Output: 30},  // longer key wins over "opus"
+		"sonnet":   {Output: 10},
+	})
+	mine, all := a.Share("s1", now.Add(-5*time.Hour), now)
+	if math.Abs(mine-30) > 1e-9 || math.Abs(all-40.5) > 1e-9 {
+		t.Errorf("mine %.2f all %.2f, want 30 and 40.5", mine, all)
+	}
+	a.SetPrices(nil)
+	if mine, _ := a.Share("s1", now.Add(-5*time.Hour), now); math.Abs(mine-20) > 1e-9 {
+		t.Errorf("clearing overrides should restore built-in prices, got %.2f", mine)
+	}
+}

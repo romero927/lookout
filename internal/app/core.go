@@ -38,6 +38,13 @@ func New(cfg config.Config, cwdFilter string, onChange func()) *Core {
 		Activity:  activity.New(),
 		CwdFilter: cwdFilter,
 	}
+	if len(cfg.Usage.PriceWeights) > 0 {
+		prices := make(map[string]usage.Price, len(cfg.Usage.PriceWeights))
+		for k, w := range cfg.Usage.PriceWeights {
+			prices[k] = usage.Price{Input: w.Input, Output: w.Output, CacheWrite: w.CacheWrite, CacheRead: w.CacheRead}
+		}
+		c.Agg.SetPrices(prices)
+	}
 	maxAge := time.Duration(cfg.Usage.HistoryDays) * 24 * time.Hour
 	c.Watcher = watch.New(paths.ClaudeProjectsDir(), maxAge, c.handle, onChange)
 	return c

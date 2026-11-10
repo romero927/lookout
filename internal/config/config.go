@@ -36,6 +36,19 @@ type Usage struct {
 	BurnWindowMinutes int `toml:"burn_window_minutes"`
 	// BlockHours is the length of the rolling window and of an estimated usage block.
 	BlockHours int `toml:"block_hours"`
+	// PriceWeights overrides the built-in per-model prices used to weight
+	// tokens when estimating a session's share of the limits. Keys are
+	// substrings of the model ID; the longest match wins.
+	PriceWeights map[string]PriceWeight `toml:"price_weights"`
+}
+
+// PriceWeight is a model's price in US dollars per million tokens. Only the
+// ratios between models matter.
+type PriceWeight struct {
+	Input      float64 `toml:"input"`
+	Output     float64 `toml:"output"`
+	CacheWrite float64 `toml:"cache_write"`
+	CacheRead  float64 `toml:"cache_read"`
 }
 
 // Alerts controls limit notifications from the dashboard.
@@ -160,6 +173,11 @@ func (c *Config) fill() {
 	pos(&c.Usage.HistoryDays, d.Usage.HistoryDays)
 	pos(&c.Usage.BurnWindowMinutes, d.Usage.BurnWindowMinutes)
 	pos(&c.Usage.BlockHours, d.Usage.BlockHours)
+	for k, w := range c.Usage.PriceWeights {
+		if w.Input < 0 || w.Output < 0 || w.CacheWrite < 0 || w.CacheRead < 0 {
+			delete(c.Usage.PriceWeights, k)
+		}
+	}
 	if c.Alerts.Thresholds == nil {
 		c.Alerts.Thresholds = d.Alerts.Thresholds
 	}
@@ -203,6 +221,14 @@ theme = "auto"             # "auto" asks the terminal (inside tmux, dark is assu
 history_days = 30          # only scan transcripts modified in the last N days
 burn_window_minutes = 10   # look-back window for tokens/minute
 block_hours = 5            # rolling window and estimated usage block length
+
+# Per-model prices (US dollars per million tokens) used only as relative
+# weights when estimating each session's share of the 5-hour and weekly
+# limits. Built-in values match Anthropic's API list prices as of this
+# release; override a model here if they change. Keys are substrings of the
+# model ID; the longest match wins. Nothing here is shown as a cost.
+# [usage.price_weights]
+# "opus-5-5" = { input = 4, output = 20, cache_write = 5, cache_read = 0.20 }
 
 [files]
 allow_edit = false         # true enables "e" to open a file in $EDITOR (a backup is made first)

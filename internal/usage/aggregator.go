@@ -1,6 +1,10 @@
 // Package usage tallies token usage from transcript records.
 //
-// Tokens only: Lookout never converts usage into money.
+// Lookout shows tokens, not dollars. The one place prices appear is the
+// session-share estimate (share.go): tokens are weighted by each model's API
+// list price so that, say, an Opus token counts for more of a limit than a
+// Haiku token. Only the ratio between sessions is used; the dollar amounts
+// are never shown or stored.
 package usage
 
 import (
@@ -41,6 +45,7 @@ type Aggregator struct {
 	entries  []Entry
 	sorted   bool
 	sessions map[string]*Session
+	prices   map[string]Price // config overrides, by model ID substring
 }
 
 // New returns an empty Aggregator.
