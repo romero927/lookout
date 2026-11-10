@@ -95,18 +95,21 @@ To stop using it, remove the `statusLine` entry from `~/.claude/settings.json`, 
 
 ## Configuration
 
-`lookout config init` writes a commented `config.toml` containing every default, and `lookout paths` shows where each file lives:
+`lookout config init` writes a commented `config.toml` containing every default (`lookout config default` prints it without writing, `lookout config path` shows where it goes), and `lookout paths` shows where each file lives:
 
-| | Linux | macOS |
-|---|---|---|
-| Config | `$XDG_CONFIG_HOME/lookout/config.toml` (`~/.config/lookout`) | `~/Library/Application Support/lookout/config.toml` |
-| Data (suggestion log, limits, alert state, backups, logs) | `$XDG_DATA_HOME/lookout` (`~/.local/share/lookout`) | `~/Library/Application Support/lookout` |
+| | Linux | macOS | Windows |
+|---|---|---|---|
+| Config | `$XDG_CONFIG_HOME/lookout/config.toml` (`~/.config/lookout`) | `~/Library/Application Support/lookout/config.toml` | `%AppData%\lookout\config.toml` |
+| Data (suggestion log, limits, alert state, backups, logs) | `$XDG_DATA_HOME/lookout` (`~/.local/share/lookout`) | `~/Library/Application Support/lookout` | `%AppData%\lookout\data` |
+
+`LOOKOUT_CONFIG_DIR` and `LOOKOUT_DATA_DIR` override either directory.
 
 Highlights:
 
 - `[models]`: every threshold (repeated edits, tool errors, multi-file turns, long prompts, frustration phrases, simple-turn streaks, short prompts, context %) and the model tier order (`model_tiers = ["haiku", "sonnet", "opus"]`), and how long the suggestion log keeps rows (`log_days = 90`).
+- `[usage]`: `history_days` (how far back the first scan reads transcripts, default 30), `burn_window_minutes` (the tokens-per-minute window, default 10) and `block_hours` (the rolling window and estimated block length, default 5).
 - `[usage.price_weights]`: per-model prices used to weight tokens for the session-share estimate, overriding the built-in ones. Keys are substrings of the model ID (the longest match wins), e.g. `"opus-5-5" = { input = 4, output = 20, cache_write = 5, cache_read = 0.20 }`.
-- `[files] allow_edit = true` turns on `e`, which opens the file in `$VISUAL`/`$EDITOR`. A timestamped backup is written to the data directory's `backups/` first, and is discarded if you didn't change anything.
+- `[files] allow_edit = true` turns on `e`, which opens the file in `$VISUAL`/`$EDITOR`. A timestamped backup is written to the data directory's `backups/` first, and is discarded if you didn't change anything. `extra_files` lists more files to browse, e.g. `["~/.claude/keybindings.json"]`.
 - `[alerts]`: `bell`, `desktop`, `thresholds` (default `[80, 95]`; `[]` turns them off) and `pace`.
 - `[ui] theme`: `auto`, `dark` or `light`. Inside tmux the terminal can't be asked, so dark is assumed. `LOOKOUT_THEME` overrides it.
 
@@ -158,9 +161,11 @@ Claude Code's transcript format isn't a public API and can change with any Claud
 
 ```sh
 make build    # static binary in ./bin
+make install  # same, into $GOBIN (default ~/go/bin)
 make test     # go test ./... (race detector on)
 make lint     # golangci-lint, or go vet + gofmt if it isn't installed
 make screenshot  # re-render docs/screenshot.png and docs/activity.png from synthetic data (needs Python 3 + Pillow)
+make snapshot    # local release build with goreleaser, nothing published
 ```
 
 All test fixtures are **synthetic**. Never commit real transcripts. To benchmark against your own data locally without copying it into the repo:
