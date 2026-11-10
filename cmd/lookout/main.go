@@ -470,7 +470,7 @@ func cmdStatusLine(args []string, stdin io.Reader, stdout, stderr io.Writer) int
 	if in.Effort == "" && in.TranscriptPath != "" {
 		in.Effort = transcript.LastEffort(in.TranscriptPath)
 	}
-	subscriber := st.HasData() || limits.HasLimits(paths.LimitsDir())
+	subscriber := limits.Subscriber(st, paths.LimitsDir())
 	line := limits.StatusLine(in, st, now, subscriber)
 	if wrapped != nil {
 		r := <-wrapped

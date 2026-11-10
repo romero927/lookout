@@ -53,3 +53,32 @@ func TestStatusLinePending(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+// A pay-as-you-go session (an enterprise account billed by usage, say)
+// shows its cost even when another account on this computer has limits.
+func TestSubscriberPerSession(t *testing.T) {
+	dir := t.TempDir()
+	_ = Save(filepath.Join(dir, "personal.json"), State{UpdatedAt: 1, SevenDay: &Window{UsedPercent: 5}})
+	zero, spent := 0.0, 1.25
+
+	if !Subscriber(State{}, dir) {
+		t.Error("before the first reply, other sessions decide")
+	}
+	if !Subscriber(State{CostUSD: &zero, ContextAt: 1}, dir) {
+		t.Error("no cost yet: other sessions decide")
+	}
+	st := State{CostUSD: &spent, ContextAt: 1}
+	if Subscriber(st, dir) {
+		t.Error("cost without limits is pay-as-you-go")
+	}
+	if !Subscriber(State{CostUSD: &spent, UpdatedAt: 1, FiveHour: &Window{UsedPercent: 3}}, dir) {
+		t.Error("a session with limits is a subscriber")
+	}
+
+	in := StatusInput{}
+	in.Model.DisplayName = "Opus 5.5"
+	in.Cost.TotalCostUSD = &spent
+	if got := StatusLine(in, st, time.Unix(1_000_000, 0), Subscriber(st, dir)); got != "Opus 5.5 · $1.25" {
+		t.Errorf("status line = %q", got)
+	}
+}

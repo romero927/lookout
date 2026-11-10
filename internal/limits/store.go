@@ -74,6 +74,23 @@ func Prune(dir string, now time.Time) {
 	}
 }
 
+// Subscriber reports whether the session behind st should be treated as a
+// Claude.ai subscription. A session that has received limits is one. Before
+// its first reply a session has neither limits nor cost, so the other saved
+// sessions decide. Once it has a cost but still no limits it is a
+// pay-as-you-go session (an API key, or an enterprise account billed by
+// usage), even when other sessions on this computer, on another account,
+// had limits.
+func Subscriber(st State, dir string) bool {
+	if st.HasData() {
+		return true
+	}
+	if st.CostUSD != nil && *st.CostUSD > 0 {
+		return false
+	}
+	return HasLimits(dir)
+}
+
 // HasLimits reports whether any saved session has ever received usage limits
 // from Claude Code, which means this account is a Claude.ai subscriber.
 func HasLimits(dir string) bool {

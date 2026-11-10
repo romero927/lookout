@@ -90,7 +90,7 @@ Claude Code then runs `lookout statusline` after each update. It saves only a fe
 
 Lookout passes your command the same JSON on stdin, prints its output, then adds its own line after it. `--order before` puts Lookout's line first, `--sep TEXT` changes the separator (default ` · `), and `--timeout DUR` limits how long your command may run (default `2s`). If your command fails or times out, Lookout's line still prints, and the error goes to `logs/hook.log`.
 
-**API key or pay-as-you-go accounts** have no 5-hour or weekly limits, so Lookout shows the session's cost so far instead (in the Usage panel and the status line, e.g. `Opus 5.5 · effort medium · ctx 12% · $1.84`). Alerts, the per-day limit chart and limit-aware model suggestions stay off; everything else works the same.
+**API key or pay-as-you-go accounts** (including enterprise accounts billed by usage) have no 5-hour or weekly limits, so Lookout shows the session's cost so far instead (in the Usage panel and the status line, e.g. `Opus 5.5 · effort medium · ctx 12% · $1.84`). Alerts, the per-day limit chart and limit-aware model suggestions stay off; everything else works the same. The cost is Claude Code's own estimate at list API prices, so negotiated pricing isn't reflected. This is decided per session: a session that has a cost but no limits after its first reply shows its cost, even if another account on the same computer has limits.
 
 To stop using it, remove the `statusLine` entry from `~/.claude/settings.json`, then delete the binary and Lookout's config and data folders (`lookout paths` lists them).
 
