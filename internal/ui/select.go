@@ -27,7 +27,7 @@ func (m Model) pane(x int) [4]int {
 	y1 := m.height - lipgloss.Height(m.viewFooter()) - 1
 	b := [4]int{0, m.width, y0, max(y0, y1)}
 	split := !m.help && !m.picking && m.loaded &&
-		(m.tab == tabActivity || m.tab == tabChanges || m.tab == tabSkills || m.tab == tabFiles)
+		(m.tab == tabActivity || m.tab == tabChanges || m.tab == tabSkills || m.tab == tabFiles || m.tab == tabTools)
 	if split {
 		if lw := m.listWidth(); x < lw {
 			b[1] = lw
@@ -143,6 +143,8 @@ func (m *Model) split() (splitPane, bool) {
 		return splitPane{m.skillsList(lw), &m.sSel, &m.sFocus, Model.skillsKey, &m.sView}, true
 	case tabFiles:
 		return splitPane{m.filesList(lw), &m.gSel, &m.gFocus, Model.filesKey, &m.gView}, true
+	case tabTools:
+		return splitPane{m.toolsList(lw), &m.tlSel, &m.tlFocus, Model.toolsKey, &m.tlView}, true
 	}
 	return splitPane{}, false
 }
@@ -216,6 +218,12 @@ func (m Model) click(x, y int) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if x >= m.listWidth() {
+		if m.tab == tabTools && y-top >= 2 {
+			// Like Activity: a title and a summary line above the text.
+			if nm, cmd, ok := m.clickToolCall(m.tlView.YOffset + y - top - 2); ok {
+				return nm, cmd
+			}
+		}
 		if m.tab == tabActivity {
 			// The reader shows a title and a summary line above the text.
 			if line := m.aView.YOffset + y - top - 2; y-top >= 2 && line < len(m.aStepAt) && m.aStepAt[line] != "" {

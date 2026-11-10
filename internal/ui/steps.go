@@ -49,6 +49,7 @@ func (m *Model) applySteps(msg stepsMsg) {
 	}
 	m.aRev++
 	m.loadTurn()
+	m.loadTool()
 }
 
 // stepIDs are the tool IDs of the selected turn's steps.

@@ -11,6 +11,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
+	"github.com/romero927/lookout/internal/activity"
 	"github.com/romero927/lookout/internal/app"
 	"github.com/romero927/lookout/internal/config"
 	"github.com/romero927/lookout/internal/limits"
@@ -92,8 +93,10 @@ func TestPanelsRender(t *testing.T) {
 			{"3", []string{"CHANGES", "1 edited file no longer"}},
 			{"4", []string{"CONTEXT", "Startup", "LARGEST ITEMS"}},
 			{"5", []string{"RECOMMENDATION", "Upgrade to opus", "frustration", "/model opus", "MODELS YOU CAN SWITCH TO", "Fastest for quick answers"}},
+			{"6", []string{"TOOLS", "Edit", "1 call", "a.go"}},
 			{"7", []string{"SKILLS"}},
 			{"8", []string{"FILES", "settings.json"}},
+			{"9", []string{"CHEATSHEET"}},
 		}
 		for _, p := range panels {
 			m = drive(m, key(p.key))
@@ -413,7 +416,7 @@ func TestContextItemsSeeAllAndDetail(t *testing.T) {
 func TestCheatsheet(t *testing.T) {
 	core, db := setup(t)
 	var m tea.Model = New(Options{Core: core, Store: db, Version: "test"})
-	m = drive(m, tea.WindowSizeMsg{Width: 120, Height: 50}, LoadedMsg{}, key("6"))
+	m = drive(m, tea.WindowSizeMsg{Width: 120, Height: 50}, LoadedMsg{}, key("9"))
 	v := plain(m.View())
 	for _, want := range []string{"CHEATSHEET", "FOR THIS SESSION", "/model opus", "claude --resume sess-ui", "/compact", "/rewind", "/resume"} {
 		if !strings.Contains(v, want) {
@@ -621,7 +624,7 @@ func TestDeclinedSuggestionGoesQuiet(t *testing.T) {
 func TestClickCheatsheetCopies(t *testing.T) {
 	core, db := setup(t)
 	var m tea.Model = New(Options{Core: core, Store: db, Version: "test"})
-	m = drive(m, tea.WindowSizeMsg{Width: 120, Height: 40}, LoadedMsg{}, key("6"))
+	m = drive(m, tea.WindowSizeMsg{Width: 120, Height: 40}, LoadedMsg{}, key("9"))
 	mm := m.(Model)
 	top := lipgloss.Height(mm.viewHeader())
 	l := mm.cheatList(mm.width)
@@ -721,5 +724,78 @@ func TestActivitySearch(t *testing.T) {
 	m = drive(m, key("n"), key("n"), key("p"), key("p"))
 	if m.(Model).aSel < 0 {
 		t.Error("selection lost")
+	}
+}
+
+func TestToolsPanel(t *testing.T) {
+	core, db := setup(t)
+	var m tea.Model = New(Options{Core: core, Store: db, Version: "test"})
+	m = drive(m, tea.WindowSizeMsg{Width: 120, Height: 40}, LoadedMsg{}, key("6"))
+	v := plain(m.View())
+	for _, want := range []string{"6 Tools", "TOOLS", "1 call", "Edit", "this still doesn't work", "a.go"} {
+		if !strings.Contains(v, want) {
+			t.Errorf("missing %q\n%s", want, v)
+		}
+	}
+	m = drive(m, key("enter"))
+	if !m.(Model).tlFocus {
+		t.Error("enter should focus the calls")
+	}
+	m = drive(m, key("esc"))
+	if m.(Model).tlFocus {
+		t.Error("esc should return to the list")
+	}
+}
+
+func TestToolLabel(t *testing.T) {
+	for in, want := range map[string]string{
+		"Bash":                             "Bash",
+		"mcp__github__create_issue":        "github: create_issue",
+		"mcp__claude_ai_Gmail__send_email": "Gmail: send_email",
+	} {
+		if got := toolLabel(in); got != want {
+			t.Errorf("toolLabel(%q) = %q, want %q", in, got, want)
+		}
+	}
+}
+
+func TestToolsOpenFilterAndJump(t *testing.T) {
+	core, db := setup(t)
+	var m tea.Model = New(Options{Core: core, Store: db, Version: "test"})
+	m = drive(m, tea.WindowSizeMsg{Width: 120, Height: 40}, LoadedMsg{}, key("6"), key("enter"))
+	mm := m.(Model)
+	if !mm.tlFocus || len(mm.tlCalls) != 1 || mm.tlCalls[0].id != "t1" {
+		t.Fatalf("reader should hold the Edit call, got focus=%v calls=%v", mm.tlFocus, mm.tlCalls)
+	}
+	m, cmd := m.Update(key("enter"))
+	if !m.(Model).tlOpen["t1"] || cmd == nil {
+		t.Error("enter should open the call and load its details")
+	}
+	m = drive(m, key("f"))
+	if v := plain(m.View()); !strings.Contains(v, "No failed calls") || !strings.Contains(v, "failed only") {
+		t.Errorf("f should show failed calls only\n%s", v)
+	}
+	m = drive(m, key("f"), key("a"))
+	mm = m.(Model)
+	if mm.tab != tabActivity || !mm.aFocus || !mm.aOpen["t1"] {
+		t.Errorf("a should open the call in Activity: tab=%d focus=%v", mm.tab, mm.aFocus)
+	}
+}
+
+func TestIsDenied(t *testing.T) {
+	cases := []struct {
+		err  string
+		fail bool
+		want bool
+	}{
+		{"Permission for this action was denied by the Claude Code auto mode classifier.", true, true},
+		{"The user doesn't want to proceed with this tool use.", true, true},
+		{"Exit code 1\nTraceback", true, false},
+		{"Permission for this action was denied", false, false},
+	}
+	for _, c := range cases {
+		if got := isDenied(activity.Call{Fail: c.fail, Error: c.err}); got != c.want {
+			t.Errorf("isDenied(%q, fail=%v) = %v, want %v", c.err, c.fail, got, c.want)
+		}
 	}
 }

@@ -46,20 +46,21 @@ type UsageRow struct {
 }
 
 // Panels, in order: watching the session first (usage, what Claude is
-// doing, what changed, what's in context), then choices (model, skills,
-// commands), then configuration.
+// doing, what changed, what's in context), then the model, the tools
+// Claude used, skills and configuration, and the cheatsheet last.
 const (
 	tabUsage = iota
 	tabActivity
 	tabChanges
 	tabContext
 	tabModels
-	tabCheatsheet
+	tabTools
 	tabSkills
 	tabFiles
+	tabCheatsheet
 )
 
-var tabNames = []string{"Usage", "Activity", "Changes", "Context", "Models", "Cheatsheet", "Skills", "Files"}
+var tabNames = []string{"Usage", "Activity", "Changes", "Context", "Models", "Tools", "Skills", "Files", "Cheatsheet"}
 
 // Options configure the model.
 type Options struct {
@@ -139,6 +140,20 @@ type Model struct {
 	xFocus  bool // showing one item's details
 	kSel    int  // selected cheatsheet command
 
+	// Tools
+	tools      []toolStat
+	tlSel      int
+	tlName     string // the selected tool, kept as counts reorder the list
+	tlFocus    bool
+	tlView     viewport.Model
+	tlShown    string
+	tlOpen     map[string]bool // calls opened to show input and output
+	tlCur      int             // the call under the cursor in the reader
+	tlCalls    []toolRef       // calls shown in the reader, in order
+	tlAt       []int           // call index per reader line, -1 for none
+	tlRev      int             // bumped when calls open
+	tlFailOnly bool            // show failed calls only
+
 	// Session picker
 	picking bool
 	pSel    int
@@ -182,7 +197,7 @@ type Model struct {
 
 // New creates the model.
 func New(o Options) Model {
-	m := Model{o: o, now: time.Now(), shareFive: -1, shareWeek: -1, stab: &strategy.Stabilizer{}, gView: viewport.New(40, 10), cView: viewport.New(40, 10), aView: viewport.New(40, 10), sView: viewport.New(40, 10)}
+	m := Model{o: o, now: time.Now(), shareFive: -1, shareWeek: -1, stab: &strategy.Stabilizer{}, gView: viewport.New(40, 10), cView: viewport.New(40, 10), aView: viewport.New(40, 10), sView: viewport.New(40, 10), tlView: viewport.New(40, 10)}
 	m.refreshLimits(true)
 	m.fired = limits.LoadFired(paths.AlertsFile())
 	m.checkBuild()
@@ -313,6 +328,11 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case m.tab == tabSkills && m.sFocus:
 		focus, view = &m.sFocus, &m.sView
 	}
+	if m.tab == tabTools && m.tlFocus {
+		if nm, cmd, ok := m.toolCallKey(key); ok {
+			return nm, cmd
+		}
+	}
 	if m.tab == tabActivity && m.aTyping {
 		return m.searchKey(k)
 	}
@@ -339,7 +359,7 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "esc", "left", "h", "enter":
 			*focus = false
 			return m, nil
-		case "q", "ctrl+c", "e", "c", "o", "1", "2", "3", "4", "5", "6", "7", "8", "tab", "shift+tab", "?", "s", "R":
+		case "q", "ctrl+c", "e", "c", "o", "1", "2", "3", "4", "5", "6", "7", "8", "9", "tab", "shift+tab", "?", "s", "R":
 		default:
 			var cmd tea.Cmd
 			*view, cmd = view.Update(k)
@@ -355,7 +375,7 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "?":
 		m.help = true
 		return m, nil
-	case "1", "2", "3", "4", "5", "6", "7", "8":
+	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
 		m.tab = int(key[0] - '1')
 		if m.loaded {
 			m.refresh()
@@ -390,6 +410,8 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.cheatsheetKey(key)
 	case tabSkills:
 		return m.skillsKey(key)
+	case tabTools:
+		return m.toolsKey(key)
 	}
 	return m, nil
 }
@@ -479,6 +501,8 @@ func (m *Model) refresh() {
 	if m.act.ID != prev {
 		// Another session: start the lists at the top.
 		m.cSel, m.aSel, m.cFocus, m.aFocus = 0, 0, false, false
+		m.tlSel, m.tlName, m.tlFocus, m.tlShown = 0, "", false, ""
+		m.tlOpen, m.tlCur = nil, 0
 		m.diffPath, m.diffText, m.aShown = "", "", ""
 		m.aOpen, m.aDetail = nil, nil
 		m.showDiff()
@@ -490,6 +514,8 @@ func (m *Model) refresh() {
 		m.cSel = max(0, n-1)
 	}
 	m.loadTurn()
+	m.syncTool()
+	m.loadTool()
 	if db := m.o.Store; db != nil && m.hasSess {
 		// Log a suggestion once it has been on screen for a minute, so the
 		// first moments after a start (before your pace is known) aren't logged.
@@ -567,13 +593,14 @@ func (m *Model) layoutViewports() {
 	bodyH := max(5, m.height-5)
 	listW := m.listWidth()
 	viewW := max(20, m.width-listW-3)
-	for _, v := range []*viewport.Model{&m.gView, &m.cView, &m.aView, &m.sView} {
+	for _, v := range []*viewport.Model{&m.gView, &m.cView, &m.aView, &m.sView, &m.tlView} {
 		v.Width, v.Height = viewW, max(3, bodyH-2)
 	}
-	m.gLoaded, m.aShown, m.sShown = "", "", ""
+	m.gLoaded, m.aShown, m.sShown, m.tlShown = "", "", "", ""
 	m.loadSkill()
 	m.loadSelectedFile()
 	m.loadTurn()
+	m.loadTool()
 }
 
 func (m Model) listWidth() int {
@@ -617,6 +644,8 @@ func (m Model) render() string {
 			body = m.viewSkills(bodyH)
 		case tabModels:
 			body = m.viewModels()
+		case tabTools:
+			body = m.viewTools(bodyH)
 		case tabFiles:
 			body = m.viewFiles(bodyH)
 		}
@@ -724,6 +753,10 @@ func (m Model) viewFooter() string {
 		keys = "↑↓/pgup/pgdn scroll · c copy · esc back · q quit"
 	case m.tab == tabSkills:
 		keys = "↑↓ select · enter read · c copy how to use it · r rescan · ? help · q quit"
+	case m.tab == tabTools && m.tlFocus:
+		keys = "↑↓ move · enter open the call · a show in Activity · f failed only · esc back"
+	case m.tab == tabTools:
+		keys = "↑↓ select · enter read its calls · f failed only · s sessions · ? help · q quit"
 	case m.tab == tabCheatsheet:
 		keys = "↑↓ select · enter/c copy · ? help · q quit"
 	case m.tab == tabContext && m.xFocus:
@@ -733,7 +766,7 @@ func (m Model) viewFooter() string {
 	case m.tab == tabContext:
 		keys = "↑↓ select · enter details · a see all · ? help · q quit"
 	default:
-		keys = "1-8/tab panels · s sessions · ? help · q quit"
+		keys = "1-9/tab panels · s sessions · ? help · q quit"
 	}
 	if m.newBuild {
 		keys = "R restart into new build · " + keys
@@ -755,14 +788,18 @@ func (m Model) viewHelp() string {
 		"  3 Changes     every file changed this session (Claude's edits, uncommitted, committed), with diffs",
 		"  4 Context     what fills the context window, by kind and largest items",
 		"  5 Models      model suggestion and what each model is for; switch yourself with /model",
-		"  6 Cheatsheet  Claude Code commands to copy and paste, incl. ones for this session",
+		"  6 Tools       every tool Claude used this session (Bash, Edit, MCP tools…): calls, errors,\n" +
+			"                denials, time, and each call under its prompt; enter opens a call,\n" +
+			"                a shows it in Activity, f shows failed calls only",
 		"  7 Skills      skills, custom commands and subagents Claude can use, and how to run them",
 		"  8 Files       Claude Code config and memory files, read-only by default",
+		"  9 Cheatsheet  Claude Code commands to copy and paste, incl. ones for this session",
 		"",
 		sBold.Render("Keys"),
-		"  1-8, tab      switch panel",
+		"  1-9, tab      switch panel",
 		"  c             copy (Skills: how to run it · Cheatsheet: the command)",
-		"  a             Context: see all items / only the largest",
+		"  a             Context: see all items / only the largest · Tools: show the call in Activity",
+		"  f             Tools: show failed calls only",
 		"  y             copy an ID (Changes: the file's commit · session picker: the session)",
 		"  s             pick which session to show (a: follow the latest again)",
 		"  ↑↓ / j k      move · enter to focus the viewer · esc to go back",
