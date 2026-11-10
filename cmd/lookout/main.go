@@ -53,7 +53,7 @@ Flags for the dashboard and stats:
 Environment:
   LOOKOUT_THEME=dark|light   skip terminal background detection
 
-Keys: 1-3 or tab switch panels · R restart · ? help · q quit
+Keys: 1-9 or tab switch panels · R restart · ? help · q quit
 `
 
 // appVersion is the release version, or the module version for builds made
