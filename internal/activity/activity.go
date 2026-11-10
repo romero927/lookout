@@ -68,6 +68,9 @@ type Session struct {
 	AgentTasks map[string]string
 	Turns      []Turn       // newest first
 	Files      []FileChange // most recently edited first
+	// Actions are calls that probably changed something besides files:
+	// pushes, API writes, deploys, MCP tools that create or send. Newest first.
+	Actions []Action
 	// Dirs are folders the session worked in besides its own: where its
 	// commands ran (cd, git -C) and where it edited files. Most recent first.
 	Dirs []string
@@ -88,6 +91,7 @@ type pending struct {
 	call           int // index in turn.calls, -1 if not kept
 	file           string
 	added, removed int
+	action         *Action
 }
 
 type turn struct {
@@ -99,6 +103,7 @@ type turn struct {
 type session struct {
 	turns   []*turn
 	files   map[string]*FileChange
+	actions []*Action          // oldest first
 	pending map[string]pending // tool_use id -> call
 	tools   map[string]bool    // tool_use ids already counted
 	ctx     ctxState
@@ -164,6 +169,12 @@ func (e *Engine) Observe(r transcript.Record, src transcript.Source) {
 				continue
 			}
 			delete(s.pending, tr.ToolUseID)
+			if a := p.action; a != nil {
+				a.Done, a.Fail = true, tr.IsError
+				if tr.IsError {
+					a.Error = errorExcerpt(tr.Text)
+				}
+			}
 			if p.turn != nil && p.call >= 0 && p.call < len(p.turn.Calls) {
 				if c := &p.turn.Calls[p.call]; !c.At.IsZero() && r.Timestamp.After(c.At) {
 					c.Took = r.Timestamp.Sub(c.At)
@@ -243,6 +254,13 @@ func (e *Engine) Observe(r transcript.Record, src transcript.Source) {
 					t.Calls = append(t.Calls, Call{ID: tu.ID, Name: tu.Name, Summary: summary(tu), Subagent: sub, Agent: agent, At: r.Timestamp, Added: tu.Added, Removed: tu.Removed})
 				} else {
 					t.Dropped++
+				}
+			}
+			if kind := ActionKind(tu); kind != "" {
+				p.action = &Action{ID: tu.ID, Tool: tu.Name, Kind: kind, Summary: summary(tu), At: r.Timestamp, Agent: agent, Subagent: sub}
+				s.actions = append(s.actions, p.action)
+				if len(s.actions) > maxActions {
+					s.actions = s.actions[len(s.actions)-maxActions:]
 				}
 			}
 			if tu.Command != "" {
@@ -330,6 +348,11 @@ func (e *Engine) Session(id string) Session {
 		t.Files = append([]string(nil), t.Files...)
 		out.Turns = append(out.Turns, t)
 	}
+	for i := len(s.actions) - 1; i >= 0; i-- {
+		out.Actions = append(out.Actions, *s.actions[i])
+	}
+	// Subagent transcripts are read after the main one: newest first by time.
+	sort.SliceStable(out.Actions, func(i, j int) bool { return out.Actions[i].At.After(out.Actions[j].At) })
 	for _, f := range s.files {
 		if f.Edits > 0 || f.Failed > 0 {
 			out.Files = append(out.Files, *f)

@@ -893,3 +893,53 @@ func TestNoSessionPlaceholder(t *testing.T) {
 		t.Errorf("skills panel works without a session:\n%s", v)
 	}
 }
+
+func TestChangesListsActions(t *testing.T) {
+	core, db := setup(t)
+	proj := filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "projects", "-work-demo")
+	ts := time.Now().UTC().Format(time.RFC3339Nano)
+	lines := `{"type":"user","sessionId":"sess-act","cwd":"/work/demo","timestamp":"` + ts + `","message":{"content":"ship"}}` + "\n" +
+		`{"type":"assistant","sessionId":"sess-act","cwd":"/work/demo","timestamp":"` + ts + `","message":{"id":"a1","model":"claude-opus-test","content":[{"type":"tool_use","id":"p1","name":"Bash","input":{"command":"git push origin main","description":"Push the fix"}}],"usage":{"input_tokens":1,"output_tokens":1}}}` + "\n" +
+		`{"type":"user","sessionId":"sess-act","cwd":"/work/demo","timestamp":"` + ts + `","message":{"content":[{"type":"tool_result","tool_use_id":"p1","content":"To github.com:x/y.git\n   abc..def  main -> main"}]}}` + "\n"
+	if err := os.WriteFile(filepath.Join(proj, "sess-act.jsonl"), []byte(lines), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	core.Load()
+	core.Pinned = "sess-act"
+	var m tea.Model = New(Options{Core: core, Store: db, Version: "test"})
+	m = drive(m, tea.WindowSizeMsg{Width: 140, Height: 30}, LoadedMsg{})
+	// Opening Changes selects the only row, the action: its command and
+	// output load from the transcript.
+	m, cmd := m.Update(key("3"))
+	v := plain(m.View())
+	for _, want := range []string{"Other actions · best guess", "git push · Push the fix", "✓"} {
+		if !strings.Contains(v, want) {
+			t.Errorf("missing %q\n%s", want, v)
+		}
+	}
+	m = drive(m, findSteps(cmd)...)
+	v = plain(m.View())
+	for _, want := range []string{"$ git push origin main", "main -> main", "succeeded"} {
+		if !strings.Contains(v, want) {
+			t.Errorf("missing %q\n%s", want, v)
+		}
+	}
+}
+
+// findSteps runs a command batch and returns the step details it loads.
+func findSteps(cmd tea.Cmd) []tea.Msg {
+	if cmd == nil {
+		return nil
+	}
+	switch msg := cmd().(type) {
+	case stepsMsg:
+		return []tea.Msg{msg}
+	case tea.BatchMsg:
+		var out []tea.Msg
+		for _, c := range msg {
+			out = append(out, findSteps(c)...)
+		}
+		return out
+	}
+	return nil
+}

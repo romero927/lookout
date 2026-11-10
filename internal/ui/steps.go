@@ -50,6 +50,10 @@ func (m *Model) applySteps(msg stepsMsg) {
 	m.aRev++
 	m.loadTurn()
 	m.loadTool()
+	m.diffBusy = false // the Changes panel may have asked for an action
+	if it, ok := m.selectedChange(); ok && it.A != nil {
+		m.showAction(it)
+	}
 }
 
 // stepIDs are the tool IDs of the selected turn's steps.

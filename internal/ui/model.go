@@ -124,6 +124,7 @@ type Model struct {
 	aShown    string
 	aOpen     map[string]bool                // steps opened to show input and output
 	aDetail   map[string]activity.StepDetail // loaded step details, by tool ID
+	actAsked  string                         // the action whose details Changes last asked for
 	aStepAt   []string                       // tool ID per line of the shown turn
 	aRev      int                            // bumped when steps open or load
 	aFilter   string                         // Activity search text
@@ -780,6 +781,9 @@ func (m Model) viewFooter() string {
 		keys = "↑↓/pgup/pgdn scroll · esc back · q quit"
 	case m.tab == tabChanges:
 		keys = "↑↓ select · enter read diff · o open folder · y copy commit ID · s sessions · ? help · q quit"
+		if it, ok := m.selectedChange(); ok && it.A != nil {
+			keys = "↑↓ select · enter read output · y copy command · s sessions · ? help · q quit"
+		}
 	case m.tab == tabActivity:
 		keys = "↑↓ select · enter details · / search · x open all steps · s sessions · ? help · q quit"
 	case m.tab == tabSkills && m.sFocus:

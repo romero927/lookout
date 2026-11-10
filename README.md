@@ -50,7 +50,7 @@ Press `1`–`9` (or `tab`) to switch panels.
 |---|-------|---------------|
 | 1 | **Usage** | Your 5-hour and weekly limits with a pace projection, plus token counts for the session, today and the week. |
 | 2 | **Activity** | Each prompt you sent and everything Claude did for it: messages, tool calls, edits and subagent work. |
-| 3 | **Changes** | Every file that changed during the session, with its diff or commits. |
+| 3 | **Changes** | Every file that changed during the session, with its diff or commits, plus other things Claude's commands and tools changed: pushes, API writes, deploys, MCP tools that create or send. |
 | 4 | **Context** | What fills the context window, the largest items, and how to free up room. |
 | 5 | **Models** | The current model, a suggested one with a reason, and when `/compact` or a fresh session is worth it. |
 | 6 | **Tools** | Every tool Claude used, with error and denial counts and each call's input and output. |
@@ -86,7 +86,7 @@ More on each panel: [docs/panels.md](docs/panels.md). All screenshots below use 
 | `s` | Pick which session to show (`a` in the picker goes back to following the latest) |
 | `P` | Pin the session on screen so it stays put, or unpin it |
 | `c` | Copy a command (Context, Skills, Cheatsheet) |
-| `y` | Copy an ID (a commit in Changes, a session in the picker) |
+| `y` | Copy an ID (a commit in Changes, a session in the picker), or an action's command in Changes |
 | `e` | Edit the file (Config, only if [enabled](#configuration)) |
 | `o` | Open your usage page on claude.ai (Usage), or the selected file's folder (Config, Changes) |
 | `R` | Restart |

@@ -31,6 +31,7 @@ const (
 	grpClaude    = iota // edited by Claude, still on disk
 	grpOther            // uncommitted, not edited by Claude's edit tools
 	grpCommitted        // committed since the session started
+	grpActions          // commands and tools that changed something else
 	grpGone             // edited by Claude, no longer on disk
 )
 
@@ -40,8 +41,12 @@ type changeItem struct {
 	F      *activity.FileChange // nil when Claude didn't edit it
 	Status string               // git porcelain code; "" when clean or unknown
 	Group  int
-	Repo   string // the repository's top folder; "" when not in one
+	Repo   string           // the repository's top folder; "" when not in one
+	A      *activity.Action // set for an action row; Path is then actionKey
 }
+
+// actionKey is the Path of an action row, so it can be told apart from files.
+func actionKey(a activity.Action) string { return "\x00action:" + a.ID + a.At.String() }
 
 func (m Model) changeItems() []changeItem {
 	status := map[string]string{}
@@ -103,6 +108,10 @@ func (m Model) changeItems() []changeItem {
 		}
 		return order[items[a].Repo] < order[items[b].Repo]
 	})
+	for i := range m.act.Actions {
+		a := &m.act.Actions[i]
+		items = append(items, changeItem{Path: actionKey(*a), A: a, Group: grpActions})
+	}
 	return items
 }
 
@@ -172,7 +181,9 @@ func (m Model) changesList(lw int) list {
 	// Repository headings only help when there is more than one.
 	repos := map[string]bool{}
 	for _, it := range items {
-		repos[it.Repo] = true
+		if it.A == nil {
+			repos[it.Repo] = true
+		}
 	}
 	byRepo := len(repos) > 1
 	group, repo := grpClaude, "\x00"
@@ -180,12 +191,22 @@ func (m Model) changesList(lw int) list {
 		if it.Group != group {
 			group = it.Group
 			title := "Other uncommitted changes"
-			if group == grpCommitted {
+			switch group {
+			case grpCommitted:
 				title = "Committed since the session started"
+			case grpActions:
+				title = "Other actions · best guess"
 			}
 			l.add("", -1)
 			l.add(sLabel.Render(clip(title, lw)), -1)
 			repo = "\x00"
+		}
+		if it.A != nil {
+			l.add(m.actionRow(it.A, i == m.cSel, lw), i)
+			if i == m.cSel {
+				l.sel = len(l.lines) - 1
+			}
+			continue
 		}
 		indent := ""
 		if byRepo {
@@ -232,13 +253,79 @@ func (m Model) changesList(lw int) list {
 	return l
 }
 
+// actionRow is an action's line in the Changes list: what it did, then
+// whether it worked and when.
+func (m Model) actionRow(a *activity.Action, selected bool, lw int) string {
+	mark := sGreen.Render("✓")
+	switch {
+	case a.Fail:
+		mark = sRed.Render("✗")
+	case !a.Done:
+		mark = sYellow.Render("…")
+	}
+	stat := mark + " " + sMuted.Render(Ago(a.At, m.now))
+	nameW := max(4, lw-lipgloss.Width(stat)-4)
+	name := a.Kind
+	if a.Summary != "" && a.Summary != a.Kind {
+		name += " · " + a.Summary
+	}
+	name = pad(clip(cleanText(name), nameW), nameW)
+	if selected {
+		return sSelected.Render("▸ "+name) + " " + stat
+	}
+	st := sText
+	if a.Fail {
+		st = sMuted
+	}
+	return "  " + st.Render(name) + " " + stat
+}
+
+// actionMeta is the line under an action's title.
+func (m Model) actionMeta(a *activity.Action) string {
+	parts := []string{a.Tool}
+	switch {
+	case a.Fail:
+		parts = append(parts, "failed")
+	case !a.Done:
+		parts = append(parts, "running, or no result yet")
+	default:
+		parts = append(parts, "succeeded")
+	}
+	parts = append(parts, Ago(a.At, m.now))
+	if a.Subagent {
+		parts = append(parts, "by a subagent")
+	}
+	parts = append(parts, "a guess from its name or command")
+	return strings.Join(parts, " · ")
+}
+
+// showAction puts an action's input and output in the viewer, loading
+// them from the transcript first when needed.
+func (m *Model) showAction(it changeItem) {
+	d, loaded := m.aDetail[it.A.ID]
+	c := activity.Call{ID: it.A.ID, Name: it.A.Tool}
+	text := strings.Join(stepLines(c, d, loaded, max(10, m.cView.Width-1)), "\n")
+	if it.Path == m.diffPath && text == m.diffText {
+		return // unchanged: keep the scroll position
+	}
+	moved := it.Path != m.diffPath
+	m.diffPath, m.diffText = it.Path, text
+	m.cView.SetContent(text)
+	if moved {
+		m.cView.GotoTop()
+	}
+}
+
 func (m Model) viewChanges(h int) string {
 	lw := m.listWidth()
 	l := m.changesList(lw)
 	left := lipgloss.NewStyle().Width(lw).MaxHeight(h).Render(strings.Join(scrollTo(l.lines, l.sel, h), "\n"))
 
 	var title, meta string
-	if it, ok := m.selectedChange(); ok {
+	if it, ok := m.selectedChange(); ok && it.A != nil {
+		title = sBold.Render(clip(cleanText(it.A.Kind+" · "+it.A.Summary), m.cView.Width))
+		meta = sMuted.Render(clip(m.actionMeta(it.A), m.cView.Width))
+	} else if ok {
 		title = sBold.Render(clipLeft(m.relPath(it.Path), m.cView.Width))
 		var parts []string
 		if f := it.F; f != nil {
@@ -265,7 +352,7 @@ func (m Model) viewChanges(h int) string {
 		}
 		meta = sMuted.Render(clip(strings.Join(parts, " · "), m.cView.Width))
 	} else {
-		title = sMuted.Render("Files Claude edits in this session appear here.")
+		title = sMuted.Render("Files Claude edits, and things its commands change, appear here.")
 	}
 	border := cFaint
 	if m.cFocus {
@@ -311,11 +398,16 @@ func (m Model) changesKey(key string) (tea.Model, tea.Cmd) {
 			m.cFocus = true
 		}
 	case "o":
-		if it, ok := m.selectedChange(); ok {
+		if it, ok := m.selectedChange(); ok && it.A == nil {
 			return m, openFolder(it.Path)
 		}
 	case "y":
-		if it, ok := m.selectedChange(); ok {
+		if it, ok := m.selectedChange(); ok && it.A != nil {
+			if c, _ := m.aDetail[it.A.ID].Input["command"].(string); c != "" {
+				return m, copyText(c)
+			}
+			return m, copyText(it.A.Summary)
+		} else if ok {
 			if h := m.commitOf(it.Path); h != "" {
 				return m, copyText(h)
 			}
@@ -342,6 +434,8 @@ func (m *Model) showDiff() {
 	switch {
 	case !ok:
 		m.cView.SetContent("")
+	case it.A != nil:
+		m.showAction(it)
 	case it.Path != m.diffPath:
 		m.cView.SetContent(sMuted.Render("loading diff…"))
 	}
@@ -363,7 +457,17 @@ func (m *Model) changesCmd() tea.Cmd {
 		m.workBusy = true
 		cmds = append(cmds, func() tea.Msg { return checkWork(dir, dirs, since) })
 	}
-	if it, ok := m.selectedChange(); ok && !m.diffBusy && (it.Path != m.diffPath || m.now.Sub(m.diffAt) > 3*time.Second) {
+	if it, ok := m.selectedChange(); ok && it.A != nil {
+		// An action: load its input and output once it has finished, and
+		// check again every few seconds while it hasn't.
+		d := m.aDetail[it.A.ID]
+		if !m.diffBusy && !d.Done && (it.A.ID != m.actAsked || m.now.Sub(m.diffAt) > 3*time.Second) {
+			if cmd := m.loadStepsCmd([]string{it.A.ID}); cmd != nil {
+				m.diffBusy, m.diffAt, m.actAsked = true, m.now, it.A.ID
+				cmds = append(cmds, cmd)
+			}
+		}
+	} else if ok && !m.diffBusy && (it.Path != m.diffPath || m.now.Sub(m.diffAt) > 3*time.Second) {
 		m.diffBusy = true
 		p := it.Path
 		var files []string
