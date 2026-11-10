@@ -138,6 +138,18 @@ The first time it runs, Lookout also moves folders left by its old name (`overwa
 - **Usage block (estimated, fallback).** Shown only when the status line isn't connected yet: a 5-hour window that starts at the first message after a break, floored to the hour. It is a heuristic, not Anthropic's actual limit meter.
 - **Context.** With the status line connected, this is the percentage Claude Code itself reports. Otherwise it is estimated: input + cache read + cache write of the latest main-chain response, against the configured window (default 200k, or 1M once a session goes past it).
 
+### Model suggestions and your prompts
+
+The Models panel's rules read your prompts from the transcripts on disk: their length (`long_prompt_chars`, `short_prompt_chars`) and whether the latest prompt contains one of the `frustration_phrases` (a case-insensitive text match, checked only on prompts of 300 characters or fewer, so a long request that quotes an error isn't a complaint). This analysis runs entirely inside Lookout on your computer. No prompt text, or anything else, leaves the machine: Lookout makes no network calls. The only place prompt text is kept is the suggestion log, as described in [What Lookout stores](#what-lookout-stores).
+
+**"Went smoothly", exactly.** The suggestion log marks a suggestion `smooth` or `rough` only when all of these hold:
+
+1. It was an upgrade or a downgrade (a "keep" is never judged).
+2. You followed it: the model of the first main-session response after the suggestion was logged contains the suggested `/model` alias (e.g. `sonnet`).
+3. Three turns have happened on the new model: the first 3 prompts you sent in that session that got at least one response, counting from 1 minute before that first response.
+
+Lookout then adds up the failing tool results in those 3 turns. A tool result counts as failing when Claude Code marks it as an error, or when its output looks like a failing test, build or crash (`--- FAIL`, `FAIL`, `FAILED`, "N tests failed", a Python traceback, `AssertionError`, a Go `panic:`, `npm ERR!`, a Rust `error[E…]`, `BUILD FAILED`, "compilation failed"). Subagent tool calls aren't counted. Fewer than `tool_error_threshold` (default 3) is `smooth`; that many or more is `rough`. Outcomes are judged by the dashboard while it shows that session, so a suggestion in a session you never open in Lookout stays unjudged.
+
 ### ⚠️ The transcript format is undocumented
 
 Claude Code's transcript format isn't a public API and can change with any Claude Code update. Lookout reads only the fields it needs, ignores unknown fields and record types, skips malformed lines, and never crashes on bad input. If recent lines start failing to parse, a **! PARSER** warning appears in the header and the token figures may be incomplete until Lookout is updated. Lookout was developed against Claude Code 2.1.x.

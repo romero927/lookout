@@ -20,7 +20,7 @@ What fills the context window: the startup cost (system prompt, tools, `CLAUDE.m
 
 ## 5. Models
 
-The current model, a suggested model, and a one-line reason, from tunable rules. Near a usage limit it suggests a lighter model to make the rest last, and holds off on upgrades that would use the limit up faster. New suggestions have to hold for 2 minutes or 2 turns before they replace the current one, so it doesn't flip back and forth. You switch yourself with `/model`; the panel lists each model and what it's for, in Claude Code's own words. It also flags when `/compact` or a fresh session is worth it, and logs each suggestion with the model you used next and, when you followed it, whether the next 3 turns went smoothly.
+The current model, a suggested model, and a one-line reason, from tunable rules. Near a usage limit it suggests a lighter model to make the rest last, and holds off on upgrades that would use the limit up faster. New suggestions have to hold for 2 minutes or 2 turns before they replace the current one, so it doesn't flip back and forth. You switch yourself with `/model`; the panel lists each model and what it's for, in Claude Code's own words. It also flags when `/compact` or a fresh session is worth it, and logs each suggestion with the model you used next and, when you followed it, whether the next 3 turns went smoothly (defined exactly in the [README](../README.md#model-suggestions-and-your-prompts)). The rules read your prompts locally; nothing leaves your computer.
 
 ## 6. Tools
 
