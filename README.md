@@ -1,32 +1,48 @@
 # Lookout
 
-A terminal dashboard that runs **beside** an interactive [Claude Code](https://docs.anthropic.com/en/docs/claude-code) session, for example in a tmux split. It shows your usage limits and token usage, which files changed, what Claude did in each turn, what's filling the context window, suggests when to switch models, and lets you browse your config and memory files.
+A terminal dashboard you keep open **next to** [Claude Code](https://docs.anthropic.com/en/docs/claude-code) (for example, in a tmux split) to see what's going on while you work:
+
+- how much of your **5-hour and weekly limits** you've used, and whether you're on pace to run out
+- **what Claude did** for each prompt, and **which files changed**
+- **what's filling the context window**, and how to free up room
+- **when to switch models or effort level**
+- your **config, `CLAUDE.md` and memory files**
+
+It only reads files Claude Code already writes. It never talks to Claude, never touches your credentials, and sends nothing over the network.
 
 > **Unofficial.** Lookout is an independent open-source project. It is not affiliated with, endorsed by, or supported by Anthropic. "Claude" and "Claude Code" are trademarks of Anthropic.
 
-![Lookout's Usage panel, rendered from synthetic data](docs/screenshot.png)
-
-![Lookout's Activity panel with a step opened, rendered from synthetic data](docs/activity.png)
+![Lookout's Usage panel: 5-hour and weekly limits with pace, token counts, and a 7-day chart (synthetic data)](docs/screenshot.png)
 
 ## Quick start
 
+**1. Install it**
+
 ```sh
-go install github.com/romero927/lookout/cmd/lookout@latest   # install (or grab a release binary)
-tmux split-window -h -l 50% 'lookout --here'                   # open it beside Claude Code
-lookout statusline install --print                             # paste the snippet into ~/.claude/settings.json
+go install github.com/romero927/lookout/cmd/lookout@latest
 ```
 
-## What it is (and isn't)
+No Go? Download a binary for Linux, macOS or Windows from [releases](https://github.com/romero927/lookout/releases).
 
-Lookout is a **dashboard, not a wrapper**:
+**2. Open it beside Claude Code**
 
-- It **never calls Claude**. It doesn't use `claude -p`, the Agent SDK, or the Anthropic API, and it never types into Claude Code through a pty or scripted input. All of your Claude usage stays on your normal interactive limits.
-- It **only reads** what Claude Code writes to disk (`~/.claude/`), plus what Claude Code itself passes to an optional status line command.
-- It **never handles credentials**. It doesn't read `~/.claude/.credentials.json`, and the Config panel refuses to open it.
-- It **sends nothing anywhere**. No network calls, no telemetry. The one exception is opt-in: with `[updates] check = true`, it asks GitHub once a day for the latest release tag (a plain request that carries nothing about you or your usage). The only programs it starts are `git` (read-only `diff`, `status` and `log`, for the Changes panel), a desktop notifier for alerts, a clipboard tool when you copy a command, your `$EDITOR` if you enable editing, and your own status line command if you wrap it.
-- It **never types into Claude Code**. Commands it offers are copied for you to paste. Copying goes to the OS clipboard through `xclip`, `xsel`, `wl-copy`, `pbcopy` or `clip.exe`. On Linux, install one (`sudo apt install xclip`); without one, Lookout falls back to tmux's paste buffer (paste with your prefix, then `]`) or the terminal's clipboard, and says so. The mouse works too: click a tab, or an item to open it, scroll what's under the pointer, and drag to select text, which is copied when you let go (hold Shift for the terminal's own selection).
+From the folder you're running Claude Code in:
+
+```sh
+tmux split-window -h -l 50% 'lookout --here'
+```
+
+**3. Connect your real limits** (recommended)
+
+```sh
+lookout statusline install --print
+```
+
+This prints a snippet. Paste it into `~/.claude/settings.json` (Lookout never edits that file for you). [Why this step matters](#connect-your-real-limits).
 
 ## Panels
+
+Press `1`–`9` (or `tab`) to switch panels.
 
 | # | Panel | What it shows |
 |---|-------|---------------|
@@ -37,143 +53,189 @@ Lookout is a **dashboard, not a wrapper**:
 | 5 | **Models** | The current model, a suggested one with a reason, and when `/compact` or a fresh session is worth it. |
 | 6 | **Tools** | Every tool Claude used, with error and denial counts and each call's input and output. |
 | 7 | **Skills** | Skills, slash commands and subagents available to Claude Code, and how to run them. |
-| 8 | **Config** | Browse `settings.json`, `CLAUDE.md` files, auto-memory and Lookout's own `config.toml` (read-only by default). |
+| 8 | **Config** | Your `settings.json`, `CLAUDE.md` files, auto-memory and Lookout's own `config.toml` (read-only by default). |
 | 9 | **Cheatsheet** | Claude Code commands to copy and paste, including ones for the session on screen. |
 
-Full detail for each panel: [docs/panels.md](docs/panels.md).
+More on each panel: [docs/panels.md](docs/panels.md). All screenshots below use made-up data.
 
-Keys: `1`–`9` or `tab` switch panels · `s` picks which session to show (`a` in the picker follows the latest again) · `P` pins the session shown, or unpins · `↑↓`/`jk` move · `enter` focuses a viewer · `esc` goes back · `c` copies (Context, Skills, Cheatsheet) · `y` copies an ID (a file's commit in Changes, a session in the picker) · `e` edits (if enabled) · `R` restarts · `?` help · `q` quits.
+**Activity:** each prompt, then every step Claude took for it. Open a step to see its full command and output.
 
-**Alerts.** When a limit passes 80% or 95%, or your pace would reach it before the reset, the dashboard rings the terminal bell (tmux marks the window), sends a desktop notification (`notify-send` on Linux, `osascript` on macOS) and shows the alert in the footer. Each alert fires once per limit window, even across restarts and several open dashboards. Tune or turn them off under `[alerts]`.
+![Lookout's Activity panel with a test run opened](docs/activity.png)
 
-**New builds.** If the `lookout` binary is replaced while the dashboard runs (say, after `make build`), the header shows `↻ R restart`, and `R` restarts into the new build in place.
+**Context:** what's taking up the context window, and the largest single items.
+
+![Lookout's Context panel](docs/context.png)
+
+**Models:** whether to switch model or effort level, and why, with every option explained.
+
+![Lookout's Models panel](docs/models.png)
+
+**Cheatsheet:** Claude Code commands to copy, including ones filled in for the session on screen.
+
+![Lookout's Cheatsheet panel](docs/cheatsheet.png)
+
+### Keys
+
+| Key | Does |
+|-----|------|
+| `1`–`9`, `tab` | Switch panels |
+| `↑` `↓` / `j` `k` | Move |
+| `enter` / `esc` | Open / go back |
+| `s` | Pick which session to show (`a` in the picker goes back to following the latest) |
+| `P` | Pin the session on screen so it stays put, or unpin it |
+| `c` | Copy a command (Context, Skills, Cheatsheet) |
+| `y` | Copy an ID (a commit in Changes, a session in the picker) |
+| `e` | Edit the file (Config, only if [enabled](#configuration)) |
+| `R` | Restart |
+| `?` | Help |
+| `q` | Quit |
+
+The mouse works too: click a tab or an item, scroll what's under the pointer, and drag to select text (copied when you let go). Hold Shift to use your terminal's own selection instead.
+
+**Copying.** Lookout never types into Claude Code; commands it offers are copied for you to paste. It uses `xclip`, `xsel`, `wl-copy`, `pbcopy` or `clip.exe`. On Linux, install one (`sudo apt install xclip`). Without one, it falls back to tmux's paste buffer (paste with your prefix, then `]`) or the terminal's clipboard, and tells you which.
+
+**Alerts.** When a limit passes 80% or 95%, or your pace would hit it before the reset, Lookout rings the terminal bell, sends a desktop notification (`notify-send` on Linux, `osascript` on macOS) and shows the alert at the bottom. Each alert fires once per limit window, even across restarts. Change or turn them off under `[alerts]`.
+
+**Updates while running.** If the `lookout` binary is replaced while it runs (say, after `make build`), the header shows `↻ R restart`. Press `R` to switch to the new build.
 
 ## Install
 
-Requires Go 1.26+ to build from source. That minimum comes from the pure-Go SQLite driver (`modernc.org/sqlite`) and its dependencies; Lookout's own code needs only Go 1.22. With `GOTOOLCHAIN=auto`, the default, an older `go` downloads 1.26 automatically. The result is a single static binary (pure Go, no cgo).
-
 ```sh
 go install github.com/romero927/lookout/cmd/lookout@latest
-# or
+# or build from a clone:
 git clone https://github.com/romero927/lookout && cd lookout && make build   # → ./bin/lookout
 ```
 
-Prebuilt binaries for Linux, macOS and Windows are attached to [releases](https://github.com/romero927/lookout/releases).
+Or download a prebuilt binary from [releases](https://github.com/romero927/lookout/releases).
 
-### Run it beside Claude Code
+Building needs Go 1.26 or newer. (That comes from the SQLite library it uses; with the default `GOTOOLCHAIN=auto`, an older `go` downloads 1.26 for you.) The result is a single binary with no other dependencies.
 
-```sh
-tmux split-window -h -l 50% 'lookout --here'  # focus on the session in this directory (or a parent or subfolder)
-# or just:
-lookout                                        # follows your most recently active session
-lookout stats                                  # one-shot text summary, no TUI
-lookout update                                 # check for a newer release
-```
+## Commands
 
-From a checkout, `scripts/split.sh [project-dir]` starts a tmux session with `claude` on the left and Lookout on the right. Running it again reattaches to that session.
+| Command | Does |
+|---------|------|
+| `lookout` | Open the dashboard, following your most recently active session |
+| `lookout --here` | Open it focused on the session in this folder (or a parent or subfolder) |
+| `lookout stats` | Print a one-off text summary instead of the dashboard |
+| `lookout statusline install --print` | Print the `settings.json` snippet that connects your limits |
+| `lookout config init` | Write a `config.toml` with every default, commented |
+| `lookout paths` | Show every folder Lookout uses |
+| `lookout update` | Check for a newer release |
 
-### Show your real limits (recommended)
+From a clone, `scripts/split.sh [project-dir]` opens a tmux session with `claude` on the left and Lookout on the right. Run it again to reattach.
 
-Claude Code passes your subscription's 5-hour and weekly usage (percent used and reset time) to its [status line](https://docs.anthropic.com/en/docs/claude-code/statusline) command. To have Lookout receive them, print the snippet and add it to `~/.claude/settings.json` yourself:
+## Connect your real limits
+
+Claude Code shares your 5-hour and weekly usage (percent used and reset time) only with its [status line](https://docs.anthropic.com/en/docs/claude-code/statusline) command. To let Lookout see them, make Lookout that command:
 
 ```sh
 lookout statusline install --print
 ```
 
-Claude Code then runs `lookout statusline` after each update. It saves only a few numbers: limit percentages and reset times, context use, and the session cost. They go in one small file per session under `limits/` in the data directory, so sessions on different accounts stay separate, plus a per-day total in `history.json`. It also prints a short line under your prompt, e.g. `Opus 5.5 · effort medium · ctx 12% · 5h 42% (resets 2h23m) · week 23%`. The effort level comes from Claude Code's input when it sends one, otherwise from the end of the session's transcript. Limits are reported for Claude.ai subscriptions only.
+Paste the printed snippet into `~/.claude/settings.json`. From then on, Claude Code runs `lookout statusline` after each update, and you get:
 
-**Already have a status line?** Settings allow only one, so Lookout can wrap yours instead of replacing it. When `settings.json` already has a `statusLine` command, `lookout statusline install --print` prints a wrapped version:
+- **A status line under your prompt**, e.g. `Opus 5.5 · effort medium · ctx 12% · 5h 42% (resets 2h23m) · week 23%`
+- **Real limits** in the Usage panel, plus alerts and the per-day chart
+
+Lookout saves only a few numbers from this: limit percentages and reset times, context use and session cost. See [what Lookout stores](docs/how-it-works.md#what-lookout-stores).
+
+Without this step Lookout still works, but it can only estimate your limits from token counts.
+
+### Already have a status line?
+
+Claude Code allows only one, so Lookout can wrap yours instead of replacing it. If your `settings.json` already has one, `lookout statusline install --print` prints a wrapped version:
 
 ```json
 { "statusLine": { "type": "command", "command": "/path/to/lookout statusline --wrap '~/bin/my-statusline.sh'" } }
 ```
 
-Lookout passes your command the same JSON on stdin, prints its output, then adds its own line after it. `--order before` puts Lookout's line first, `--sep TEXT` changes the separator (default ` · `), and `--timeout DUR` limits how long your command may run (default `2s`). If your command fails or times out, Lookout's line still prints, and the error goes to `logs/hook.log`.
+Your command gets the same input as before. Its output prints first, then Lookout's line.
 
-**API key or pay-as-you-go accounts** (including enterprise accounts billed by usage) have no 5-hour or weekly limits, so Lookout shows the session's cost so far instead (in the Usage panel and the status line, e.g. `Opus 5.5 · effort medium · ctx 12% · $1.84`). Alerts, the per-day limit chart and limit-aware model suggestions stay off; everything else works the same. The cost is Claude Code's own estimate at list API prices, so negotiated pricing isn't reflected. This is decided per session: a session that has a cost but no limits after its first reply shows its cost, even if another account on the same computer has limits.
+| Option | Does | Default |
+|--------|------|---------|
+| `--order before` | Put Lookout's line first | after |
+| `--sep TEXT` | Separator between the two | ` · ` |
+| `--timeout DUR` | How long your command may run | `2s` |
 
-To stop using it, remove the `statusLine` entry from `~/.claude/settings.json`, then delete the binary and Lookout's config and data folders (`lookout paths` lists them).
+If your command fails or times out, Lookout's line still prints and the error goes to `logs/hook.log`.
+
+### API key or pay-as-you-go accounts
+
+These accounts (including enterprise accounts billed by usage) have no 5-hour or weekly limits, so Lookout shows the session's **cost so far** instead, e.g. `Opus 5.5 · effort medium · ctx 12% · $1.84`. Limit alerts, the per-day chart and limit-based model suggestions are off; everything else works the same.
+
+- The cost is Claude Code's own estimate at list API prices, so negotiated pricing isn't reflected.
+- It's decided per session: a session with a cost but no limits after its first reply shows its cost, even if another account on the same computer has limits.
+
+### Uninstall
+
+1. Remove the `statusLine` entry from `~/.claude/settings.json`.
+2. Run `lookout paths` and delete the config and data folders it lists.
+3. Delete the `lookout` binary.
+
+## Privacy and safety
+
+Lookout is a **dashboard, not a wrapper**.
+
+- **It never calls Claude.** No `claude -p`, Agent SDK or Anthropic API. Your usage stays on your normal interactive limits.
+- **It never types into Claude Code.** Commands are copied for you to paste.
+- **It only reads.** It reads what Claude Code writes under `~/.claude/`, plus what Claude Code passes to the status line. It writes only to [its own folders](docs/how-it-works.md#what-lookout-stores).
+- **It never touches credentials.** It doesn't read `~/.claude/.credentials.json`, and the Config panel refuses to open it.
+- **It sends nothing anywhere.** No telemetry and no network calls, with one opt-in exception: with `[updates] check = true`, it asks GitHub once a day for the latest version number. That request carries nothing about you or your usage.
+
+The only other programs it runs are `git` (read-only `diff`, `status` and `log`, for the Changes panel), a desktop notifier for alerts, a clipboard tool when you copy, your `$EDITOR` if you turn on editing, and your own status line command if you wrap it.
 
 ## Configuration
 
-`lookout config init` writes a commented `config.toml` containing every default (`lookout config default` prints it without writing, `lookout config path` shows where it goes), and `lookout paths` shows where each file lives:
+Lookout works without a config file. To customize it:
+
+```sh
+lookout config init      # writes config.toml with every default, commented
+lookout config default   # prints the defaults without writing anything
+lookout config path      # shows where config.toml goes
+```
 
 | | Linux | macOS | Windows |
 |---|---|---|---|
-| Config | `$XDG_CONFIG_HOME/lookout/config.toml` (`~/.config/lookout`) | `~/Library/Application Support/lookout/config.toml` | `%AppData%\lookout\config.toml` |
-| Data (suggestion log, limits, alert state, backups, logs) | `$XDG_DATA_HOME/lookout` (`~/.local/share/lookout`) | `~/Library/Application Support/lookout` | `%AppData%\lookout\data` |
+| Config | `~/.config/lookout/config.toml` (`$XDG_CONFIG_HOME`) | `~/Library/Application Support/lookout/config.toml` | `%AppData%\lookout\config.toml` |
+| Data | `~/.local/share/lookout` (`$XDG_DATA_HOME`) | `~/Library/Application Support/lookout` | `%AppData%\lookout\data` |
 
-`LOOKOUT_CONFIG_DIR` and `LOOKOUT_DATA_DIR` override either directory.
+`LOOKOUT_CONFIG_DIR` and `LOOKOUT_DATA_DIR` override these. Lookout also honours `CLAUDE_CONFIG_DIR`.
 
-Highlights:
+The settings you're most likely to change:
 
-- `[models]`: every threshold (repeated edits, tool errors, multi-file turns, long prompts, frustration phrases, simple-turn streaks, short prompts, context %) the model tier order (`model_tiers = ["haiku", "sonnet", "opus"]`), the effort levels and the default effort (`effort_levels = ["low", "medium", "high", "xhigh"]`, `default_effort = "medium"`), and how long the suggestion log keeps rows (`log_days = 90`).
-- `[usage]`: `history_days` (how far back the first scan reads transcripts, default 30), `burn_window_minutes` (the tokens-per-minute window, default 10) and `block_hours` (the rolling window and estimated block length, default 5).
-- `[usage.price_weights]`: per-model prices used to weight tokens for the session-share estimate, overriding the built-in ones. Keys are substrings of the model ID (the longest match wins), e.g. `"opus-5-5" = { input = 4, output = 20, cache_write = 5, cache_read = 0.20 }`.
-- `[files] allow_edit = true` turns on `e`, which opens the file in `$VISUAL`/`$EDITOR`. A timestamped backup is written to the data directory's `backups/` first, and is discarded if you didn't change anything. `extra_files` lists more files to browse, e.g. `["~/.claude/keybindings.json"]`.
-- `[alerts]`: `bell`, `desktop`, `thresholds` (default `[80, 95]`; `[]` turns them off) and `pace`.
-- `[updates] check = true` asks GitHub once a day whether a newer release is out. When one is, the header shows `↑ v0.6.4` and the footer says how to update. Off by default: it is the only network call Lookout makes. `lookout update` checks once, right away, whether or not this is on.
-- `[ui] theme`: `auto`, `dark` or `light`. Inside tmux the terminal can't be asked, so dark is assumed. `LOOKOUT_THEME` overrides it.
+| Section | Setting | What it does |
+|---------|---------|--------------|
+| `[alerts]` | `thresholds`, `bell`, `desktop`, `pace` | When and how alerts fire. Thresholds default to `[80, 95]`; `[]` turns them off. |
+| `[files]` | `allow_edit = true` | Lets `e` open a file in `$VISUAL`/`$EDITOR`. A backup is saved first (and discarded if you change nothing). |
+| `[files]` | `extra_files` | More files to show in Config, e.g. `["~/.claude/keybindings.json"]`. |
+| `[updates]` | `check = true` | Checks GitHub once a day for a new release and shows it in the header (e.g. `↑ v0.6.4`). Off by default. |
+| `[ui]` | `theme` | `auto`, `dark` or `light`. Inside tmux, dark is assumed. `LOOKOUT_THEME` overrides it. |
+| `[models]` | thresholds, `model_tiers`, `effort_levels`, `default_effort`, `log_days` | When the Models panel suggests a change. Tiers default to `["haiku", "sonnet", "opus"]`; effort levels to `["low", "medium", "high", "xhigh"]`, with `"medium"` as the default. The suggestion log keeps 90 days. |
+| `[usage]` | `history_days`, `burn_window_minutes`, `block_hours` | How far back the first scan reads (30 days), the tokens-per-minute window (10 min), and the estimated usage block length (5 h). |
+| `[usage.price_weights]` | one entry per model | Override the model prices used to estimate each session's share of a limit, e.g. `"opus-5-5" = { input = 4, output = 20, cache_write = 5, cache_read = 0.20 }`. Keys match part of the model ID; the longest match wins. |
 
-Lookout honours `CLAUDE_CONFIG_DIR`.
+## How it works
 
-## What Lookout stores
+[docs/how-it-works.md](docs/how-it-works.md) has the details:
 
-Lookout writes only to its own config and data directories (run `lookout paths` to see them). It never writes under `~/.claude/` itself (with editing turned on, your `$EDITOR` does). Everything below stays on your computer.
+- [What Lookout stores](docs/how-it-works.md#what-lookout-stores), and for how long
+- [How the numbers are computed](docs/how-it-works.md#how-the-numbers-are-computed): limits, pace, each session's share, context
+- [How model and effort suggestions work](docs/how-it-works.md#model-suggestions), including how your prompts are used
 
-| File | Directory | What's in it | How long it's kept |
-|---|---|---|---|
-| `config.toml` | config | Your settings. Written only by `lookout config init`. | Until you delete it |
-| `lookout.db` (plus `-wal` and `-shm` files) | data | SQLite log of model suggestions, one row each: time, session ID, current and suggested model, action, the reason and the signals behind it, context tokens, the model you used next and when, and the outcome (`smooth` or `rough`). The reason and signals can name a file (its base name) and, for the short-prompt signal, quote your latest prompt when it is at most `short_prompt_chars` (default 40) characters long. Written by the dashboard, readable only by you. | 90 days (`[models] log_days`; `0` keeps everything). Older rows are deleted when the dashboard starts |
-| `limits/<session-id>.json` | data | What Claude Code passed to the status line for that session: 5-hour and weekly percentages and reset times, up to 720 one-a-minute samples of them (about 12 hours, for the pace), context use, and the cost Claude Code reports. Written by `lookout statusline`. | Deleted after 8 days without an update |
-| `history.json` | data | Per local day: percentage points of the weekly and 5-hour limits used, and the day's 5-hour peak. Also the last reading of each limit window. Written by `lookout statusline`. | 35 days |
-| `alerts.json` | data | Which limit alerts already fired (window, threshold, time), so they don't repeat. Written by the dashboard. | Dropped a week after the window resets |
-| `update.json` | data | The latest release tag and when it was checked (only with `[updates] check = true`). Written by the dashboard. | Replaced by each check |
-| `backups/<path>.<time>.bak` | data | A copy of a file taken before you edit it with `e` (only with `[files] allow_edit = true`). | Removed right away if you changed nothing; otherwise until you delete it |
-| `logs/hook.log`, `logs/hook.log.1` | data | Status line problems: unreadable input, failed saves, and a wrapped command's failure, with that command. | At 1 MB, `hook.log` becomes `hook.log.1`, replacing the older one (about 2 MB at most) |
-
-The first time it runs, Lookout also moves folders left by its old name (`overwatch`) to the locations above. Deleting the config and data directories removes everything.
-
-## How the numbers are computed
-
-- **Source.** JSONL transcripts under `~/.claude/projects/<project>/<session>.jsonl`, plus `…/<session>/subagents/*.jsonl` for subagents. Usage comes from `message.usage` on `assistant` records, and the model from `message.model`.
-- **Deduplication.** Claude Code writes one API response as several lines (one per content block), each repeating the same usage. Lookout counts each `message.id` once.
-- **Limits.** The percentages and reset times are exactly what Claude Code passes to the status line. They cover all your Claude usage, on any device, but only update when Claude Code refreshes its status line. The 5-hour pace is the change over the last 30 minutes (idle time counts); the weekly pace is the average since the week started. The projection assumes that pace holds.
-- **Weekly limit per day** (in Last 7 days). Each time Claude Code reports limits, the rise since the previous reading is added to that local day. After a window resets, the new window's usage counts in full. The first reading ever only sets a starting point, so the chart fills in from the day you connect the status line.
-- **Session share of a limit.** Claude Code reports one percentage for the whole account, so Lookout splits it by the session's share of the Claude Code usage recorded on this computer during the window. Tokens are weighted by each model's API list price (input, output, cache write and cache read separately), so an Opus token counts for more than a Haiku token. The prices are used only as ratios; no dollar figure is shown or stored. They are hardcoded in `internal/usage/share.go` from Anthropic's published API prices and updated by hand in Lookout releases, and models Lookout doesn't know yet are weighted like Sonnet 4.6. Anthropic doesn't publish how each model counts against the limits, so this is an estimate. If prices change before Lookout is updated, override them under `[usage.price_weights]`.
-- **Usage block (estimated, fallback).** Shown only when the status line isn't connected yet: a 5-hour window that starts at the first message after a break, floored to the hour. It is a heuristic, not Anthropic's actual limit meter.
-- **Context.** With the status line connected, this is the percentage Claude Code itself reports. Otherwise it is estimated: input + cache read + cache write of the latest main-chain response, against the configured window (default 200k, or 1M once a session goes past it).
-
-### Model suggestions and your prompts
-
-**Effort before models.** `/effort` is a smaller and cheaper change than `/model`, so the Models panel tries it first. When the work looks hard (repeated edits, failing tool results, frustration) and effort is below the second-highest of `effort_levels` (below `high` by default), it suggests one level more effort rather than a stronger model. At `high` it suggests the stronger model, and on the top model it suggests one more level of effort (up to `xhigh`). When the work looks simple, on the top model or at an effort above `default_effort`, it suggests going back to `default_effort` before a lighter model. It never suggests `max`. Sessions whose effort isn't recorded (older Claude Code, or models without effort levels) get model suggestions only.
-
-The Models panel's rules read your prompts from the transcripts on disk: their length (`long_prompt_chars`, `short_prompt_chars`) and whether the latest prompt contains one of the `frustration_phrases` (a case-insensitive text match, checked only on prompts of 300 characters or fewer, so a long request that quotes an error isn't a complaint). This analysis runs entirely inside Lookout on your computer. No prompt text, or anything else, leaves the machine: Lookout makes no network calls (apart from the opt-in update check, which only fetches the latest version number). The only place prompt text is kept is the suggestion log, as described in [What Lookout stores](#what-lookout-stores).
-
-**"Went smoothly", exactly.** The suggestion log marks a suggestion `smooth` or `rough` only when all of these hold:
-
-1. It was an upgrade, a downgrade, or an effort change (a "keep" is never judged).
-2. You followed it: the model of the first main-session response after the suggestion was logged contains the suggested `/model` alias (e.g. `sonnet`), or, for an effort suggestion, that response's effort level is the suggested one (e.g. `high`).
-3. Three turns have happened on the new model: the first 3 prompts you sent in that session that got at least one response, counting from 1 minute before that first response.
-
-Lookout then adds up the failing tool results in those 3 turns. A tool result counts as failing when Claude Code marks it as an error, or when its output looks like a failing test, build or crash (`--- FAIL`, `FAIL`, `FAILED`, "N tests failed", a Python traceback, `AssertionError`, a Go `panic:`, `npm ERR!`, a Rust `error[E…]`, `BUILD FAILED`, "compilation failed"). Subagent tool calls aren't counted. Fewer than `tool_error_threshold` (default 3) is `smooth`; that many or more is `rough`. Outcomes are judged by the dashboard while it shows that session, so a suggestion in a session you never open in Lookout stays unjudged.
-
-### ⚠️ The transcript format is undocumented
-
-Claude Code's transcript format isn't a public API and can change with any Claude Code update. Lookout reads only the fields it needs, ignores unknown fields and record types, skips malformed lines, and never crashes on bad input. If recent lines start failing to parse, a **! PARSER** warning appears in the header and the token figures may be incomplete until Lookout is updated. Lookout was developed against Claude Code 2.1.x.
+**⚠️ Heads-up:** Claude Code's transcript format isn't a public API and can change with any update. If Lookout stops reading it correctly, a **! PARSER** warning appears in the header and token figures may be incomplete until Lookout is updated. Built against Claude Code 2.1.x. [More](docs/how-it-works.md#the-transcript-format-is-undocumented).
 
 ## Development
 
 ```sh
-make build    # static binary in ./bin
-make install  # same, into $GOBIN (default ~/go/bin)
-make test     # go test ./... (race detector on)
-make lint     # golangci-lint, or go vet + gofmt if it isn't installed
-make screenshot  # re-render docs/screenshot.png and docs/activity.png from synthetic data (needs Python 3 + Pillow)
+make build       # binary in ./bin
+make install     # same, into $GOBIN (default ~/go/bin)
+make test        # go test ./... with the race detector
+make lint        # golangci-lint, or go vet + gofmt if it isn't installed
+make screenshot  # re-render the docs/ screenshots from synthetic data (needs Python 3 + Pillow)
 make snapshot    # local release build with goreleaser, nothing published
 ```
 
-All test fixtures are **synthetic**. Never commit real transcripts. To benchmark against your own data locally without copying it into the repo:
+All test fixtures are **synthetic**. Never commit real transcripts. To benchmark against your own data without copying it into the repo:
 
 ```sh
 LOOKOUT_BENCH_FILE=~/.claude/projects/<project>/<session>.jsonl go test ./internal/transcript -bench ReadFile

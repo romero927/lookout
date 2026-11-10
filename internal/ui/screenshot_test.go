@@ -19,9 +19,9 @@ import (
 	"github.com/romero927/lookout/internal/store"
 )
 
-// TestScreenshot renders the Usage panel and an Activity turn from synthetic
+// TestScreenshot renders the Usage panel, an Activity turn and other panels from synthetic
 // data, in color, for the README. It runs only when LOOKOUT_SCREENSHOT names
-// an output file; the Activity screen goes next to it as NAME-activity.ansi:
+// an output file; the other screens go next to it as NAME-<panel>.ansi:
 //
 //	LOOKOUT_SCREENSHOT=/tmp/shot.ansi go test ./internal/ui -run Screenshot
 func TestScreenshot(t *testing.T) {
@@ -152,5 +152,16 @@ func TestScreenshot(t *testing.T) {
 	act := strings.TrimSuffix(out, ".ansi") + "-activity.ansi"
 	if err := os.WriteFile(act, []byte(m.View()), 0o644); err != nil {
 		t.Fatal(err)
+	}
+
+	// The other panels, each at its starting view, as NAME-<panel>.ansi.
+	for _, p := range []struct{ key, name string }{
+		{"4", "context"}, {"5", "models"}, {"9", "cheatsheet"},
+	} {
+		m = drive(m, tea.WindowSizeMsg{Width: 110, Height: 40}, key("esc"), key("esc"), key(p.key))
+		file := strings.TrimSuffix(out, ".ansi") + "-" + p.name + ".ansi"
+		if err := os.WriteFile(file, []byte(m.View()), 0o644); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
