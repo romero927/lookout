@@ -172,8 +172,9 @@ func limitsHeading(w int) string {
 	return t + " " + sMuted.Render(strings.Repeat("─", rule)) + " " + link
 }
 
-// viewLimitsMissing explains how to get real limits and falls back to the
-// token-based block estimate.
+// viewLimitsMissing explains how to get real limits. Only without Lookout's
+// status line does it fall back to the token-based block estimate: with it,
+// real limits are on the way, and an estimate would only mislead.
 func (m Model) viewLimitsMissing(w int) []string {
 	out := []string{limitsHeading(w)}
 	switch {
@@ -191,6 +192,7 @@ func (m Model) viewLimitsMissing(w int) []string {
 		}
 		out = append(out, sYellow.Render(clip(wait, w)),
 			sMuted.Render(clip("Only Claude.ai subscriptions report limits; API-key use doesn't.", w)))
+		return out
 	default:
 		out = append(out, m.statusLineWarning(w)...)
 	}

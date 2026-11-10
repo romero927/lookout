@@ -207,6 +207,9 @@ func TestLimitsWaitingWhenStatusLineInstalled(t *testing.T) {
 	if !strings.Contains(v, "Waiting for Claude Code") {
 		t.Errorf("missing waiting message:\n%s", v)
 	}
+	if strings.Contains(v, "est. block") {
+		t.Errorf("token estimate shown while real limits are on the way:\n%s", v)
+	}
 }
 
 // A session that opened but hasn't replied yet has context but no cost or
