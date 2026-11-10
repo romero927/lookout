@@ -175,12 +175,8 @@ func (m Model) viewLimitsMissing(w int) []string {
 	case m.slOurs:
 		out = append(out, sYellow.Render(clip("Waiting for Claude Code: limits arrive after its next reply.", w)),
 			sMuted.Render(clip("Only Claude.ai subscriptions report limits; API-key use doesn't.", w)))
-	case m.slConfigured:
-		out = append(out, sYellow.Render(clip("Real 5-hour and weekly limits: not connected.", w)),
-			sMuted.Render(clip("Your settings.json already has a different statusLine. See: lookout statusline install --print", w)))
 	default:
-		out = append(out, sYellow.Render(clip("Real 5-hour and weekly limits: not connected.", w)),
-			sMuted.Render("Connect them: ")+sBold.Render("lookout statusline install --print"))
+		out = append(out, m.statusLineWarning(w)...)
 	}
 	if b := m.snap.Block; b != nil && b.Active {
 		span := b.End.Sub(b.Start)
@@ -347,4 +343,26 @@ func (m *Model) refreshShare(now time.Time) {
 			*x.out = mine / all
 		}
 	}
+}
+
+// statusLineWarning says how to install Lookout's status line. Until it
+// is installed, limits and context are estimates.
+func (m Model) statusLineWarning(w int) []string {
+	badge := sWarn.Render("⚠ STATUS LINE NOT INSTALLED")
+	head := badge + sYellow.Render(clip(" limits and context are estimates", max(0, w-lipgloss.Width(badge))))
+	cmd := sBold.Render("lookout statusline install --print")
+	// The longest wording that fits, so the settings path isn't cut off.
+	rests := []string{" and add what it prints to ~/.claude/settings.json", " → add to ~/.claude/settings.json", " → ~/.claude/settings.json"}
+	if m.slConfigured {
+		rests = []string{" and use it in place of your statusLine (it keeps yours)", " → replace your statusLine", " → replace statusLine"}
+	}
+	room := max(0, w-lipgloss.Width(cmd)-4)
+	rest := rests[len(rests)-1]
+	for _, r := range rests {
+		if lipgloss.Width(r) <= room {
+			rest = r
+			break
+		}
+	}
+	return []string{head, sText.Render("Run ") + cmd + sText.Render(clip(rest, room))}
 }

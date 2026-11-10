@@ -89,7 +89,7 @@ func TestPanelsRender(t *testing.T) {
 			key  string
 			want []string
 		}{
-			{"1", []string{"LOOKOUT", "LIMITS", "not connected", "THIS SESSION", "TOKENS", "last 10 min"}},
+			{"1", []string{"LOOKOUT", "STATUS LINE NOT INSTALLED", "statusline install --print", "settings.json", "LIMITS", "THIS SESSION", "TOKENS", "last 10 min"}},
 			{"2", []string{"ACTIVITY", "this still doesn't work", "WHAT CLAUDE DID", "Edit"}},
 			{"3", []string{"CHANGES", "1 edited file no longer"}},
 			{"4", []string{"CONTEXT", "Startup", "LARGEST ITEMS"}},
