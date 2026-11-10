@@ -107,6 +107,9 @@ func HistoryFile() string { return filepath.Join(DataDir(), "history.json") }
 // AlertsFile records which limit alerts were already shown.
 func AlertsFile() string { return filepath.Join(DataDir(), "alerts.json") }
 
+// UpdateFile caches the latest release seen by the update check.
+func UpdateFile() string { return filepath.Join(DataDir(), "update.json") }
+
 // LogDir holds the status line log.
 func LogDir() string { return filepath.Join(DataDir(), "logs") }
 

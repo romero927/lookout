@@ -120,3 +120,12 @@ func TestBackup(t *testing.T) {
 		t.Fatal("same-timestamp backup must not overwrite")
 	}
 }
+
+func TestDiscoverListsLookoutConfig(t *testing.T) {
+	cfg := filepath.Join(t.TempDir(), "config.toml")
+	files := Discover(Sources{ClaudeDir: t.TempDir(), LookoutConfig: cfg})
+	last := files[len(files)-1]
+	if last.Group != GroupLookout || last.Path != cfg || last.Exists {
+		t.Errorf("missing config.toml should be listed last as not present, got %+v", last)
+	}
+}

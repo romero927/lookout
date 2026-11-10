@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -10,6 +12,7 @@ import (
 	"time"
 
 	"github.com/romero927/lookout/internal/paths"
+	"github.com/romero927/lookout/internal/update"
 )
 
 const statusJSON = `{"session_id":"s1","model":{"display_name":"Opus 5.5"},"context_window":{"used_percentage":12}}`
@@ -140,5 +143,47 @@ func TestHookLogRotates(t *testing.T) {
 	b, _ := os.ReadFile(log)
 	if !strings.Contains(string(b), "after rotation") || len(b) > 200 {
 		t.Fatalf("new hook.log = %q", b)
+	}
+}
+
+func TestUpdateCommand(t *testing.T) {
+	statusEnv(t)
+	tag := "v0.6.4"
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Write([]byte(`{"tag_name":"` + tag + `"}`))
+	}))
+	defer srv.Close()
+	oldURL, oldVer := update.LatestURL, version
+	update.LatestURL = srv.URL
+	defer func() { update.LatestURL, version = oldURL, oldVer }()
+
+	check := func(want string) {
+		t.Helper()
+		var out, errOut bytes.Buffer
+		if code := run([]string{"update"}, nil, &out, &errOut); code != 0 {
+			t.Fatalf("exit %d: %s", code, errOut.String())
+		}
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("output missing %q:\n%s", want, out.String())
+		}
+	}
+	version = "0.6.3"
+	check("Lookout v0.6.4 is out (you have 0.6.3)")
+	check(update.InstallCmd)
+	check("[updates] check = true")
+	version = "0.6.4"
+	check("You have the latest release (v0.6.4)")
+	version = "v0.6.4-2-gabc1234"
+	check("Nothing to update")
+
+	// The answer is cached for the dashboard's daily check.
+	if b, err := os.ReadFile(paths.UpdateFile()); err != nil || !strings.Contains(string(b), tag) {
+		t.Errorf("cache not written: %q %v", b, err)
+	}
+
+	srv.Close()
+	var out, errOut bytes.Buffer
+	if code := run([]string{"update"}, nil, &out, &errOut); code != 1 || !strings.Contains(errOut.String(), "couldn't check") {
+		t.Errorf("a failed check should exit 1 with a message (code %d, %q)", code, errOut.String())
 	}
 }

@@ -19,6 +19,7 @@ import (
 	"github.com/romero927/lookout/internal/paths"
 	"github.com/romero927/lookout/internal/store"
 	"github.com/romero927/lookout/internal/strategy"
+	"github.com/romero927/lookout/internal/update"
 )
 
 var testANSI = regexp.MustCompile(`\x1b\[[0-9;?]*[a-zA-Z]`)
@@ -96,7 +97,7 @@ func TestPanelsRender(t *testing.T) {
 			{"5", []string{"RECOMMENDATION", "Upgrade to opus", "frustration", "/model opus", "MODELS YOU CAN SWITCH TO", "Fastest for quick answers"}},
 			{"6", []string{"TOOLS", "Edit", "1 call", "a.go"}},
 			{"7", []string{"SKILLS"}},
-			{"8", []string{"FILES", "settings.json"}},
+			{"8", []string{"CONFIG", "settings.json", "Lookout", "config.toml"}},
 			{"9", []string{"CHEATSHEET"}},
 		}
 		for _, p := range panels {
@@ -825,5 +826,20 @@ func TestToolKeySplitsSkills(t *testing.T) {
 	want := map[string]int{"skill: pdf": 2, "skill: docx": 1, "Bash": 1}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("toolStats = %v, want %v", got, want)
+	}
+}
+
+func TestUpdateNotice(t *testing.T) {
+	m := Model{o: Options{Version: "v0.6.3", Core: &app.Core{}}, now: time.Now()}
+	m.onUpdate(updateMsg{latest: "v0.6.3"})
+	if m.updNew != "" {
+		t.Errorf("same version should not be reported, got %q", m.updNew)
+	}
+	m.onUpdate(updateMsg{latest: "v0.6.4"})
+	if m.updNew != "v0.6.4" || !strings.Contains(m.flash, update.InstallCmd) {
+		t.Errorf("newer release should be reported (updNew=%q flash=%q)", m.updNew, m.flash)
+	}
+	if m.updateCheck() != nil {
+		t.Error("no check should run while [updates] check is off")
 	}
 }

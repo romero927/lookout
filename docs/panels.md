@@ -30,9 +30,9 @@ Every tool Claude used in the session (Bash, Read, Edit, Agent, MCP tools and th
 
 Skills, custom slash commands and subagents Claude Code can use: yours (`~/.claude`), the project's (`.claude/`), installed plugins', and skills synced from claude.ai. Shows what each does, whether Claude uses it on its own, and how to run it (`c` copies that), plus its definition file.
 
-## 8. Files
+## 8. Config
 
-Browse `~/.claude/settings.json`, the global and project `CLAUDE.md` files, and auto-memory files. Read-only by default, with secret-looking values masked on screen. `o` opens the selected file's folder in your file manager.
+Browse `~/.claude/settings.json`, the global and project `CLAUDE.md` files, auto-memory files, and Lookout's own `config.toml` (listed even before it exists, with how to create it; press `R` to restart after editing it). Read-only by default, with secret-looking values masked on screen. `o` opens the selected file's folder in your file manager.
 
 ## 9. Cheatsheet
 

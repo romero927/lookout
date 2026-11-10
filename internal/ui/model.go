@@ -60,7 +60,7 @@ const (
 	tabCheatsheet
 )
 
-var tabNames = []string{"Usage", "Activity", "Changes", "Context", "Models", "Tools", "Skills", "Files", "Cheatsheet"}
+var tabNames = []string{"Usage", "Activity", "Changes", "Context", "Models", "Tools", "Skills", "Config", "Cheatsheet"}
 
 // Options configure the model.
 type Options struct {
@@ -190,6 +190,10 @@ type Model struct {
 	newBuild bool
 	restart  bool
 
+	// Update check ([updates] check = true)
+	updAsked time.Time // when the check last ran
+	updNew   string    // a newer release tag, once one is found
+
 	flash      string
 	flashStyle lipgloss.Style
 	flashUntil time.Time
@@ -246,7 +250,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if m.loaded {
 			m.refresh()
 		}
-		return m, tea.Batch(tick(), m.checkAlerts(), m.changesCmd())
+		// Run these before the return: they change m, and Go doesn't say
+		// whether a return reads m before or after calls in the same list.
+		alerts, changes, upd := m.checkAlerts(), m.changesCmd(), m.updateCheck()
+		return m, tea.Batch(tick(), alerts, changes, upd)
+
+	case updateMsg:
+		m.onUpdate(msg)
+		return m, nil
 
 	case openedMsg:
 		if msg.err != nil {
@@ -539,10 +550,11 @@ func (m *Model) refresh() {
 func (m *Model) refreshFiles() {
 	c := m.o.Core
 	m.files = configfiles.Discover(configfiles.Sources{
-		ClaudeDir:    paths.ClaudeDir(),
-		ProjectDirs:  c.ProjectDirs(),
-		ProjectNames: c.ProjectNames(),
-		Extra:        c.Cfg.Files.ExtraFiles,
+		ClaudeDir:     paths.ClaudeDir(),
+		ProjectDirs:   c.ProjectDirs(),
+		ProjectNames:  c.ProjectNames(),
+		Extra:         c.Cfg.Files.ExtraFiles,
+		LookoutConfig: paths.ConfigFile(),
 	})
 	if m.gSel >= len(m.files) {
 		m.gSel = max(0, len(m.files)-1)
@@ -562,7 +574,12 @@ func (m *Model) loadSelectedFile() {
 	m.gLoaded = f.Path
 	m.gReadErr = ""
 	if !f.Exists {
-		m.gView.SetContent(sMuted.Render("Not present: " + ShortPath(f.Path)))
+		msg := sMuted.Render("Not present: " + ShortPath(f.Path))
+		if f.Group == configfiles.GroupLookout {
+			msg += "\n\n" + sText.Render("Lookout is using its defaults. To change them, run ") + sBold.Render("lookout config init") +
+				"\n" + sText.Render("to write a commented config.toml, then press R to restart after editing it.")
+		}
+		m.gView.SetContent(msg)
 		m.gView.GotoTop()
 		return
 	}
@@ -692,6 +709,9 @@ func (m Model) headerParts() (brand string, tabs, right []string) {
 	if m.o.Core.Pinned != "" {
 		right = append(right, sYellow.Bold(true).Render("◆ pinned"))
 	}
+	if m.updNew != "" {
+		right = append(right, sGreen.Render("↑ "+m.updNew))
+	}
 	right = append(right, m.limitBadges()...)
 
 	// Prefer full tab names; fall back to short tabs, then fewer badges.
@@ -799,7 +819,7 @@ func (m Model) viewHelp() string {
 			"                denials, time, and each call under its prompt; enter opens a call,\n" +
 			"                a shows it in Activity, f shows failed calls only",
 		"  7 Skills      skills, custom commands and subagents Claude can use, and how to run them",
-		"  8 Files       Claude Code config and memory files, read-only by default",
+		"  8 Config      Claude Code settings, CLAUDE.md, memory and Lookout's config.toml, read-only by default",
 		"  9 Cheatsheet  Claude Code commands to copy and paste, incl. ones for this session",
 		"",
 		sBold.Render("Keys"),
@@ -812,7 +832,7 @@ func (m Model) viewHelp() string {
 		"  P             pin the session shown, or unpin to follow the latest",
 		"  ↑↓ / j k      move · enter to focus the viewer · esc to go back",
 		"  e             edit the selected file in $EDITOR (needs [files] allow_edit = true)",
-		"  o             Files, Changes: open the selected file's folder in your file manager",
+		"  o             Config, Changes: open the selected file's folder in your file manager",
 		"  r             rescan the file list",
 		"  R             restart Lookout (e.g. after a rebuild)",
 		"  mouse         click a tab, or an item to open it · the wheel scrolls what's under it",
@@ -822,6 +842,9 @@ func (m Model) viewHelp() string {
 		sBold.Render("Alerts"),
 		"  A bell, a desktop notification and a footer message when a limit passes 80% or 95%,",
 		"  or when your pace would reach it before the reset. Set them in [alerts] in config.toml.",
+		"",
+		sBold.Render("Updates"),
+		"  " + m.updateHelp(),
 		"",
 		sBold.Render("Files"),
 		"  config   " + ShortPath(paths.ConfigFile()),

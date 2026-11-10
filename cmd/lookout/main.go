@@ -26,6 +26,7 @@ import (
 	"github.com/romero927/lookout/internal/store"
 	"github.com/romero927/lookout/internal/strategy"
 	"github.com/romero927/lookout/internal/ui"
+	"github.com/romero927/lookout/internal/update"
 )
 
 // Set by the release build.
@@ -44,6 +45,7 @@ Usage:
   lookout statusline install --print   print the settings.json snippet for it
   lookout config init|path         write the default config / show its path
   lookout paths                    show every directory Lookout uses
+  lookout update                   check GitHub for a newer release (the dashboard can do this daily: [updates] check)
   lookout version
 
 Flags for the dashboard and stats:
@@ -96,6 +98,8 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 			return cmdConfig(args[1:], stdout, stderr)
 		case "paths":
 			return cmdPaths(stdout)
+		case "update":
+			return cmdUpdate(args[1:], stdout, stderr)
 		case "version", "--version", "-v":
 			fmt.Fprintln(stdout, strings.TrimSpace("lookout "+appVersion()+" "+commit))
 			return 0
@@ -505,4 +509,33 @@ func selfPath() string {
 		exe = resolved
 	}
 	return exe
+}
+
+// cmdUpdate asks GitHub for the latest release, now, and says how to update.
+func cmdUpdate(args []string, stdout, stderr io.Writer) int {
+	if len(args) > 0 {
+		fmt.Fprintln(stderr, "usage: lookout update")
+		return 2
+	}
+	cur := appVersion()
+	latest, err := update.Refresh(context.Background(), paths.UpdateFile(), time.Now())
+	if err != nil {
+		fmt.Fprintf(stderr, "lookout: couldn't check for updates: %v\n", err)
+		return 1
+	}
+	switch {
+	case update.Newer(cur, latest):
+		fmt.Fprintf(stdout, "Lookout %s is out (you have %s).\n\nUpdate:    %s\nBinaries:  %s\n", latest, cur, update.InstallCmd, update.ReleasesURL)
+		if strings.Contains(cur, "-g") || version == "dev" {
+			fmt.Fprintln(stdout, "\nThis copy was built from source: pull and rebuild instead (make build or make install).")
+		}
+	case strings.TrimPrefix(cur, "v") == strings.TrimPrefix(latest, "v"):
+		fmt.Fprintf(stdout, "You have the latest release (%s).\n", latest)
+	default:
+		fmt.Fprintf(stdout, "You have %s; the latest release is %s. Nothing to update.\n", cur, latest)
+	}
+	if !loadConfig(io.Discard).Updates.Check {
+		fmt.Fprintln(stdout, "\nTo hear about new releases in the dashboard, set [updates] check = true in "+paths.ConfigFile())
+	}
+	return 0
 }

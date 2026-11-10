@@ -22,8 +22,8 @@ Lookout is a **dashboard, not a wrapper**:
 
 - It **never calls Claude**. It doesn't use `claude -p`, the Agent SDK, or the Anthropic API, and it never types into Claude Code through a pty or scripted input. All of your Claude usage stays on your normal interactive limits.
 - It **only reads** what Claude Code writes to disk (`~/.claude/`), plus what Claude Code itself passes to an optional status line command.
-- It **never handles credentials**. It doesn't read `~/.claude/.credentials.json`, and the Files panel refuses to open it.
-- It **sends nothing anywhere**. No network calls, no telemetry. The only programs it starts are `git` (read-only `diff`, `status` and `log`, for the Changes panel), a desktop notifier for alerts, a clipboard tool when you copy a command, your `$EDITOR` if you enable editing, and your own status line command if you wrap it.
+- It **never handles credentials**. It doesn't read `~/.claude/.credentials.json`, and the Config panel refuses to open it.
+- It **sends nothing anywhere**. No network calls, no telemetry. The one exception is opt-in: with `[updates] check = true`, it asks GitHub once a day for the latest release tag (a plain request that carries nothing about you or your usage). The only programs it starts are `git` (read-only `diff`, `status` and `log`, for the Changes panel), a desktop notifier for alerts, a clipboard tool when you copy a command, your `$EDITOR` if you enable editing, and your own status line command if you wrap it.
 - It **never types into Claude Code**. Commands it offers are copied for you to paste. Copying goes to the OS clipboard through `xclip`, `xsel`, `wl-copy`, `pbcopy` or `clip.exe`. On Linux, install one (`sudo apt install xclip`); without one, Lookout falls back to tmux's paste buffer (paste with your prefix, then `]`) or the terminal's clipboard, and says so. The mouse works too: click a tab, or an item to open it, scroll what's under the pointer, and drag to select text, which is copied when you let go (hold Shift for the terminal's own selection).
 
 ## Panels
@@ -37,7 +37,7 @@ Lookout is a **dashboard, not a wrapper**:
 | 5 | **Models** | The current model, a suggested one with a reason, and when `/compact` or a fresh session is worth it. |
 | 6 | **Tools** | Every tool Claude used, with error and denial counts and each call's input and output. |
 | 7 | **Skills** | Skills, slash commands and subagents available to Claude Code, and how to run them. |
-| 8 | **Files** | Browse `settings.json`, `CLAUDE.md` files and auto-memory (read-only by default). |
+| 8 | **Config** | Browse `settings.json`, `CLAUDE.md` files, auto-memory and Lookout's own `config.toml` (read-only by default). |
 | 9 | **Cheatsheet** | Claude Code commands to copy and paste, including ones for the session on screen. |
 
 Full detail for each panel: [docs/panels.md](docs/panels.md).
@@ -67,6 +67,7 @@ tmux split-window -h -l 50% 'lookout --here'  # focus on the session in this dir
 # or just:
 lookout                                        # follows your most recently active session
 lookout stats                                  # one-shot text summary, no TUI
+lookout update                                 # check for a newer release
 ```
 
 From a checkout, `scripts/split.sh [project-dir]` starts a tmux session with `claude` on the left and Lookout on the right. Running it again reattaches to that session.
@@ -111,6 +112,7 @@ Highlights:
 - `[usage.price_weights]`: per-model prices used to weight tokens for the session-share estimate, overriding the built-in ones. Keys are substrings of the model ID (the longest match wins), e.g. `"opus-5-5" = { input = 4, output = 20, cache_write = 5, cache_read = 0.20 }`.
 - `[files] allow_edit = true` turns on `e`, which opens the file in `$VISUAL`/`$EDITOR`. A timestamped backup is written to the data directory's `backups/` first, and is discarded if you didn't change anything. `extra_files` lists more files to browse, e.g. `["~/.claude/keybindings.json"]`.
 - `[alerts]`: `bell`, `desktop`, `thresholds` (default `[80, 95]`; `[]` turns them off) and `pace`.
+- `[updates] check = true` asks GitHub once a day whether a newer release is out. When one is, the header shows `↑ v0.6.4` and the footer says how to update. Off by default: it is the only network call Lookout makes. `lookout update` checks once, right away, whether or not this is on.
 - `[ui] theme`: `auto`, `dark` or `light`. Inside tmux the terminal can't be asked, so dark is assumed. `LOOKOUT_THEME` overrides it.
 
 Lookout honours `CLAUDE_CONFIG_DIR`.
@@ -126,6 +128,7 @@ Lookout writes only to its own config and data directories (run `lookout paths` 
 | `limits/<session-id>.json` | data | What Claude Code passed to the status line for that session: 5-hour and weekly percentages and reset times, up to 720 one-a-minute samples of them (about 12 hours, for the pace), context use, and the cost Claude Code reports. Written by `lookout statusline`. | Deleted after 8 days without an update |
 | `history.json` | data | Per local day: percentage points of the weekly and 5-hour limits used, and the day's 5-hour peak. Also the last reading of each limit window. Written by `lookout statusline`. | 35 days |
 | `alerts.json` | data | Which limit alerts already fired (window, threshold, time), so they don't repeat. Written by the dashboard. | Dropped a week after the window resets |
+| `update.json` | data | The latest release tag and when it was checked (only with `[updates] check = true`). Written by the dashboard. | Replaced by each check |
 | `backups/<path>.<time>.bak` | data | A copy of a file taken before you edit it with `e` (only with `[files] allow_edit = true`). | Removed right away if you changed nothing; otherwise until you delete it |
 | `logs/hook.log`, `logs/hook.log.1` | data | Status line problems: unreadable input, failed saves, and a wrapped command's failure, with that command. | At 1 MB, `hook.log` becomes `hook.log.1`, replacing the older one (about 2 MB at most) |
 
@@ -143,7 +146,7 @@ The first time it runs, Lookout also moves folders left by its old name (`overwa
 
 ### Model suggestions and your prompts
 
-The Models panel's rules read your prompts from the transcripts on disk: their length (`long_prompt_chars`, `short_prompt_chars`) and whether the latest prompt contains one of the `frustration_phrases` (a case-insensitive text match, checked only on prompts of 300 characters or fewer, so a long request that quotes an error isn't a complaint). This analysis runs entirely inside Lookout on your computer. No prompt text, or anything else, leaves the machine: Lookout makes no network calls. The only place prompt text is kept is the suggestion log, as described in [What Lookout stores](#what-lookout-stores).
+The Models panel's rules read your prompts from the transcripts on disk: their length (`long_prompt_chars`, `short_prompt_chars`) and whether the latest prompt contains one of the `frustration_phrases` (a case-insensitive text match, checked only on prompts of 300 characters or fewer, so a long request that quotes an error isn't a complaint). This analysis runs entirely inside Lookout on your computer. No prompt text, or anything else, leaves the machine: Lookout makes no network calls (apart from the opt-in update check, which only fetches the latest version number). The only place prompt text is kept is the suggestion log, as described in [What Lookout stores](#what-lookout-stores).
 
 **"Went smoothly", exactly.** The suggestion log marks a suggestion `smooth` or `rough` only when all of these hold:
 

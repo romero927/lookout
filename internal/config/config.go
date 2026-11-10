@@ -14,11 +14,19 @@ import (
 
 // Config is the full set of tunables.
 type Config struct {
-	UI     UI     `toml:"ui"`
-	Usage  Usage  `toml:"usage"`
-	Files  Files  `toml:"files"`
-	Alerts Alerts `toml:"alerts"`
-	Models Models `toml:"models"`
+	UI      UI      `toml:"ui"`
+	Usage   Usage   `toml:"usage"`
+	Files   Files   `toml:"files"`
+	Alerts  Alerts  `toml:"alerts"`
+	Models  Models  `toml:"models"`
+	Updates Updates `toml:"updates"`
+}
+
+// Updates controls the check for new Lookout releases.
+type Updates struct {
+	// Check asks GitHub once a day whether a newer release is out. Off by
+	// default: it is the only network call Lookout makes.
+	Check bool `toml:"check"`
 }
 
 // UI controls appearance.
@@ -246,6 +254,9 @@ bell = true                # ring the terminal bell when a limit alert fires
 desktop = true             # also send a desktop notification (notify-send / osascript)
 thresholds = [80, 95]      # alert when a limit passes these percentages; [] turns them off
 pace = true                # alert when the current pace runs out before the reset
+
+[updates]
+check = false              # true asks GitHub once a day for a newer release (Lookout's only network call)
 
 [models]
 model_tiers = ["haiku", "sonnet", "opus"]   # cheapest -> most capable (/model aliases)

@@ -22,6 +22,7 @@ const (
 	GroupProject Group = "Project"
 	GroupMemory  Group = "Memory"
 	GroupExtra   Group = "Extra"
+	GroupLookout Group = "Lookout"
 )
 
 // File is one entry in the Files list.
@@ -42,6 +43,8 @@ type Sources struct {
 	// (usually the base of the session's working directory).
 	ProjectNames map[string]string
 	Extra        []string
+	// LookoutConfig is Lookout's own config.toml, listed last.
+	LookoutConfig string
 }
 
 // MaxProjects caps how many project directories are listed.
@@ -116,6 +119,9 @@ func Discover(s Sources) []File {
 
 	for _, e := range s.Extra {
 		add(GroupExtra, filepath.Base(expand(e)), e, true)
+	}
+	if s.LookoutConfig != "" {
+		add(GroupLookout, "config.toml", s.LookoutConfig, true)
 	}
 	return out
 }

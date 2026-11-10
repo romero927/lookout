@@ -12,16 +12,16 @@ import (
 
 func removeFile(p string) error { return os.Remove(p) }
 
-// ---- Files ----
+// ---- Config ----
 
-// filesList is the list of config and memory files, by group.
+// filesList is the Config panel's list of config and memory files, by group.
 func (m Model) filesList(lw int) list {
 	var l list
 	mode := sMuted.Render("read-only")
 	if m.o.Core.Cfg.Files.AllowEdit {
 		mode = sYellow.Render("editing enabled")
 	}
-	l.add(sSection.Render("FILES")+" "+mode, -1)
+	l.add(sSection.Render("CONFIG")+" "+mode, -1)
 	var group configfiles.Group
 	for i, f := range m.files {
 		if f.Group != group {
