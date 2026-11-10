@@ -353,10 +353,12 @@ func cmdPaths(stdout io.Writer) int {
 	for _, kv := range [][2]string{
 		{"claude transcripts (read)", paths.ClaudeProjectsDir()},
 		{"config", paths.ConfigFile()},
+		{"data", paths.DataDir()},
 		{"database", paths.DBFile()},
 		{"backups", paths.BackupDir()},
 		{"limits", paths.LimitsDir()},
 		{"limit history", paths.HistoryFile()},
+		{"alert state", paths.AlertsFile()},
 		{"logs", paths.LogDir()},
 	} {
 		fmt.Fprintf(tw, "%s\t%s\n", kv[0], kv[1])

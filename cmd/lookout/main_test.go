@@ -8,6 +8,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/romero927/lookout/internal/paths"
 )
 
 const statusJSON = `{"session_id":"s1","model":{"display_name":"Opus 5.5"},"context_window":{"used_percentage":12}}`
@@ -100,5 +102,22 @@ func TestStatusLineInstallWraps(t *testing.T) {
 	run([]string{"statusline", "install", "--print"}, nil, &out, &out)
 	if !strings.Contains(out.String(), "already set up") || strings.Contains(out.String(), "--wrap") {
 		t.Fatalf("Lookout's own line should not be wrapped again:\n%s", out.String())
+	}
+}
+
+// Every file or folder Lookout writes must be listed by `lookout paths`.
+func TestPathsListsEverything(t *testing.T) {
+	statusEnv(t)
+	var out bytes.Buffer
+	if code := run([]string{"paths"}, nil, &out, &out); code != 0 {
+		t.Fatalf("exit %d", code)
+	}
+	for _, p := range []string{
+		paths.ConfigFile(), paths.DataDir(), paths.DBFile(), paths.BackupDir(),
+		paths.LimitsDir(), paths.HistoryFile(), paths.AlertsFile(), paths.LogDir(),
+	} {
+		if !strings.Contains(out.String(), p) {
+			t.Errorf("lookout paths is missing %s:\n%s", p, out.String())
+		}
 	}
 }

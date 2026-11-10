@@ -112,6 +112,22 @@ Highlights:
 
 Lookout honours `CLAUDE_CONFIG_DIR`.
 
+## What Lookout stores
+
+Lookout writes only to its own config and data directories (run `lookout paths` to see them). It never writes under `~/.claude/` itself (with editing turned on, your `$EDITOR` does). Everything below stays on your computer.
+
+| File | Directory | What's in it | How long it's kept |
+|---|---|---|---|
+| `config.toml` | config | Your settings. Written only by `lookout config init`. | Until you delete it |
+| `lookout.db` (plus `-wal` and `-shm` files) | data | SQLite log of model suggestions, one row each: time, session ID, current and suggested model, action, the reason and the signals behind it, context tokens, the model you used next and when, and the outcome (`smooth` or `rough`). The reason and signals can name a file (its base name) and, for the short-prompt signal, quote your latest prompt when it is at most `short_prompt_chars` (default 40) characters long. Written by the dashboard. | Until you delete it |
+| `limits/<session-id>.json` | data | What Claude Code passed to the status line for that session: 5-hour and weekly percentages and reset times, up to 720 one-a-minute samples of them (about 12 hours, for the pace), context use, and the cost Claude Code reports. Written by `lookout statusline`. | Deleted after 8 days without an update |
+| `history.json` | data | Per local day: percentage points of the weekly and 5-hour limits used, and the day's 5-hour peak. Also the last reading of each limit window. Written by `lookout statusline`. | 35 days |
+| `alerts.json` | data | Which limit alerts already fired (window, threshold, time), so they don't repeat. Written by the dashboard. | Dropped a week after the window resets |
+| `backups/<path>.<time>.bak` | data | A copy of a file taken before you edit it with `e` (only with `[files] allow_edit = true`). | Removed right away if you changed nothing; otherwise until you delete it |
+| `logs/hook.log` | data | Status line problems: unreadable input, failed saves, and a wrapped command's failure, with that command. | Appended; not rotated |
+
+The first time it runs, Lookout also moves folders left by its old name (`overwatch`) to the locations above. Deleting the config and data directories removes everything.
+
 ## How the numbers are computed
 
 - **Source.** JSONL transcripts under `~/.claude/projects/<project>/<session>.jsonl`, plus `…/<session>/subagents/*.jsonl` for subagents. Usage comes from `message.usage` on `assistant` records, and the model from `message.model`.
