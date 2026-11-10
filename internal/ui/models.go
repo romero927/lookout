@@ -17,13 +17,21 @@ func (m Model) viewModels() string {
 	var out []string
 
 	out = append(out, section("Recommendation", w))
-	out = append(out, fmt.Sprintf("%s  %s", sLabel.Render("CURRENT "), sPurple.Render(ShortModel(sg.Current))))
+	current := sPurple.Render(ShortModel(sg.Current))
+	if sg.Effort != "" {
+		current += sMuted.Render(" · effort ") + sPurple.Render(sg.Effort)
+	}
+	out = append(out, fmt.Sprintf("%s  %s", sLabel.Render("CURRENT "), current))
 	var call string
 	switch sg.Action {
 	case strategy.Upgrade:
 		call = sRed.Bold(true).Render("▲ Upgrade to " + sg.Suggested)
 	case strategy.Downgrade:
 		call = sBlue.Bold(true).Render("▼ Downgrade to " + sg.Suggested)
+	case strategy.RaiseEffort:
+		call = sRed.Bold(true).Render("▲ Raise effort to " + sg.Suggested)
+	case strategy.LowerEffort:
+		call = sBlue.Bold(true).Render("▼ Lower effort to " + sg.Suggested)
 	default:
 		call = sGreen.Bold(true).Render("● Keep " + ShortModel(sg.Current))
 	}
@@ -33,10 +41,10 @@ func (m Model) viewModels() string {
 	switch {
 	case sg.Action != strategy.Keep && m.declined() >= 2:
 		out = append(out, fmt.Sprintf("%s  %s", sLabel.Render("        "), sMuted.Render(clip(
-			fmt.Sprintf("You've stayed on %s after this suggestion %d times, so Lookout won't push it. /model %s if you change your mind.",
-				ShortModel(sg.Current), m.declined(), sg.Suggested), max(10, w-10)))))
+			fmt.Sprintf("You've kept %s after this suggestion %d times, so Lookout won't push it. %s if you change your mind.",
+				stayedOn(sg), m.declined(), sg.Command()), max(10, w-10)))))
 	case sg.Action != strategy.Keep:
-		out = append(out, fmt.Sprintf("%s  %s", sLabel.Render("        "), sMuted.Render("switch in Claude Code with: ")+sBold.Render("/model "+sg.Suggested)))
+		out = append(out, fmt.Sprintf("%s  %s", sLabel.Render("        "), sMuted.Render("change in Claude Code with: ")+sBold.Render(sg.Command())))
 	}
 	if p := m.pending; p != nil {
 		what := "keep " + ShortModel(p.Current)
@@ -45,6 +53,10 @@ func (m Model) viewModels() string {
 			what = "upgrade to " + p.Suggested
 		case strategy.Downgrade:
 			what = "downgrade to " + p.Suggested
+		case strategy.RaiseEffort:
+			what = "raise effort to " + p.Suggested
+		case strategy.LowerEffort:
+			what = "lower effort to " + p.Suggested
 		}
 		out = append(out, fmt.Sprintf("%s  %s", sLabel.Render("WATCHING"),
 			sMuted.Render(clip(fmt.Sprintf("may change to %s if that holds for %d minutes or %d turns", what, int(strategy.SettleTime.Minutes()), strategy.SettleTurns), max(10, w-10)))))
@@ -72,6 +84,8 @@ func (m Model) viewModels() string {
 
 	out = append(out, "")
 	out = append(out, m.modelGuide(w)...)
+	out = append(out, "")
+	out = append(out, m.effortGuide(w)...)
 
 	// Log.
 	out = append(out, "", section("Suggestion log", w))
@@ -99,16 +113,20 @@ func (m Model) viewModels() string {
 					mark = sRed.Render("✗")
 				}
 			}
-			next := r.NextModel
-			if next == "" {
+			next := ShortModel(r.NextModel)
+			call := ShortModel(r.Current) + " → " + r.Suggested
+			switch {
+			case r.Action == string(strategy.Keep):
+				call = ShortModel(r.Current)
+			case strategy.Action(r.Action).IsEffort():
+				call = "effort " + orDash(r.CurrentEffort) + " → " + r.Suggested
+				next = "effort " + orDash(r.NextEffort)
+			}
+			if r.NextModel == "" {
 				next = "pending"
 			}
-			call := ShortModel(r.Current) + " → " + r.Suggested
-			if r.Action == string(strategy.Keep) {
-				call = ShortModel(r.Current)
-			}
-			line := fmt.Sprintf("%s %s %-9s %s  next: %s",
-				sMuted.Render(r.At.Local().Format("01-02 15:04")), mark, strings.ToUpper(r.Action), call, ShortModel(next))
+			line := fmt.Sprintf("%s %s %-11s %s  next: %s",
+				sMuted.Render(r.At.Local().Format("01-02 15:04")), mark, strings.ToUpper(r.Action), call, next)
 			switch r.Outcome {
 			case store.OutcomeSmooth:
 				line += sGreen.Render("  → went smoothly")
@@ -120,7 +138,7 @@ func (m Model) viewModels() string {
 		if len(m.logRows) == 0 {
 			out = append(out, sMuted.Render("no suggestions logged yet"))
 		} else {
-			out = append(out, sMuted.Render("✓ the model you used next matched · ✗ it didn't · … waiting for your next message"))
+			out = append(out, sMuted.Render("✓ the model or effort you used next matched · ✗ it didn't · … waiting for your next message"))
 		}
 	}
 	return strings.Join(out, "\n")
@@ -146,7 +164,7 @@ func (m Model) modelGuide(w int) []string {
 		mark := "  "
 		base := strings.TrimSuffix(g.alias, "[1m]")
 		switch {
-		case m.sugg.Action != strategy.Keep && m.sugg.Suggested == g.alias:
+		case !m.sugg.Action.IsEffort() && m.sugg.Action != strategy.Keep && m.sugg.Suggested == g.alias:
 			mark = sYellow.Render("▸ ")
 		case cur != "" && g.alias == base && base != "opusplan" && strings.Contains(cur, base):
 			mark = sGreen.Render("● ")
@@ -158,6 +176,50 @@ func (m Model) modelGuide(w int) []string {
 		out = append(out, clip(line, w+40))
 	}
 	return out
+}
+
+// effortGuide lists the /effort levels. More effort means more thinking per
+// reply: better on hard problems, slower, and it uses your limits faster.
+var effortGuide = []struct{ level, use string }{
+	{"low", "Quick, simple tasks; fastest and lightest on limits"},
+	{"medium", "Everyday work; Claude Code's usual default"},
+	{"high", "Harder bugs and multi-step changes"},
+	{"xhigh", "Tough problems where the model keeps getting it wrong"},
+	{"max", "Most thinking per reply; heaviest on limits"},
+}
+
+func (m Model) effortGuide(w int) []string {
+	out := []string{section("Effort levels", w),
+		sMuted.Render(clip("Change with /effort <level> in Claude Code. Effort is a cheaper step than switching models. ● current · ▸ suggested", w))}
+	for _, g := range effortGuide {
+		mark := "  "
+		switch {
+		case m.sugg.Action.IsEffort() && strings.EqualFold(m.sugg.Suggested, g.level):
+			mark = sYellow.Render("▸ ")
+		case strings.EqualFold(m.sugg.Effort, g.level):
+			mark = sGreen.Render("● ")
+		}
+		out = append(out, clip(mark+sBold.Render(pad(g.level, 11))+" "+sText.Render(g.use), w+40))
+	}
+	if m.sugg.Effort == "" {
+		out = append(out, sMuted.Render(clip("This session's effort isn't recorded (older Claude Code, or a model without effort levels).", w)))
+	}
+	return out
+}
+
+// stayedOn names what you kept after declining sg.
+func stayedOn(sg strategy.Suggestion) string {
+	if sg.Action.IsEffort() && sg.Effort != "" {
+		return "effort " + sg.Effort
+	}
+	return ShortModel(sg.Current)
+}
+
+func orDash(s string) string {
+	if s == "" {
+		return "?"
+	}
+	return s
 }
 
 // outcomeTurns is how many turns after a switch are judged.

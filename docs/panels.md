@@ -20,7 +20,7 @@ What fills the context window: the startup cost (system prompt, tools, `CLAUDE.m
 
 ## 5. Models
 
-The current model, a suggested model, and a one-line reason, from tunable rules. Near a usage limit it suggests a lighter model to make the rest last, and holds off on upgrades that would use the limit up faster. New suggestions have to hold for 2 minutes or 2 turns before they replace the current one, so it doesn't flip back and forth. You switch yourself with `/model`; the panel lists each model and what it's for, in Claude Code's own words. It also flags when `/compact` or a fresh session is worth it, and logs each suggestion with the model you used next and, when you followed it, whether the next 3 turns went smoothly (defined exactly in the [README](../README.md#model-suggestions-and-your-prompts)). The rules read your prompts locally; nothing leaves your computer.
+The current model and effort level, a suggested model or effort change, and a one-line reason, from tunable rules. A change of effort is suggested before a change of model, since it's the cheaper step (see the [README](../README.md#model-suggestions-and-your-prompts)). Near a usage limit it suggests a lighter model to make the rest last, and holds off on upgrades that would use the limit up faster. New suggestions have to hold for 2 minutes or 2 turns before they replace the current one, so it doesn't flip back and forth. You switch yourself with `/model` or `/effort`; the panel lists each model and what it's for, in Claude Code's own words, and each effort level. It also flags when `/compact` or a fresh session is worth it, and logs each suggestion with the model you used next and, when you followed it, whether the next 3 turns went smoothly (defined exactly in the [README](../README.md#model-suggestions-and-your-prompts)). The rules read your prompts locally; nothing leaves your computer.
 
 ## 6. Tools
 
@@ -36,4 +36,4 @@ Browse `~/.claude/settings.json`, the global and project `CLAUDE.md` files, auto
 
 ## 9. Cheatsheet
 
-Claude Code commands to copy and paste: sessions (`/resume`, the session ID and `claude --resume <id>` for the session on screen, `/branch`, `/clear`), context (`/compact`, `/rewind`, `/context`), model and usage, and project setup. The top lists commands for the session in view, such as the suggested `/model`. `enter` copies.
+Claude Code commands to copy and paste: sessions (`/resume`, the session ID and `claude --resume <id>` for the session on screen, `/branch`, `/clear`), context (`/compact`, `/rewind`, `/context`), model and usage, and project setup. The top lists commands for the session in view, such as the suggested `/model` or `/effort`. `enter` copies.

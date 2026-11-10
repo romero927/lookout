@@ -141,9 +141,12 @@ type Record struct {
 	Cwd       string
 
 	// Assistant fields.
-	MessageID  string
-	RequestID  string
-	Model      string
+	MessageID string
+	RequestID string
+	Model     string
+	// Effort is the /effort setting in force for this response ("low",
+	// "medium", ...). Empty for models without effort or older Claude Code.
+	Effort     string
 	Usage      Usage
 	HasUsage   bool
 	StopReason string

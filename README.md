@@ -80,7 +80,7 @@ Claude Code passes your subscription's 5-hour and weekly usage (percent used and
 lookout statusline install --print
 ```
 
-Claude Code then runs `lookout statusline` after each update. It saves only a few numbers: limit percentages and reset times, context use, and the session cost. They go in one small file per session under `limits/` in the data directory, so sessions on different accounts stay separate, plus a per-day total in `history.json`. It also prints a short line under your prompt, e.g. `Opus 5.5 · ctx 12% · 5h 42% (resets 2h23m) · week 23%`. Limits are reported for Claude.ai subscriptions only.
+Claude Code then runs `lookout statusline` after each update. It saves only a few numbers: limit percentages and reset times, context use, and the session cost. They go in one small file per session under `limits/` in the data directory, so sessions on different accounts stay separate, plus a per-day total in `history.json`. It also prints a short line under your prompt, e.g. `Opus 5.5 · effort medium · ctx 12% · 5h 42% (resets 2h23m) · week 23%`. The effort level comes from Claude Code's input when it sends one, otherwise from the end of the session's transcript. Limits are reported for Claude.ai subscriptions only.
 
 **Already have a status line?** Settings allow only one, so Lookout can wrap yours instead of replacing it. When `settings.json` already has a `statusLine` command, `lookout statusline install --print` prints a wrapped version:
 
@@ -90,7 +90,7 @@ Claude Code then runs `lookout statusline` after each update. It saves only a fe
 
 Lookout passes your command the same JSON on stdin, prints its output, then adds its own line after it. `--order before` puts Lookout's line first, `--sep TEXT` changes the separator (default ` · `), and `--timeout DUR` limits how long your command may run (default `2s`). If your command fails or times out, Lookout's line still prints, and the error goes to `logs/hook.log`.
 
-**API key or pay-as-you-go accounts** have no 5-hour or weekly limits, so Lookout shows the session's cost so far instead (in the Usage panel and the status line, e.g. `Opus 5.5 · ctx 12% · $1.84`). Alerts, the per-day limit chart and limit-aware model suggestions stay off; everything else works the same.
+**API key or pay-as-you-go accounts** have no 5-hour or weekly limits, so Lookout shows the session's cost so far instead (in the Usage panel and the status line, e.g. `Opus 5.5 · effort medium · ctx 12% · $1.84`). Alerts, the per-day limit chart and limit-aware model suggestions stay off; everything else works the same.
 
 To stop using it, remove the `statusLine` entry from `~/.claude/settings.json`, then delete the binary and Lookout's config and data folders (`lookout paths` lists them).
 
@@ -107,7 +107,7 @@ To stop using it, remove the `statusLine` entry from `~/.claude/settings.json`, 
 
 Highlights:
 
-- `[models]`: every threshold (repeated edits, tool errors, multi-file turns, long prompts, frustration phrases, simple-turn streaks, short prompts, context %) and the model tier order (`model_tiers = ["haiku", "sonnet", "opus"]`), and how long the suggestion log keeps rows (`log_days = 90`).
+- `[models]`: every threshold (repeated edits, tool errors, multi-file turns, long prompts, frustration phrases, simple-turn streaks, short prompts, context %) the model tier order (`model_tiers = ["haiku", "sonnet", "opus"]`), the effort levels and the default effort (`effort_levels = ["low", "medium", "high", "xhigh"]`, `default_effort = "medium"`), and how long the suggestion log keeps rows (`log_days = 90`).
 - `[usage]`: `history_days` (how far back the first scan reads transcripts, default 30), `burn_window_minutes` (the tokens-per-minute window, default 10) and `block_hours` (the rolling window and estimated block length, default 5).
 - `[usage.price_weights]`: per-model prices used to weight tokens for the session-share estimate, overriding the built-in ones. Keys are substrings of the model ID (the longest match wins), e.g. `"opus-5-5" = { input = 4, output = 20, cache_write = 5, cache_read = 0.20 }`.
 - `[files] allow_edit = true` turns on `e`, which opens the file in `$VISUAL`/`$EDITOR`. A timestamped backup is written to the data directory's `backups/` first, and is discarded if you didn't change anything. `extra_files` lists more files to browse, e.g. `["~/.claude/keybindings.json"]`.
@@ -146,12 +146,14 @@ The first time it runs, Lookout also moves folders left by its old name (`overwa
 
 ### Model suggestions and your prompts
 
+**Effort before models.** `/effort` is a smaller and cheaper change than `/model`, so the Models panel tries it first. When the work looks hard (repeated edits, failing tool results, frustration) and effort is below the second-highest of `effort_levels` (below `high` by default), it suggests one level more effort rather than a stronger model. At `high` it suggests the stronger model, and on the top model it suggests one more level of effort (up to `xhigh`). When the work looks simple, on the top model or at an effort above `default_effort`, it suggests going back to `default_effort` before a lighter model. It never suggests `max`. Sessions whose effort isn't recorded (older Claude Code, or models without effort levels) get model suggestions only.
+
 The Models panel's rules read your prompts from the transcripts on disk: their length (`long_prompt_chars`, `short_prompt_chars`) and whether the latest prompt contains one of the `frustration_phrases` (a case-insensitive text match, checked only on prompts of 300 characters or fewer, so a long request that quotes an error isn't a complaint). This analysis runs entirely inside Lookout on your computer. No prompt text, or anything else, leaves the machine: Lookout makes no network calls (apart from the opt-in update check, which only fetches the latest version number). The only place prompt text is kept is the suggestion log, as described in [What Lookout stores](#what-lookout-stores).
 
 **"Went smoothly", exactly.** The suggestion log marks a suggestion `smooth` or `rough` only when all of these hold:
 
-1. It was an upgrade or a downgrade (a "keep" is never judged).
-2. You followed it: the model of the first main-session response after the suggestion was logged contains the suggested `/model` alias (e.g. `sonnet`).
+1. It was an upgrade, a downgrade, or an effort change (a "keep" is never judged).
+2. You followed it: the model of the first main-session response after the suggestion was logged contains the suggested `/model` alias (e.g. `sonnet`), or, for an effort suggestion, that response's effort level is the suggested one (e.g. `high`).
 3. Three turns have happened on the new model: the first 3 prompts you sent in that session that got at least one response, counting from 1 minute before that first response.
 
 Lookout then adds up the failing tool results in those 3 turns. A tool result counts as failing when Claude Code marks it as an error, or when its output looks like a failing test, build or crash (`--- FAIL`, `FAIL`, `FAILED`, "N tests failed", a Python traceback, `AssertionError`, a Go `panic:`, `npm ERR!`, a Rust `error[E…]`, `BUILD FAILED`, "compilation failed"). Subagent tool calls aren't counted. Fewer than `tool_error_threshold` (default 3) is `smooth`; that many or more is `rough`. Outcomes are judged by the dashboard while it shows that session, so a suggestion in a session you never open in Lookout stays unjudged.

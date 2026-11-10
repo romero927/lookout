@@ -112,9 +112,11 @@ func migrate(db *sql.DB) error {
 		have[name] = true
 	}
 	rows.Close()
-	if !have["outcome"] {
-		if _, err := db.Exec(`ALTER TABLE suggestions ADD COLUMN outcome TEXT`); err != nil {
-			return err
+	for _, col := range []string{"outcome", "current_effort", "next_effort"} {
+		if !have[col] {
+			if _, err := db.Exec(`ALTER TABLE suggestions ADD COLUMN ` + col + ` TEXT`); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
@@ -136,7 +138,8 @@ type Followed struct {
 // AwaitingOutcome lists followed upgrade/downgrade suggestions in a session
 // that have no outcome yet.
 func (s *Store) AwaitingOutcome(sessionID string) ([]Followed, error) {
-	rows, err := s.db.Query(`SELECT id, current_model, suggested_model, action, next_model, next_ts_ms FROM suggestions
+	rows, err := s.db.Query(`SELECT id, current_model, suggested_model, action, next_model, next_ts_ms,
+		COALESCE(current_effort, ''), COALESCE(next_effort, '') FROM suggestions
 		WHERE session_id = ? AND action != 'keep' AND next_model IS NOT NULL AND outcome IS NULL`, sessionID)
 	if err != nil {
 		return nil, err
@@ -147,7 +150,7 @@ func (s *Store) AwaitingOutcome(sessionID string) ([]Followed, error) {
 		var o Followed
 		var r Row
 		var ms int64
-		if err := rows.Scan(&o.ID, &r.Current, &r.Suggested, &r.Action, &r.NextModel, &ms); err != nil {
+		if err := rows.Scan(&o.ID, &r.Current, &r.Suggested, &r.Action, &r.NextModel, &ms, &r.CurrentEffort, &r.NextEffort); err != nil {
 			return nil, err
 		}
 		if f := r.Followed(); f != nil && *f {
@@ -170,7 +173,7 @@ func (s *Store) Close() error { return s.db.Close() }
 // fingerprint identifies a recommendation. The reason text is left out so
 // changing counts ("5 failing results" -> "6") don't log a new row.
 func fingerprint(sg strategy.Suggestion) string {
-	return string(sg.Action) + "|" + sg.Current + "|" + sg.Suggested
+	return string(sg.Action) + "|" + sg.Current + "|" + sg.Effort + "|" + sg.Suggested
 }
 
 // LogSuggestion records sg unless it repeats the last suggestion logged for
@@ -185,19 +188,19 @@ func (s *Store) LogSuggestion(sg strategy.Suggestion) (bool, error) {
 	}
 	if _, ok := s.last[sg.SessionID]; !ok {
 		// First time this run: compare against the database.
-		var a, cur, sug string
-		err := s.db.QueryRow(`SELECT action, current_model, suggested_model FROM suggestions
-			WHERE session_id = ? ORDER BY ts_ms DESC, id DESC LIMIT 1`, sg.SessionID).Scan(&a, &cur, &sug)
-		if err == nil && a+"|"+cur+"|"+sug == fp {
+		var a, cur, eff, sug string
+		err := s.db.QueryRow(`SELECT action, current_model, COALESCE(current_effort, ''), suggested_model FROM suggestions
+			WHERE session_id = ? ORDER BY ts_ms DESC, id DESC LIMIT 1`, sg.SessionID).Scan(&a, &cur, &eff, &sug)
+		if err == nil && a+"|"+cur+"|"+eff+"|"+sug == fp {
 			s.last[sg.SessionID] = fp
 			return false, nil
 		}
 	}
 	sigs, _ := json.Marshal(sg.Signals)
 	_, err := s.db.Exec(`INSERT INTO suggestions
-		(ts_ms, session_id, current_model, suggested_model, action, reason, signals, context_tokens)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		sg.At.UnixMilli(), sg.SessionID, sg.Current, sg.Suggested, string(sg.Action), sg.Reason, string(sigs), sg.Context.Tokens)
+		(ts_ms, session_id, current_model, suggested_model, action, reason, signals, context_tokens, current_effort)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		sg.At.UnixMilli(), sg.SessionID, sg.Current, sg.Suggested, string(sg.Action), sg.Reason, string(sigs), sg.Context.Tokens, sg.Effort)
 	if err != nil {
 		return false, err
 	}
@@ -205,15 +208,15 @@ func (s *Store) LogSuggestion(sg strategy.Suggestion) (bool, error) {
 	return true, nil
 }
 
-// ResolveNext fills in the model used for the first response after each
-// open suggestion in the session.
-func (s *Store) ResolveNext(sessionID, model string, at time.Time) error {
+// ResolveNext fills in the model and effort used for the first response
+// after each open suggestion in the session.
+func (s *Store) ResolveNext(sessionID, model, effort string, at time.Time) error {
 	if sessionID == "" || model == "" || at.IsZero() {
 		return nil
 	}
-	_, err := s.db.Exec(`UPDATE suggestions SET next_model = ?, next_ts_ms = ?
+	_, err := s.db.Exec(`UPDATE suggestions SET next_model = ?, next_effort = ?, next_ts_ms = ?
 		WHERE session_id = ? AND next_model IS NULL AND ts_ms < ?`,
-		model, at.UnixMilli(), sessionID, at.UnixMilli())
+		model, effort, at.UnixMilli(), sessionID, at.UnixMilli())
 	return err
 }
 
@@ -227,6 +230,10 @@ type Row struct {
 	Reason    string
 	NextModel string
 	Outcome   string // OutcomeSmooth, OutcomeRough, or "" while unknown
+	// CurrentEffort / NextEffort are the /effort levels when the suggestion
+	// was made and on the next response ("" when unknown or not logged).
+	CurrentEffort string
+	NextEffort    string
 }
 
 // Followed reports whether the next model matches the suggestion
@@ -236,9 +243,12 @@ func (r Row) Followed() *bool {
 		return nil
 	}
 	var ok bool
-	if r.Action == string(strategy.Keep) {
-		ok = r.NextModel == r.Current
-	} else {
+	switch {
+	case r.Action == string(strategy.Keep):
+		ok = r.NextModel == r.Current && (r.CurrentEffort == "" || r.NextEffort == "" || r.NextEffort == r.CurrentEffort)
+	case strategy.Action(r.Action).IsEffort():
+		ok = strings.EqualFold(r.NextEffort, r.Suggested)
+	default:
 		ok = strings.Contains(strings.ToLower(r.NextModel), strings.ToLower(r.Suggested))
 	}
 	return &ok
@@ -246,7 +256,8 @@ func (r Row) Followed() *bool {
 
 // Recent returns the latest suggestions, newest first.
 func (s *Store) Recent(limit int) ([]Row, error) {
-	rows, err := s.db.Query(`SELECT ts_ms, session_id, current_model, suggested_model, action, reason, COALESCE(next_model, ''), COALESCE(outcome, '')
+	rows, err := s.db.Query(`SELECT ts_ms, session_id, current_model, suggested_model, action, reason, COALESCE(next_model, ''), COALESCE(outcome, ''),
+		COALESCE(current_effort, ''), COALESCE(next_effort, '')
 		FROM suggestions ORDER BY ts_ms DESC, id DESC LIMIT ?`, limit)
 	if err != nil {
 		return nil, err
@@ -256,7 +267,7 @@ func (s *Store) Recent(limit int) ([]Row, error) {
 	for rows.Next() {
 		var r Row
 		var ms int64
-		if err := rows.Scan(&ms, &r.SessionID, &r.Current, &r.Suggested, &r.Action, &r.Reason, &r.NextModel, &r.Outcome); err != nil {
+		if err := rows.Scan(&ms, &r.SessionID, &r.Current, &r.Suggested, &r.Action, &r.Reason, &r.NextModel, &r.Outcome, &r.CurrentEffort, &r.NextEffort); err != nil {
 			return nil, err
 		}
 		r.At = time.UnixMilli(ms)
@@ -268,7 +279,8 @@ func (s *Store) Recent(limit int) ([]Row, error) {
 // Adherence counts resolved non-keep suggestions, how many were followed,
 // and how many of those went smoothly afterwards.
 func (s *Store) Adherence() (resolved, followed, smooth int, err error) {
-	rows, err := s.db.Query(`SELECT current_model, suggested_model, action, next_model, COALESCE(outcome, '') FROM suggestions
+	rows, err := s.db.Query(`SELECT current_model, suggested_model, action, next_model, COALESCE(outcome, ''),
+		COALESCE(current_effort, ''), COALESCE(next_effort, '') FROM suggestions
 		WHERE next_model IS NOT NULL AND action != 'keep'`)
 	if err != nil {
 		return 0, 0, 0, err
@@ -276,7 +288,7 @@ func (s *Store) Adherence() (resolved, followed, smooth int, err error) {
 	defer rows.Close()
 	for rows.Next() {
 		var r Row
-		if err := rows.Scan(&r.Current, &r.Suggested, &r.Action, &r.NextModel, &r.Outcome); err != nil {
+		if err := rows.Scan(&r.Current, &r.Suggested, &r.Action, &r.NextModel, &r.Outcome, &r.CurrentEffort, &r.NextEffort); err != nil {
 			return 0, 0, 0, err
 		}
 		resolved++

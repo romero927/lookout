@@ -47,8 +47,8 @@ var staticCheats = []cheat{
 // cheats is the full list: suggestions for the session in view first.
 func (m Model) cheats() []cheat {
 	var out []cheat
-	if m.sugg.Action != strategy.Keep && m.sugg.Suggested != "" && m.declined() < 2 {
-		out = append(out, cheat{"For this session", "/model " + m.sugg.Suggested, "Lookout's model suggestion: " + m.sugg.Reason})
+	if cmd := m.sugg.Command(); cmd != "" && m.declined() < 2 {
+		out = append(out, cheat{"For this session", cmd, "Lookout's suggestion: " + m.sugg.Reason})
 	}
 	if c := m.sugg.Context; c.Level >= strategy.ContextCompact {
 		out = append(out, cheat{"For this session", "/compact", fmt.Sprintf("Context is %.0f%% full", c.Percent)})

@@ -85,6 +85,13 @@ type Models struct {
 	// ModelTiers lists /model aliases from cheapest to most capable. A model
 	// name matches a tier when it contains the alias.
 	ModelTiers []string `toml:"model_tiers"`
+	// EffortLevels lists /effort levels from lightest to heaviest. Effort is
+	// a cheaper step than a model switch, so it is suggested first: raised
+	// while below the second-highest level, lowered back to DefaultEffort
+	// when the work is simple.
+	EffortLevels []string `toml:"effort_levels"`
+	// DefaultEffort is the level simple work is brought back down to.
+	DefaultEffort string `toml:"default_effort"`
 
 	// RecentTurns is how many recent turns the upgrade signals look at.
 	RecentTurns int `toml:"recent_turns"`
@@ -129,6 +136,8 @@ func Default() Config {
 		Alerts: Alerts{Bell: true, Desktop: true, Thresholds: []float64{80, 95}, Pace: true},
 		Models: Models{
 			ModelTiers:            []string{"haiku", "sonnet", "opus"},
+			EffortLevels:          []string{"low", "medium", "high", "xhigh"},
+			DefaultEffort:         "medium",
 			RecentTurns:           3,
 			RecentToolCalls:       30,
 			RepeatedEditThreshold: 4,
@@ -197,6 +206,12 @@ func (c *Config) fill() {
 	if len(s.ModelTiers) == 0 {
 		s.ModelTiers = ds.ModelTiers
 	}
+	if len(s.EffortLevels) == 0 {
+		s.EffortLevels = ds.EffortLevels
+	}
+	if s.DefaultEffort == "" {
+		s.DefaultEffort = ds.DefaultEffort
+	}
 	pos(&s.RecentTurns, ds.RecentTurns)
 	pos(&s.RecentToolCalls, ds.RecentToolCalls)
 	pos(&s.RepeatedEditThreshold, ds.RepeatedEditThreshold)
@@ -260,6 +275,8 @@ check = false              # true asks GitHub once a day for a newer release (Lo
 
 [models]
 model_tiers = ["haiku", "sonnet", "opus"]   # cheapest -> most capable (/model aliases)
+effort_levels = ["low", "medium", "high", "xhigh"]   # lightest -> heaviest (/effort levels); tried before a model switch
+default_effort = "medium"     # simple work at a higher effort is brought back to this
 recent_turns = 3              # upgrade signals look at the last N turns...
 recent_tool_calls = 30        # ...and at most the last N tool calls within them
 repeated_edit_threshold = 4   # same file edited N times recently -> upgrade

@@ -91,7 +91,13 @@ func (s State) HasData() bool { return s.FiveHour != nil || s.SevenDay != nil }
 
 // StatusInput is the part of Claude Code's status line JSON Lookout uses.
 type StatusInput struct {
-	SessionID string `json:"session_id"`
+	SessionID      string `json:"session_id"`
+	TranscriptPath string `json:"transcript_path"`
+	// EffortRaw is an "effort" field, if Claude Code sends one: a level
+	// string or an object with a "level". Effort holds the level, filled by
+	// ParseInput or by the caller from the transcript.
+	EffortRaw json.RawMessage `json:"effort"`
+	Effort    string          `json:"-"`
 	Model     struct {
 		DisplayName string `json:"display_name"`
 	} `json:"model"`
@@ -114,7 +120,23 @@ func ParseInput(r io.Reader) (StatusInput, error) {
 	if err != nil {
 		return in, err
 	}
-	return in, json.Unmarshal(b, &in)
+	err = json.Unmarshal(b, &in)
+	in.Effort = effortLevel(in.EffortRaw)
+	return in, err
+}
+
+func effortLevel(raw json.RawMessage) string {
+	var s string
+	if json.Unmarshal(raw, &s) == nil {
+		return s
+	}
+	var o struct {
+		Level string `json:"level"`
+	}
+	if json.Unmarshal(raw, &o) == nil {
+		return o.Level
+	}
+	return ""
 }
 
 // Load reads the state file. A missing or unreadable file is an empty state.
@@ -334,6 +356,9 @@ const FiveHourPending = "5h: shows after next reply"
 func StatusLine(in StatusInput, s State, now time.Time, subscriber bool) string {
 	var parts []string
 	if m := in.Model.DisplayName; m != "" {
+		if in.Effort != "" {
+			m += " · effort " + in.Effort
+		}
 		parts = append(parts, m)
 	}
 	if c := in.ContextWindow.UsedPercentage; c != nil {

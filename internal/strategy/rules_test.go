@@ -440,3 +440,57 @@ func TestEvaluateWithLimitPressure(t *testing.T) {
 		t.Errorf("reported context: %+v", sg.Context)
 	}
 }
+
+func withEffort(e string) func(*Turn) { return func(t *Turn) { t.Effort = e } }
+
+func effortState(model, effort string, turns ...*Turn) SessionState {
+	s := state(model, turns...)
+	s.Effort = effort
+	return s
+}
+
+func TestEvaluateEffort(t *testing.T) {
+	cfg := config.Default().Models
+	struggling := func(model, effort string) SessionState {
+		return effortState(model, effort,
+			turn(model, "run the tests", errs(2, 2), withEffort(effort)),
+			turn(model, "fix those", errs(1, 1), withEffort(effort)))
+	}
+	simple := func(model, effort string) SessionState {
+		var ts []*Turn
+		for i := 0; i < cfg.SimpleTurnStreak; i++ {
+			ts = append(ts, turn(model, "please rename the variable foo to bar in the request handler file", tools(1), withEffort(effort)))
+		}
+		return effortState(model, effort, ts...)
+	}
+	tests := []struct {
+		name      string
+		st        SessionState
+		x         Extra
+		action    Action
+		suggested string
+		command   string
+	}{
+		{"struggling at medium raises effort first", struggling(sonnet, "medium"), Extra{}, RaiseEffort, "high", "/effort high"},
+		{"struggling at high switches model", struggling(sonnet, "high"), Extra{}, Upgrade, "opus", "/model opus"},
+		{"struggling on top model raises effort", struggling(opus, "high"), Extra{}, RaiseEffort, "xhigh", "/effort xhigh"},
+		{"struggling on top model at top effort keeps", struggling(opus, "xhigh"), Extra{}, Keep, opus, ""},
+		{"no effort recorded upgrades as before", struggling(sonnet, ""), Extra{}, Upgrade, "opus", "/model opus"},
+		{"struggling near limit does not raise", struggling(sonnet, "medium"), Extra{Pressure: PressureOver, PressureDetail: "At this pace you'll run out"}, Keep, sonnet, ""},
+		{"simple on top model at high lowers effort", simple(opus, "high"), Extra{}, LowerEffort, "medium", "/effort medium"},
+		{"simple on top model at medium downgrades", simple(opus, "medium"), Extra{}, Downgrade, "sonnet", "/model sonnet"},
+		{"simple on sonnet at xhigh lowers effort", simple(sonnet, "xhigh"), Extra{}, LowerEffort, "medium", "/effort medium"},
+		{"simple on sonnet at medium keeps", simple(sonnet, "medium"), Extra{}, Keep, sonnet, ""},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			sg := Evaluate(tt.st, cfg, now, tt.x)
+			if sg.Action != tt.action || sg.Suggested != tt.suggested || sg.Command() != tt.command {
+				t.Errorf("got %s %q %q (%s), want %s %q %q", sg.Action, sg.Suggested, sg.Command(), sg.Reason, tt.action, tt.suggested, tt.command)
+			}
+			if sg.Effort != tt.st.Effort {
+				t.Errorf("Effort = %q, want %q", sg.Effort, tt.st.Effort)
+			}
+		})
+	}
+}

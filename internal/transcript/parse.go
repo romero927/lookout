@@ -72,6 +72,9 @@ func ParseLine(line []byte) (rec Record, st Status) {
 			setBool(&rec.Meta, v)
 		case "isCompactSummary":
 			setBool(&rec.CompactSummary, v)
+		case "effort":
+			// Optional and newer than the rest: never degrades the line.
+			rec.Effort, _ = str(v)
 		}
 	})
 	if !ok {

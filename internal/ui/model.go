@@ -537,7 +537,7 @@ func (m *Model) refresh() {
 				m.setFlash("strategy log: "+err.Error(), sRed, 5*time.Second)
 			}
 		}
-		_ = db.ResolveNext(m.sstate.ID, m.sstate.Model, m.sstate.LastAssistant)
+		_ = db.ResolveNext(m.sstate.ID, m.sstate.Model, m.sstate.Effort, m.sstate.LastAssistant)
 		if now.Sub(m.lastLogAt) > 3*time.Second {
 			m.logRows, _ = db.Recent(8)
 			m.judgeOutcomes(db)

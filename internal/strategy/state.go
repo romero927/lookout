@@ -18,6 +18,7 @@ type Turn struct {
 	Prompt       string
 	Command      string // slash command that opened the turn, if any
 	Model        string
+	Effort       string // /effort level of the turn's latest response
 	Responses    int
 	ToolCalls    int
 	ToolErrors   int // failing tool results (is_error or failure text)
@@ -47,6 +48,7 @@ type SessionState struct {
 	ID            string
 	Turns         []*Turn // oldest first, at most maxTurns
 	Model         string  // latest main-chain model
+	Effort        string  // latest main-chain /effort level, "" when unknown
 	LastAssistant time.Time
 	Context       int64
 	MaxContext    int64 // largest context seen, including pre-compaction size
@@ -186,8 +188,10 @@ func (s *SessionState) observe(r transcript.Record) {
 		}
 		if r.Model != "" {
 			t.Model = r.Model
+			t.Effort = r.Effort
 			if !r.Timestamp.Before(s.LastAssistant) {
 				s.Model = r.Model
+				s.Effort = r.Effort
 				s.LastAssistant = r.Timestamp
 				if r.HasUsage {
 					s.Context = r.Usage.Context()

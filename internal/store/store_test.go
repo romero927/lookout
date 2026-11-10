@@ -40,11 +40,11 @@ func TestSuggestionLog(t *testing.T) {
 	}
 
 	// The user switched to opus; first response after the suggestions.
-	if err := s.ResolveNext("s1", "claude-opus-x", t0.Add(time.Minute)); err != nil {
+	if err := s.ResolveNext("s1", "claude-opus-x", "", t0.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 	// A later response must not overwrite the recorded next model.
-	_ = s.ResolveNext("s1", "claude-haiku-x", t0.Add(2*time.Minute))
+	_ = s.ResolveNext("s1", "claude-haiku-x", "", t0.Add(2*time.Minute))
 
 	rows, err := s.Recent(10)
 	if err != nil || len(rows) != 3 {
@@ -85,6 +85,10 @@ func TestFollowed(t *testing.T) {
 		{Row{Action: "upgrade", Suggested: "opus", NextModel: "claude-sonnet-5"}, ptr(false)},
 		{Row{Action: "keep", Current: "claude-sonnet-5", NextModel: "claude-sonnet-5"}, ptr(true)},
 		{Row{Action: "downgrade", Suggested: "sonnet"}, nil},
+		{Row{Action: "effort-up", Suggested: "high", NextModel: "claude-opus-5", NextEffort: "high"}, ptr(true)},
+		{Row{Action: "effort-up", Suggested: "high", NextModel: "claude-opus-5", NextEffort: "medium"}, ptr(false)},
+		{Row{Action: "effort-down", Suggested: "medium", NextModel: "claude-opus-5"}, ptr(false)},
+		{Row{Action: "keep", Current: "claude-opus-5", CurrentEffort: "medium", NextModel: "claude-opus-5", NextEffort: "high"}, ptr(false)},
 	}
 	for _, tt := range tests {
 		got := tt.row.Followed()
@@ -125,7 +129,7 @@ func TestOutcomesAndMigration(t *testing.T) {
 	if _, err := s.LogSuggestion(sg); err != nil {
 		t.Fatal(err)
 	}
-	if err := s.ResolveNext("s", "claude-sonnet-x", at.Add(time.Minute)); err != nil {
+	if err := s.ResolveNext("s", "claude-sonnet-x", "", at.Add(time.Minute)); err != nil {
 		t.Fatal(err)
 	}
 	open, err := s.AwaitingOutcome("s")
@@ -203,5 +207,36 @@ func TestOwnerOnly(t *testing.T) {
 		if fi.Mode().Perm() != 0o600 {
 			t.Errorf("%s: mode %o, want 600", filepath.Base(p), fi.Mode().Perm())
 		}
+	}
+}
+
+func TestEffortRoundTrip(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "l.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	t0 := time.Unix(1_800_000_000, 0)
+	sg := strategy.Suggestion{SessionID: "e", Current: "claude-opus-5", Effort: "medium", Suggested: "high",
+		Action: strategy.RaiseEffort, Reason: "r", At: t0}
+	if wrote, err := s.LogSuggestion(sg); err != nil || !wrote {
+		t.Fatalf("log: %v %v", wrote, err)
+	}
+	if err := s.ResolveNext("e", "claude-opus-5", "high", t0.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	rows, err := s.Recent(1)
+	if err != nil || len(rows) != 1 {
+		t.Fatalf("recent: %v %v", rows, err)
+	}
+	r := rows[0]
+	if r.CurrentEffort != "medium" || r.NextEffort != "high" {
+		t.Fatalf("efforts = %q -> %q", r.CurrentEffort, r.NextEffort)
+	}
+	if f := r.Followed(); f == nil || !*f {
+		t.Fatal("effort suggestion not followed")
+	}
+	if open, _ := s.AwaitingOutcome("e"); len(open) != 1 {
+		t.Fatalf("awaiting = %d", len(open))
 	}
 }

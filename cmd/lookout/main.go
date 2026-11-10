@@ -25,6 +25,7 @@ import (
 	"github.com/romero927/lookout/internal/paths"
 	"github.com/romero927/lookout/internal/store"
 	"github.com/romero927/lookout/internal/strategy"
+	"github.com/romero927/lookout/internal/transcript"
 	"github.com/romero927/lookout/internal/ui"
 	"github.com/romero927/lookout/internal/update"
 )
@@ -223,6 +224,9 @@ func cmdStats(args []string, stdout, stderr io.Writer) int {
 	}
 	if hasSess {
 		fmt.Fprintf(stdout, "\nCurrent session %s  %s  %s  last activity %s\n", ui.ShortID(sess.ID), ui.ShortPath(sess.Cwd), ui.ShortModel(sess.Model), ui.Ago(sess.LastActivity, now))
+		if sg.Effort != "" {
+			fmt.Fprintf(stdout, "  effort %s\n", sg.Effort)
+		}
 	} else {
 		fmt.Fprintln(stdout, "\nNo sessions found.")
 	}
@@ -275,8 +279,8 @@ func cmdStats(args []string, stdout, stderr io.Writer) int {
 	}
 
 	fmt.Fprintf(stdout, "\nSuggestion: %s", strings.ToUpper(string(sg.Action)))
-	if sg.Suggested != "" && sg.Suggested != sg.Current {
-		fmt.Fprintf(stdout, " → /model %s", sg.Suggested)
+	if cmd := sg.Command(); cmd != "" {
+		fmt.Fprintf(stdout, " → %s", cmd)
 	}
 	fmt.Fprintf(stdout, "\n  %s\n", sg.Reason)
 	for _, s := range sg.Signals {
@@ -462,6 +466,9 @@ func cmdStatusLine(args []string, stdin io.Reader, stdout, stderr io.Writer) int
 		if err := limits.SaveHistory(paths.HistoryFile(), h); err != nil {
 			hookLog("statusline history: %v", err)
 		}
+	}
+	if in.Effort == "" && in.TranscriptPath != "" {
+		in.Effort = transcript.LastEffort(in.TranscriptPath)
 	}
 	subscriber := st.HasData() || limits.HasLimits(paths.LimitsDir())
 	line := limits.StatusLine(in, st, now, subscriber)

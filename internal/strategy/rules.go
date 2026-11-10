@@ -14,10 +14,28 @@ import (
 type Action string
 
 const (
-	Keep      Action = "keep"
-	Upgrade   Action = "upgrade"
-	Downgrade Action = "downgrade"
+	Keep        Action = "keep"
+	Upgrade     Action = "upgrade"
+	Downgrade   Action = "downgrade"
+	RaiseEffort Action = "effort-up"
+	LowerEffort Action = "effort-down"
 )
+
+// IsEffort reports whether the action changes /effort rather than /model.
+func (a Action) IsEffort() bool { return a == RaiseEffort || a == LowerEffort }
+
+// Command is what to type in Claude Code to follow the suggestion, or ""
+// when it says to keep things as they are.
+func (sg Suggestion) Command() string {
+	switch {
+	case sg.Action == Keep || sg.Suggested == "":
+		return ""
+	case sg.Action.IsEffort():
+		return "/effort " + sg.Suggested
+	default:
+		return "/model " + sg.Suggested
+	}
+}
 
 // Signal is one observation that fed the suggestion.
 type Signal struct {
@@ -50,7 +68,8 @@ type ContextAdvice struct {
 type Suggestion struct {
 	SessionID string
 	Current   string // full model name
-	Suggested string // /model alias, or the current model when keeping
+	Effort    string // current /effort level, "" when unknown
+	Suggested string // /model alias or /effort level, or the current model when keeping
 	Action    Action
 	Reason    string
 	Signals   []Signal
@@ -77,6 +96,16 @@ type Extra struct {
 // largeWindow is assumed when a session's context exceeds the configured window.
 const largeWindow = 1_000_000
 
+// EffortIndex returns the position of effort in levels, or -1.
+func EffortIndex(effort string, levels []string) int {
+	for i, l := range levels {
+		if effort != "" && strings.EqualFold(l, effort) {
+			return i
+		}
+	}
+	return -1
+}
+
 // TierOf returns the index of the tier alias contained in model, or -1.
 func TierOf(model string, tiers []string) int {
 	m := strings.ToLower(model)
@@ -91,7 +120,7 @@ func TierOf(model string, tiers []string) int {
 
 // Evaluate applies the rules to a session. It is pure: same input, same output.
 func Evaluate(s SessionState, c config.Models, now time.Time, x Extra) Suggestion {
-	sg := Suggestion{SessionID: s.ID, Current: s.Model, Suggested: s.Model, Action: Keep, At: now}
+	sg := Suggestion{SessionID: s.ID, Current: s.Model, Effort: s.Effort, Suggested: s.Model, Action: Keep, At: now}
 	sg.Context = contextAdvice(s, c, x.ContextPercent)
 
 	active := activeTurns(s.Turns)
@@ -103,12 +132,15 @@ func Evaluate(s SessionState, c config.Models, now time.Time, x Extra) Suggestio
 	up := upgradeSignals(s, recent, c)
 	top := len(c.ModelTiers) - 1
 	cur := TierOf(s.Model, c.ModelTiers)
-	// Near a limit, a lighter model is suggested sooner: one simple turn
-	// on the top model is enough.
+	eff := EffortIndex(s.Effort, c.EffortLevels)
+	topEff := len(c.EffortLevels) - 1
+	defEff := EffortIndex(c.DefaultEffort, c.EffortLevels)
+	// Near a limit, a lighter setting is suggested sooner: one simple turn
+	// is enough.
 	if x.Pressure >= PressureWatch {
 		c.SimpleTurnStreak = 1
 	}
-	down := downgradeSignals(active, cur == top, c)
+	down := downgradeSignals(active, cur == top, eff > defEff && defEff >= 0, c)
 	if x.Pressure == PressureOver && x.PressureDetail != "" {
 		down = append([]Signal{{Downgrade, "limits", x.PressureDetail}}, down...)
 	} else if x.Pressure == PressureWatch && x.PressureDetail != "" {
@@ -116,11 +148,18 @@ func Evaluate(s SessionState, c config.Models, now time.Time, x Extra) Suggestio
 	}
 	sg.Signals = append(append(sg.Signals, up...), down...)
 
+	raise := func(to int, why string) {
+		sg.Action, sg.Suggested = RaiseEffort, c.EffortLevels[to]
+		sg.Reason = up[0].Detail + " — " + why
+	}
 	switch {
 	case cur < 0:
 		sg.Reason = fmt.Sprintf("%s isn't in model_tiers; add it to the config to get suggestions.", s.Model)
-	case len(up) > 0 && cur < top && x.Pressure == PressureOver:
-		sg.Reason = up[0].Detail + ", but " + lowerFirst(x.PressureDetail) + " — a stronger model would use it up faster. Narrow the task instead."
+	case len(up) > 0 && x.Pressure == PressureOver:
+		sg.Reason = up[0].Detail + ", but " + lowerFirst(x.PressureDetail) + " — more effort or a stronger model would use it up faster. Narrow the task instead."
+	case len(up) > 0 && cur < top && eff >= 0 && eff < topEff-1:
+		// Effort is the cheaper step: try it before a model switch.
+		raise(eff+1, "more effort may get there without switching models.")
 	case len(up) > 0 && cur < top:
 		next := cur + 1
 		if len(up) >= 2 && x.Pressure == PressureNone {
@@ -128,8 +167,17 @@ func Evaluate(s SessionState, c config.Models, now time.Time, x Extra) Suggestio
 		}
 		sg.Action, sg.Suggested = Upgrade, c.ModelTiers[next]
 		sg.Reason = up[0].Detail + " — a stronger model may get there faster."
+	case len(up) > 0 && eff >= 0 && eff < topEff:
+		raise(eff+1, "already on the top tier; more effort may help.")
 	case len(up) > 0:
 		sg.Reason = up[0].Detail + " — already on the top tier; keep going or rethink the approach."
+	case len(down) > 0 && eff > defEff && defEff >= 0:
+		// Lower effort before a lighter model: it keeps the model you chose.
+		sg.Action, sg.Suggested = LowerEffort, c.EffortLevels[defEff]
+		sg.Reason = down[0].Detail + " — less effort should handle this and save limits."
+		if down[0].Name == "limits" {
+			sg.Reason = down[0].Detail + " — less effort makes the rest last longer."
+		}
 	case len(down) > 0 && cur > 0:
 		sg.Action, sg.Suggested = Downgrade, c.ModelTiers[cur-1]
 		sg.Reason = down[0].Detail + " — a lighter model should handle this and save limits."
@@ -226,23 +274,40 @@ func (c simpleCfg) simple(t *Turn) bool {
 
 type simpleCfg struct{ config.Models }
 
-func downgradeSignals(active []*Turn, onTop bool, c config.Models) []Signal {
+// downgradeSignals looks for simple work on the top model (onTop) or at an
+// effort above the default (highEffort).
+func downgradeSignals(active []*Turn, onTop, highEffort bool, c config.Models) []Signal {
 	var sig []Signal
+	if !onTop && !highEffort {
+		return nil
+	}
 	sc := simpleCfg{c}
+	top := len(c.ModelTiers) - 1
+	defEff := EffortIndex(c.DefaultEffort, c.EffortLevels)
+	heavy := func(t *Turn) bool {
+		if onTop && TierOf(t.Model, c.ModelTiers) == top {
+			return true
+		}
+		return highEffort && EffortIndex(t.Effort, c.EffortLevels) > defEff
+	}
+	where := "on the top model"
+	if !onTop {
+		where = "at above-default effort"
+	}
 	streak := 0
 	for i := len(active) - 1; i >= 0; i-- {
 		t := active[i]
-		if !sc.simple(t) || TierOf(t.Model, c.ModelTiers) != len(c.ModelTiers)-1 {
+		if !sc.simple(t) || !heavy(t) {
 			break
 		}
 		streak++
 	}
-	if onTop && streak >= c.SimpleTurnStreak {
-		sig = append(sig, Signal{Downgrade, "simple-streak", fmt.Sprintf("%d simple, successful turns in a row on the top model", streak)})
+	if streak >= c.SimpleTurnStreak {
+		sig = append(sig, Signal{Downgrade, "simple-streak", fmt.Sprintf("%d simple, successful turns in a row %s", streak, where)})
 	}
 	// Two short, simple turns in a row: one short message alone doesn't
 	// mean the work got simpler.
-	if n := len(active); n >= 2 && onTop {
+	if n := len(active); n >= 2 {
 		a, b := active[n-2], active[n-1]
 		short := func(t *Turn) bool {
 			p := strings.TrimSpace(t.Prompt)

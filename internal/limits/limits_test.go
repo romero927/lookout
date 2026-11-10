@@ -281,3 +281,22 @@ func TestApplyContextWithoutLimits(t *testing.T) {
 		t.Error("Money formatting")
 	}
 }
+
+func TestStatusLineEffort(t *testing.T) {
+	for _, raw := range []string{
+		`{"model":{"display_name":"Opus"},"effort":"high"}`,
+		`{"model":{"display_name":"Opus"},"effort":{"level":"high"}}`,
+	} {
+		in, err := ParseInput(strings.NewReader(raw))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := StatusLine(in, State{}, time.Now(), false); got != "Opus · effort high" {
+			t.Errorf("%s: %q", raw, got)
+		}
+	}
+	in, _ := ParseInput(strings.NewReader(`{"model":{"display_name":"Opus"}}`))
+	if got := StatusLine(in, State{}, time.Now(), false); got != "Opus" {
+		t.Errorf("no effort: %q", got)
+	}
+}
