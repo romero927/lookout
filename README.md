@@ -32,7 +32,7 @@ From the folder you're running Claude Code in:
 tmux split-window -h -l 50% 'lookout --here'
 ```
 
-If Claude Code isn't running there yet, the session panels show "Waiting for a Claude Code session" until it starts; Lookout picks it up on its own.
+If Claude Code isn't running there yet, the session panels show "Waiting for a Claude Code session" until it starts; Lookout picks it up on its own. A session you've just started counts too: until you send its first message, Lookout waits on it rather than showing an older one.
 
 **3. Connect your real limits** (recommended)
 

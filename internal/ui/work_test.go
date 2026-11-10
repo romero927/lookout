@@ -18,7 +18,8 @@ func TestCheckWorkAcrossRepos(t *testing.T) {
 	plain := t.TempDir() // the session's own folder: not a repository
 	repo := t.TempDir()
 	run := func(args ...string) {
-		cmd := exec.Command("git", args...)
+		// Don't sign: a signing setup in the user's git config would prompt.
+		cmd := exec.Command("git", append([]string{"-c", "commit.gpgsign=false"}, args...)...)
 		cmd.Dir = repo
 		cmd.Env = append(os.Environ(), "GIT_AUTHOR_NAME=t", "GIT_AUTHOR_EMAIL=t@t", "GIT_COMMITTER_NAME=t", "GIT_COMMITTER_EMAIL=t@t")
 		if out, err := cmd.CombinedOutput(); err != nil {

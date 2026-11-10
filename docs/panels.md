@@ -2,7 +2,7 @@
 
 Full detail for each of Lookout's panels. Press `1`–`9` or `tab` to switch between them. The [README](../README.md#panels) has the short version.
 
-Until Lookout finds a session (for example, `lookout --here` in a folder where Claude Code hasn't run yet), Activity, Changes, Context, Models and Tools show a placeholder saying which folder it's waiting on; `s` picks another session. Usage still shows your limits, and Skills, Config and the Cheatsheet work as usual.
+Until Lookout finds a session (for example, `lookout --here` in a folder where Claude Code hasn't run yet), Activity, Changes, Context, Models and Tools show a placeholder saying which folder it's waiting on; `s` picks another session. The same happens when you start a new Claude Code session: it writes no transcript until you send the first message, so Lookout reads Claude Code's list of running sessions (`~/.claude/sessions`) and waits on the new one instead of showing the previous session. A pinned session stays on screen. Usage still shows your limits, and Skills, Config and the Cheatsheet work as usual.
 
 ## 1. Usage
 

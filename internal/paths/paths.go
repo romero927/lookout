@@ -38,6 +38,9 @@ func ClaudeDir() string {
 // ClaudeProjectsDir holds the session transcripts.
 func ClaudeProjectsDir() string { return filepath.Join(ClaudeDir(), "projects") }
 
+// ClaudeSessionsDir lists Claude Code's running sessions, one file per process.
+func ClaudeSessionsDir() string { return filepath.Join(ClaudeDir(), "sessions") }
+
 // ConfigDir is where Lookout's config.toml lives.
 func ConfigDir() string {
 	if d := os.Getenv("LOOKOUT_CONFIG_DIR"); d != "" {

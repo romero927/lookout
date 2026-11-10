@@ -160,6 +160,17 @@ func (m Model) waitingFor() string {
 // Claude Code session appears.
 func (m Model) viewNoSession() string {
 	w := max(10, m.width-4)
+	if l, ok := m.o.Core.Starting(); ok {
+		where := ShortPath(l.Cwd)
+		out := []string{
+			"",
+			"  " + sBold.Render(clip("New Claude Code session "+ShortID(l.ID)+" in "+where, w)),
+			"",
+			"  " + sMuted.Render(clip("Waiting for its first message. It shows up here once you send one.", w)),
+			"  " + sMuted.Render(clip("Press s to choose another session.", w)),
+		}
+		return strings.Join(out, "\n")
+	}
 	out := []string{
 		"",
 		"  " + sBold.Render(clip("Waiting for a Claude Code session in "+m.waitingFor(), w)),

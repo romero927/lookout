@@ -30,6 +30,11 @@ type Core struct {
 	// Only the UI goroutine changes it.
 	Pinned string
 
+	// LiveDir is where Claude Code lists its running sessions; empty
+	// turns the check off.
+	LiveDir string
+	live    liveCache
+
 	billedMu sync.Mutex
 	billed   func(string) bool // pay-as-you-go sessions, cached
 	billedAt time.Time
@@ -43,6 +48,7 @@ func New(cfg config.Config, cwdFilter string, onChange func()) *Core {
 		Strategy:  strategy.NewEngine(),
 		Activity:  activity.New(),
 		CwdFilter: cwdFilter,
+		LiveDir:   paths.ClaudeSessionsDir(),
 	}
 	if len(cfg.Usage.PriceWeights) > 0 {
 		prices := make(map[string]usage.Price, len(cfg.Usage.PriceWeights))
@@ -66,7 +72,9 @@ func (c *Core) handle(r transcript.Record, src transcript.Source) {
 func (c *Core) Load() int { return c.Watcher.Scan() }
 
 // Current returns the session in focus: the pinned one if it still exists,
-// else the latest (in CwdFilter, when set).
+// else the latest (in CwdFilter, when set). When a newer Claude Code session
+// has started but has no transcript yet (nothing sent so far), there is no
+// current session: Lookout waits for that one instead of showing an older one.
 func (c *Core) Current() (usage.Session, bool) {
 	if c.Pinned != "" {
 		for _, s := range c.Agg.Sessions() {
@@ -75,7 +83,41 @@ func (c *Core) Current() (usage.Session, bool) {
 			}
 		}
 	}
-	return c.Agg.Current(c.CwdFilter)
+	s, ok := c.Agg.Current(c.CwdFilter)
+	if _, waiting := c.Starting(); waiting {
+		return usage.Session{}, false
+	}
+	return s, ok
+}
+
+// Starting returns the newest running session that hasn't sent anything yet
+// when it is newer than (or a closer folder match than) the latest session
+// with a transcript, so it is the one to show once it gets going. It ignores
+// Pinned.
+func (c *Core) Starting() (LiveSession, bool) {
+	if c.LiveDir == "" {
+		return LiveSession{}, false
+	}
+	cur, ok := c.Agg.Current(c.CwdFilter)
+	curRank := 0
+	if ok {
+		curRank = usage.DirMatch(cur.Cwd, c.CwdFilter)
+	}
+	var best LiveSession
+	found := false
+	for _, l := range c.live.get(c.LiveDir, time.Now()) {
+		r := usage.DirMatch(l.Cwd, c.CwdFilter)
+		if r == 0 || r < curRank || (ok && l.ID == cur.ID) || c.Agg.Known(l.ID) {
+			continue
+		}
+		if r == curRank && !l.Started.After(cur.LastActivity) {
+			continue
+		}
+		if !found || l.Started.After(best.Started) {
+			best, found = l, true
+		}
+	}
+	return best, found
 }
 
 // Snapshot computes usage for the current session.

@@ -161,6 +161,28 @@ func (a *Aggregator) Current(cwd string) (Session, bool) {
 	return Session{}, false
 }
 
+// Known reports whether the session has any timestamped main-chain
+// activity, the same test Sessions uses.
+func (a *Aggregator) Known(id string) bool {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	s := a.sessions[id]
+	return s != nil && !s.LastActivity.IsZero()
+}
+
+// DirMatch ranks how well a session started in sessCwd matches the folder
+// filter cwd, following Current: 2 for the same folder (or no filter), 1
+// for a folder inside it or one it is inside, 0 for no match.
+func DirMatch(sessCwd, cwd string) int {
+	switch {
+	case cwd == "" || sameDir(sessCwd, cwd):
+		return 2
+	case sessCwd != "" && (within(sessCwd, cwd) || within(cwd, sessCwd)):
+		return 1
+	}
+	return 0
+}
+
 func sameDir(a, b string) bool {
 	return strings.TrimRight(a, "/") == strings.TrimRight(b, "/")
 }
