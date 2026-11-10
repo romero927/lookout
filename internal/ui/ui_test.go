@@ -398,6 +398,32 @@ func TestLimitsForAPIKeyAccount(t *testing.T) {
 	if !strings.Contains(v, " 12%") {
 		t.Errorf("reported context not shown\n%s", v)
 	}
+	// Dollars across the panel: the session's own figure, estimates for the
+	// rest, and a link to the Console.
+	for _, want := range []string{"cost", "$3.50", "~$", "estimated from tokens", ConsoleCostURL, "o open usage & cost"} {
+		if !strings.Contains(v, want) {
+			t.Errorf("pay-as-you-go view missing %q\n%s", want, v)
+		}
+	}
+}
+
+func TestNoCostsForSubscribers(t *testing.T) {
+	core, db := setup(t)
+	settings := filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "settings.json")
+	if err := os.WriteFile(settings, []byte(`{"statusLine":{"type":"command","command":"/x/lookout statusline"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cost := 3.5
+	st := limits.State{ContextAt: time.Now().Unix(), UpdatedAt: time.Now().Unix(), CostUSD: &cost,
+		FiveHour: &limits.Window{UsedPercent: 20, ResetsAt: time.Now().Add(2 * time.Hour).Unix()}}
+	if err := limits.Save(limits.FileFor(paths.LimitsDir(), "sess-ui"), st); err != nil {
+		t.Fatal(err)
+	}
+	var m tea.Model = New(Options{Core: core, Store: db, Version: "test"})
+	v := plain(drive(m, tea.WindowSizeMsg{Width: 120, Height: 40}, LoadedMsg{}).View())
+	if strings.Contains(v, "$") || strings.Contains(v, ConsoleCostURL) {
+		t.Errorf("subscriber view shows dollars or the Console link\n%s", v)
+	}
 }
 
 func TestContextItemsSeeAllAndDetail(t *testing.T) {

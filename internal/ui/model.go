@@ -411,6 +411,10 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	switch m.tab {
+	case tabUsage:
+		if key == "o" && m.showCost() {
+			return m, openURL(ConsoleCostURL)
+		}
 	case tabFiles:
 		return m.filesKey(key)
 	case tabChanges:
@@ -792,6 +796,8 @@ func (m Model) viewFooter() string {
 		keys = "↑↓ select · enter details · a largest only · ? help · q quit"
 	case m.tab == tabContext:
 		keys = "↑↓ select · enter details · a see all · ? help · q quit"
+	case m.tab == tabUsage && m.showCost():
+		keys = "o open usage & cost in the Claude Console · 1-9/tab panels · s sessions · ? help · q quit"
 	default:
 		keys = "1-9/tab panels · s sessions · ? help · q quit"
 	}
@@ -833,6 +839,7 @@ func (m Model) viewHelp() string {
 		"  ↑↓ / j k      move · enter to focus the viewer · esc to go back",
 		"  e             edit the selected file in $EDITOR (needs [files] allow_edit = true)",
 		"  o             Config, Changes: open the selected file's folder in your file manager",
+		"                Usage (pay-as-you-go): open usage & cost in the Claude Console",
 		"  r             rescan the file list",
 		"  R             restart Lookout (e.g. after a rebuild)",
 		"  mouse         click a tab, or an item to open it · the wheel scrolls what's under it",

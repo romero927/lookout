@@ -9,9 +9,10 @@ import (
 )
 
 // Price is a model's API list price in US dollars per million tokens. It is
-// used only as a relative weight: how much more of a subscription limit a
-// token of one model uses than a token of another. Anthropic doesn't publish
-// those weights, so anything built on this is an estimate.
+// used as a relative weight (how much more of a subscription limit a token of
+// one model uses than a token of another; Anthropic doesn't publish those
+// weights) and to estimate the cost of pay-as-you-go sessions. Either way the
+// result is an estimate.
 //
 // The built-in prices below are hardcoded from Anthropic's published API
 // prices and updated by hand in Lookout releases. [usage.price_weights] in
@@ -75,7 +76,7 @@ func (a *Aggregator) priceLocked(model string) Price {
 }
 
 // Weight is the token usage priced at the model's built-in API rate, in
-// dollars. Only meaningful relative to other weights.
+// dollars.
 func Weight(model string, u transcript.Usage) float64 { return weigh(priceFor(model), u) }
 
 func weigh(p Price, u transcript.Usage) float64 {

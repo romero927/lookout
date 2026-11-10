@@ -171,6 +171,10 @@ func (m Model) viewLimitsMissing(w int) []string {
 				sMuted.Render(clip(" this session, as reported by Claude Code", max(0, w-18))))
 		}
 		out = append(out, sMuted.Render(clip("No 5-hour or weekly limits: this is an API key or pay-as-you-go account.", w)))
+		if m.showCost() {
+			out = append(out, sLabel.Render("CONSOLE ")+sBlue.Render(ConsoleCostURL)+
+				sMuted.Render(clip("  o opens it", max(0, w-8-len(ConsoleCostURL)))))
+		}
 		return out
 	case m.slOurs:
 		out = append(out, sYellow.Render(clip("Waiting for Claude Code: limits arrive after its next reply.", w)),

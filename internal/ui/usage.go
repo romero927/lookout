@@ -64,21 +64,33 @@ func (m Model) viewUsage() string {
 
 	// Cards.
 	hours := m.o.Core.Cfg.Usage.BlockHours
+	showCost := m.showCost()
+	cost := func(usd float64) string {
+		if !showCost {
+			return ""
+		}
+		return estMoney(usd)
+	}
+	sessCost := cost(m.snap.Session.Cost)
+	if showCost && m.limits.CostUSD != nil {
+		sessCost = limits.Money(*m.limits.CostUSD) // Claude Code's own figure
+	}
 	cards := []struct {
 		title string
 		row   UsageRow
 		hot   bool
 		note  string
+		cost  string
 	}{
-		{"Session", UsageRow{m.snap.Session.Usage, m.snap.Session.Messages}, true, subNote(m.snap.SessionSub)},
-		{"Today", UsageRow{m.snap.Today.Usage, m.snap.Today.Messages}, false, ""},
-		{fmt.Sprintf("Last %dh", hours), UsageRow{m.snap.Rolling.Usage, m.snap.Rolling.Messages}, false, ""},
+		{"Session", UsageRow{m.snap.Session.Usage, m.snap.Session.Messages}, true, subNote(m.snap.SessionSub), sessCost},
+		{"Today", UsageRow{m.snap.Today.Usage, m.snap.Today.Messages}, false, "", cost(m.snap.Today.Cost)},
+		{fmt.Sprintf("Last %dh", hours), UsageRow{m.snap.Rolling.Usage, m.snap.Rolling.Messages}, false, "", cost(m.snap.Rolling.Cost)},
 	}
 	cardW := min(34, (w-2)/len(cards)-4) // each card adds a border and padding
 	if cardW >= 22 {
 		var rendered []string
 		for _, c := range cards {
-			rendered = append(rendered, card(c.title, c.row, c.note, cardW, c.hot))
+			rendered = append(rendered, card(c.title, c.row, c.note, c.cost, cardW, c.hot))
 		}
 		out = append(out, lipgloss.JoinHorizontal(lipgloss.Top, joinWithGap(rendered, " ")...))
 	} else {
@@ -108,6 +120,13 @@ func (m Model) viewUsage() string {
 			}
 			out = append(out, line)
 		}
+		if showCost {
+			line := sMuted.Render(pad("cost", 12))
+			for _, c := range cards {
+				line += sGreen.Render(lpad(c.cost, colW))
+			}
+			out = append(out, line)
+		}
 		var notes []string
 		for _, c := range cards {
 			if c.note != "" {
@@ -131,7 +150,26 @@ func (m Model) viewUsage() string {
 	} else {
 		out = append(out, "", m.viewModelsToday(min(w, 48)), "", m.viewDays(w))
 	}
+	if showCost {
+		out = append(out, "", sMuted.Render(clip("~ = estimated from tokens at API list prices, pay-as-you-go sessions only", w)),
+			sMuted.Render(clip("the session cost is Claude Code's own figure; discounts aren't known here", w)))
+	}
 	return strings.Join(out, "\n")
+}
+
+// showCost reports whether to show dollars: the session in view is
+// pay-as-you-go, so its usage is billed in dollars rather than counted
+// against subscription limits.
+func (m Model) showCost() bool {
+	return m.slOurs && m.limitsExact() && m.limits.PayAsYouGo()
+}
+
+// estMoney is an estimated dollar amount, e.g. "~$1.24".
+func estMoney(usd float64) string {
+	if usd <= 0 {
+		return "$0.00"
+	}
+	return "~" + limits.Money(usd)
 }
 
 func subNote(sub transcript.Usage) string {
@@ -152,7 +190,7 @@ func joinWithGap(items []string, gap string) []string {
 	return out
 }
 
-func card(title string, r UsageRow, note string, width int, hot bool) string {
+func card(title string, r UsageRow, note, cost string, width int, hot bool) string {
 	inner := width
 	row := func(label string, n int64, st lipgloss.Style) string {
 		v := Tokens(n)
@@ -166,6 +204,9 @@ func card(title string, r UsageRow, note string, width int, hot bool) string {
 		row("cache read", r.U.CacheRead, sText),
 		sMuted.Render(strings.Repeat("─", inner)),
 		row("total", r.U.Total(), sBold),
+	}
+	if cost != "" {
+		lines = append(lines, sMuted.Render("cost")+strings.Repeat(" ", max(1, inner-4-len(cost)))+sGreen.Bold(true).Render(cost))
 	}
 	left := fmt.Sprintf("%d responses", r.N)
 	right := clip(note, max(0, inner-len(left)-1))
@@ -187,19 +228,25 @@ func (m Model) viewModelsToday(w int) string {
 		name  string
 		total int64
 		out   int64
+		cost  float64
 	}
 	var ms []mt
 	var grand int64
 	for name, u := range m.snap.Today.ByModel {
-		ms = append(ms, mt{name, u.Total(), u.Output})
+		ms = append(ms, mt{name, u.Total(), u.Output, m.snap.Today.CostByModel[name]})
 		grand += u.Total()
 	}
 	sort.Slice(ms, func(i, j int) bool { return ms[i].total > ms[j].total })
+	showCost := m.showCost()
 	for _, x := range ms {
 		frac := float64(x.total) / float64(max(1, grand))
-		lines = append(lines, fmt.Sprintf("%s %s %s",
+		tail := sMuted.Render(" · out " + Tokens(x.out))
+		if showCost && x.cost > 0 {
+			tail = sMuted.Render(" · ") + sGreen.Render(estMoney(x.cost))
+		}
+		lines = append(lines, clip(fmt.Sprintf("%s %s %s",
 			pad(clip(ShortModel(x.name), 16), 16), bar(frac, 12, sPurple),
-			lpad(Tokens(x.total), 7)+sMuted.Render(" · out "+Tokens(x.out))))
+			lpad(Tokens(x.total), 7)+tail), w+40))
 	}
 	return strings.Join(lines, "\n")
 }
@@ -228,6 +275,9 @@ func (m Model) viewDays(w int) string {
 			st = sRed
 		}
 		line := fmt.Sprintf("%s %s %s", sMuted.Render(d.Day.Format("Mon 01-02")), bar(frac, 10, st), lpad(Tokens(d.Usage.Total()), 7))
+		if m.showCost() && d.Cost > 0 {
+			line += "  " + sGreen.Render(lpad(estMoney(d.Cost), 8))
+		}
 		if u, ok := limitUse[day]; ok && tracked != "" && day >= tracked {
 			note := sMuted.Render("  " + shortDayNote(u))
 			if u.FiveHourPeak >= 100 {

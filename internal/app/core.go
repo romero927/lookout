@@ -4,10 +4,12 @@ package app
 
 import (
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/romero927/lookout/internal/activity"
 	"github.com/romero927/lookout/internal/config"
+	"github.com/romero927/lookout/internal/limits"
 	"github.com/romero927/lookout/internal/paths"
 	"github.com/romero927/lookout/internal/strategy"
 	"github.com/romero927/lookout/internal/transcript"
@@ -27,6 +29,10 @@ type Core struct {
 	// Pinned, when set, is the session to show instead of the latest one.
 	// Only the UI goroutine changes it.
 	Pinned string
+
+	billedMu sync.Mutex
+	billed   func(string) bool // pay-as-you-go sessions, cached
+	billedAt time.Time
 }
 
 // New builds a Core. onChange is called (debounced) when new records arrive.
@@ -80,8 +86,20 @@ func (c *Core) Snapshot(now time.Time) (usage.Snapshot, usage.Session, bool) {
 		BurnWindow:  time.Duration(c.Cfg.Usage.BurnWindowMinutes) * time.Minute,
 		BlockLength: time.Duration(c.Cfg.Usage.BlockHours) * time.Hour,
 		Days:        7,
+		Billed:      c.payAsYouGo(now),
 	})
 	return snap, s, ok
+}
+
+// payAsYouGo returns the test for pay-as-you-go sessions, re-reading the
+// saved limit files at most every 10 seconds.
+func (c *Core) payAsYouGo(now time.Time) func(string) bool {
+	c.billedMu.Lock()
+	defer c.billedMu.Unlock()
+	if c.billed == nil || now.Sub(c.billedAt) > 10*time.Second || now.Before(c.billedAt) {
+		c.billed, c.billedAt = limits.PayAsYouGoSessions(paths.LimitsDir()), now
+	}
+	return c.billed
 }
 
 // Suggest evaluates the Strategy rules for the current session.

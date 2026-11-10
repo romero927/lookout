@@ -28,18 +28,32 @@ func openFolder(path string) tea.Cmd {
 			}
 			dir = filepath.Dir(dir)
 		}
-		name := "xdg-open"
-		switch runtime.GOOS {
-		case "darwin":
-			name = "open"
-		case "windows":
-			name = "explorer"
-		}
-		cmd := exec.Command(name, dir)
-		if err := cmd.Start(); err != nil {
-			return openedMsg{dir: dir, err: err}
-		}
-		go func() { _ = cmd.Wait() }()
-		return openedMsg{dir: dir}
+		return openedMsg{dir: dir, err: osOpen(dir)}
 	}
+}
+
+// ConsoleCostURL is the Claude Console page with an API account's usage and
+// spend.
+const ConsoleCostURL = "https://platform.claude.com/cost"
+
+// openURL opens a web page in the default browser.
+func openURL(url string) tea.Cmd {
+	return func() tea.Msg { return openedMsg{dir: url, err: osOpen(url)} }
+}
+
+// osOpen hands target (a folder or URL) to the OS opener.
+func osOpen(target string) error {
+	name := "xdg-open"
+	switch runtime.GOOS {
+	case "darwin":
+		name = "open"
+	case "windows":
+		name = "explorer"
+	}
+	cmd := exec.Command(name, target)
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+	go func() { _ = cmd.Wait() }()
+	return nil
 }

@@ -1,10 +1,11 @@
 // Package usage tallies token usage from transcript records.
 //
-// Lookout shows tokens, not dollars. The one place prices appear is the
-// session-share estimate (share.go): tokens are weighted by each model's API
-// list price so that, say, an Opus token counts for more of a limit than a
-// Haiku token. Only the ratio between sessions is used; the dollar amounts
-// are never shown or stored.
+// Prices (share.go) are used in two places. The session-share estimate
+// weights tokens by each model's API list price so that, say, an Opus token
+// counts for more of a limit than a Haiku token. And for pay-as-you-go
+// sessions (Options.Billed) each window carries an estimated cost: tokens
+// priced at those list prices. Claude Code reports only the current
+// session's cost, so these are estimates.
 package usage
 
 import (
@@ -175,9 +176,14 @@ type Window struct {
 	Usage    transcript.Usage
 	Messages int
 	ByModel  map[string]transcript.Usage
+	// Cost is the estimated cost, in US dollars, of the pay-as-you-go
+	// sessions in the window (see Options.Billed). CostByModel splits it.
+	Cost        float64
+	CostByModel map[string]float64
 }
 
-func (w *Window) add(e Entry) {
+// add counts one entry; cost is its estimated cost, 0 when not billed.
+func (w *Window) add(e Entry, cost float64) {
 	w.Usage.Add(e.Usage)
 	w.Messages++
 	if w.ByModel == nil {
@@ -186,6 +192,13 @@ func (w *Window) add(e Entry) {
 	u := w.ByModel[e.Model]
 	u.Add(e.Usage)
 	w.ByModel[e.Model] = u
+	if cost > 0 {
+		w.Cost += cost
+		if w.CostByModel == nil {
+			w.CostByModel = map[string]float64{}
+		}
+		w.CostByModel[e.Model] += cost
+	}
 }
 
 // Block is an estimated usage block: it starts at the first message after
@@ -202,6 +215,7 @@ type Block struct {
 type DayTotal struct {
 	Day   time.Time
 	Usage transcript.Usage
+	Cost  float64 // estimated, pay-as-you-go sessions only
 }
 
 // Options tune a Snapshot.
@@ -210,6 +224,9 @@ type Options struct {
 	BurnWindow  time.Duration
 	BlockLength time.Duration
 	Days        int
+	// Billed, when set, picks the pay-as-you-go sessions whose tokens are
+	// priced into each window's Cost. Nil means no costs.
+	Billed func(sessionID string) bool
 }
 
 // Snapshot is everything the Telemetry panel shows.
@@ -264,10 +281,33 @@ func (a *Aggregator) Snapshot(now time.Time, o Options) Snapshot {
 	burnStart := now.Add(-o.BurnWindow)
 	var burn, burnOut, burnFresh int64
 
+	prices := map[string]Price{}
+	billed := map[string]bool{}
+	costOf := func(e Entry) float64 {
+		if o.Billed == nil {
+			return 0
+		}
+		b, ok := billed[e.SessionID]
+		if !ok {
+			b = o.Billed(e.SessionID)
+			billed[e.SessionID] = b
+		}
+		if !b {
+			return 0
+		}
+		p, ok := prices[e.Model]
+		if !ok {
+			p = a.priceLocked(e.Model)
+			prices[e.Model] = p
+		}
+		return weigh(p, e.Usage)
+	}
+
 	var blk *Block
 	for _, e := range entries {
+		cost := costOf(e)
 		if o.SessionID != "" && e.SessionID == o.SessionID {
-			snap.Session.add(e)
+			snap.Session.add(e, cost)
 			if e.Subagent {
 				snap.SessionSub.Add(e.Usage)
 			}
@@ -277,7 +317,7 @@ func (a *Aggregator) Snapshot(now time.Time, o Options) Snapshot {
 		}
 		lt := e.Time.In(loc)
 		if !lt.Before(today) {
-			snap.Today.add(e)
+			snap.Today.add(e, cost)
 		}
 		if !lt.Before(firstDay) {
 			d := int(lt.Sub(firstDay).Hours() / 24)
@@ -290,10 +330,11 @@ func (a *Aggregator) Snapshot(now time.Time, o Options) Snapshot {
 			}
 			if d >= 0 && d < len(days) {
 				days[d].Usage.Add(e.Usage)
+				days[d].Cost += cost
 			}
 		}
 		if e.Time.After(rollStart) {
-			snap.Rolling.add(e)
+			snap.Rolling.add(e, cost)
 		}
 		if e.Time.After(burnStart) {
 			burn += e.Usage.Total()
@@ -306,7 +347,7 @@ func (a *Aggregator) Snapshot(now time.Time, o Options) Snapshot {
 			blk = &Block{Start: start, End: start.Add(o.BlockLength)}
 		}
 		blk.Last = e.Time
-		blk.add(e)
+		blk.add(e, cost)
 	}
 	snap.Days = days
 	mins := o.BurnWindow.Minutes()

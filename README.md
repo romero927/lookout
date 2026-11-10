@@ -165,6 +165,7 @@ These accounts (including enterprise accounts billed by usage) have no 5-hour or
 
 - The cost is Claude Code's own estimate at list API prices, so negotiated pricing isn't reflected.
 - It's decided per session: a session with a cost but no limits after its first reply shows its cost, even if another account on the same computer has limits.
+- The Usage panel shows dollars beside the tokens too: today, the last 5 hours, each model and each of the last 7 days. These are Lookout's estimates (marked `~`): tokens priced at API list prices, counting only pay-as-you-go sessions, so a subscription on the same computer isn't priced in. `o` opens your usage and cost in the [Claude Console](https://platform.claude.com/cost).
 
 ### Uninstall
 
@@ -212,7 +213,7 @@ The settings you're most likely to change:
 | `[ui]` | `theme` | `auto`, `dark` or `light`. Inside tmux, dark is assumed. `LOOKOUT_THEME` overrides it. |
 | `[models]` | thresholds, `model_tiers`, `effort_levels`, `default_effort`, `log_days` | When the Models panel suggests a change. Tiers default to `["haiku", "sonnet", "opus"]`; effort levels to `["low", "medium", "high", "xhigh"]`, with `"medium"` as the default. The suggestion log keeps 90 days. |
 | `[usage]` | `history_days`, `burn_window_minutes`, `block_hours` | How far back the first scan reads (30 days), the tokens-per-minute window (10 min), and the estimated usage block length (5 h). |
-| `[usage.price_weights]` | one entry per model | Override the model prices used to estimate each session's share of a limit, e.g. `"opus-5-5" = { input = 4, output = 20, cache_write = 5, cache_read = 0.20 }`. Keys match part of the model ID; the longest match wins. |
+| `[usage.price_weights]` | one entry per model | Override the model prices (dollars per million tokens) used to estimate each session's share of a limit and, on pay-as-you-go accounts, the dollar estimates, e.g. `"opus-5-5" = { input = 4, output = 20, cache_write = 5, cache_read = 0.20 }`. Keys match part of the model ID; the longest match wins. |
 
 ## How it works
 

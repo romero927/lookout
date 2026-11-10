@@ -82,3 +82,22 @@ func TestSubscriberPerSession(t *testing.T) {
 		t.Errorf("status line = %q", got)
 	}
 }
+
+func TestPayAsYouGoSessions(t *testing.T) {
+	dir := t.TempDir()
+	spent, zero := 1.5, 0.0
+	save := func(id string, st State) {
+		if err := Save(FileFor(dir, id), st); err != nil {
+			t.Fatal(err)
+		}
+	}
+	save("api-1", State{CostUSD: &spent, ContextAt: 1})
+	save("new-1", State{CostUSD: &zero, ContextAt: 1})
+	save("sub-1", State{CostUSD: &spent, UpdatedAt: 1, FiveHour: &Window{UsedPercent: 3}})
+	billed := PayAsYouGoSessions(dir)
+	for id, want := range map[string]bool{"api-1": true, "new-1": false, "sub-1": false, "unknown": false} {
+		if got := billed(id); got != want {
+			t.Errorf("%s: got %v, want %v", id, got, want)
+		}
+	}
+}

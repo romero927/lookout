@@ -232,10 +232,20 @@ func cmdStats(args []string, stdout, stderr io.Writer) int {
 	}
 
 	var st limits.State
+	exact := false
 	if p, _, ok := limits.Pick(paths.LimitsDir(), sess.ID); ok {
 		st = limits.Load(p)
+		exact = hasSess && p == limits.FileFor(paths.LimitsDir(), sess.ID)
 	}
 	printLimits(stdout, st, now)
+	// Pay-as-you-go: show dollars too (estimated, except the session's).
+	showCost := exact && st.PayAsYouGo()
+	est := func(usd float64) string {
+		if usd <= 0 {
+			return "$0.00"
+		}
+		return "~" + limits.Money(usd)
+	}
 
 	tw := tabwriter.NewWriter(stdout, 0, 0, 2, ' ', tabwriter.AlignRight)
 	fmt.Fprintln(tw, "\twindow\tinput\toutput\tcache write\tcache read\ttotal\tmsgs\t")
@@ -252,6 +262,11 @@ func cmdStats(args []string, stdout, stderr io.Writer) int {
 		row("block (est.)", ui.UsageRow{U: b.Usage, N: b.Messages})
 	}
 	tw.Flush()
+	if showCost {
+		fmt.Fprintf(stdout, "\nCost: session %s (Claude Code) · today %s · last %dh %s\n", limits.Money(*st.CostUSD),
+			est(snap.Today.Cost), cfg.Usage.BlockHours, est(snap.Rolling.Cost))
+		fmt.Fprintln(stdout, "  ~ = estimated: pay-as-you-go sessions' tokens at Anthropic's API list prices")
+	}
 
 	fmt.Fprintf(stdout, "\nBurn: %s tok/min (%s excl. cache reads, %s output) over the last %dm\n", ui.Rate(snap.BurnPerMin), ui.Rate(snap.FreshPerMin), ui.Rate(snap.OutputPerMin), cfg.Usage.BurnWindowMinutes)
 	if b := snap.Block; b != nil && b.Active {
@@ -270,12 +285,20 @@ func cmdStats(args []string, stdout, stderr io.Writer) int {
 		})
 		for _, m := range models {
 			u := snap.Today.ByModel[m]
-			fmt.Fprintf(stdout, "  %-24s %8s total  %8s out\n", ui.ShortModel(m), ui.Tokens(u.Total()), ui.Tokens(u.Output))
+			fmt.Fprintf(stdout, "  %-24s %8s total  %8s out", ui.ShortModel(m), ui.Tokens(u.Total()), ui.Tokens(u.Output))
+			if showCost {
+				fmt.Fprintf(stdout, "  %9s", est(snap.Today.CostByModel[m]))
+			}
+			fmt.Fprintln(stdout)
 		}
 	}
 	fmt.Fprintln(stdout, "\nLast 7 days:")
 	for _, d := range snap.Days {
-		fmt.Fprintf(stdout, "  %s  %8s\n", d.Day.Format("Mon 01-02"), ui.Tokens(d.Usage.Total()))
+		fmt.Fprintf(stdout, "  %s  %8s", d.Day.Format("Mon 01-02"), ui.Tokens(d.Usage.Total()))
+		if showCost {
+			fmt.Fprintf(stdout, "  %9s", est(d.Cost))
+		}
+		fmt.Fprintln(stdout)
 	}
 
 	fmt.Fprintf(stdout, "\nSuggestion: %s", strings.ToUpper(string(sg.Action)))

@@ -91,6 +91,31 @@ func Subscriber(st State, dir string) bool {
 	return HasLimits(dir)
 }
 
+// PayAsYouGo reports whether the session behind st is billed by usage: Claude
+// Code reported a cost for it but never any limits.
+func (s State) PayAsYouGo() bool {
+	return !s.HasData() && s.CostUSD != nil && *s.CostUSD > 0
+}
+
+// PayAsYouGoSessions reads every saved session and returns a test for
+// whether a session ID belongs to a pay-as-you-go session. Sessions with no
+// saved file (never seen by the status line, or pruned) count as not
+// pay-as-you-go.
+func PayAsYouGoSessions(dir string) func(sessionID string) bool {
+	set := map[string]bool{}
+	entries, _ := os.ReadDir(dir)
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") || strings.HasPrefix(e.Name(), ".") {
+			continue
+		}
+		p := filepath.Join(dir, e.Name())
+		if Load(p).PayAsYouGo() {
+			set[p] = true
+		}
+	}
+	return func(sessionID string) bool { return set[FileFor(dir, sessionID)] }
+}
+
 // HasLimits reports whether any saved session has ever received usage limits
 // from Claude Code, which means this account is a Claude.ai subscriber.
 func HasLimits(dir string) bool {
