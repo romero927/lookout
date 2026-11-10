@@ -3,6 +3,7 @@ package ui
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"strings"
 	"testing"
@@ -307,6 +308,16 @@ func TestActivityDetailAndSessionPicker(t *testing.T) {
 	m = drive(m, key("s"), tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
 	if core.Pinned != "" || strings.Contains(plain(m.View()), "◆ pinned") {
 		t.Error("a should go back to following the latest session")
+	}
+
+	// P pins the session on screen, and P again unpins it.
+	m = drive(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("P")})
+	if core.Pinned != "sess-ui" || !strings.Contains(plain(m.View()), "◆ pinned") {
+		t.Errorf("P should pin the current session (pinned=%q)", core.Pinned)
+	}
+	m = drive(m, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("P")})
+	if core.Pinned != "" {
+		t.Errorf("P again should unpin (pinned=%q)", core.Pinned)
 	}
 
 	// Clicking a session in the picker does what enter does.
@@ -797,5 +808,22 @@ func TestIsDenied(t *testing.T) {
 		if got := isDenied(activity.Call{Fail: c.fail, Error: c.err}); got != c.want {
 			t.Errorf("isDenied(%q, fail=%v) = %v, want %v", c.err, c.fail, got, c.want)
 		}
+	}
+}
+
+func TestToolKeySplitsSkills(t *testing.T) {
+	s := activity.Session{Turns: []activity.Turn{{Calls: []activity.Call{
+		{Name: "Skill", Summary: "pdf"},
+		{Name: "Skill", Summary: "pdf"},
+		{Name: "Skill", Summary: "docx"},
+		{Name: "Bash", Summary: "run script"},
+	}}}}
+	got := map[string]int{}
+	for _, st := range toolStats(s) {
+		got[st.Name] = st.Calls
+	}
+	want := map[string]int{"skill: pdf": 2, "skill: docx": 1, "Bash": 1}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("toolStats = %v, want %v", got, want)
 	}
 }

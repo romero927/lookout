@@ -116,3 +116,23 @@ func (m Model) viewPicker(h int) string {
 	}
 	return strings.Join(scrollTo(out, m.pSel+pickerHead, h), "\n")
 }
+
+// togglePin keeps the session on screen even when another one becomes
+// active, or, when already pinned, goes back to following the latest.
+func (m Model) togglePin() Model {
+	if m.o.Core.Pinned != "" {
+		m.o.Core.Pinned = ""
+		m.setFlash("unpinned · following the latest session", sMuted, 3*time.Second)
+		m.refresh()
+		return m
+	}
+	cur, ok := m.o.Core.Current()
+	if !ok {
+		m.setFlash("no session to pin yet", sMuted, 3*time.Second)
+		return m
+	}
+	m.o.Core.Pinned = cur.ID
+	m.setFlash("pinned session "+ShortID(cur.ID)+" · P to unpin", sGreen, 4*time.Second)
+	m.refresh()
+	return m
+}

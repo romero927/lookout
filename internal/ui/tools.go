@@ -71,10 +71,11 @@ func toolStats(s activity.Session) []toolStat {
 			if c.Name == "" || c.User {
 				continue
 			}
-			st := by[c.Name]
+			key := toolKey(c)
+			st := by[key]
 			if st == nil {
-				st = &toolStat{Name: c.Name}
-				by[c.Name] = st
+				st = &toolStat{Name: key}
+				by[key] = st
 			}
 			st.Calls++
 			switch {
@@ -113,6 +114,15 @@ func droppedSteps(s activity.Session) int {
 		n += t.Dropped
 	}
 	return n
+}
+
+// toolKey is the row a call is counted under. Each skill gets its own
+// row, the way each MCP tool does, rather than one "Skill" row for all.
+func toolKey(c activity.Call) string {
+	if c.Name == "Skill" && c.Summary != "" {
+		return "skill: " + strings.TrimPrefix(c.Summary, "/")
+	}
+	return c.Name
 }
 
 // toolLabel shortens MCP tool names: "mcp__github__create_issue" becomes
@@ -258,7 +268,7 @@ func (m *Model) loadTool() {
 	for ti, t := range m.act.Turns {
 		started := false
 		for _, c := range t.Calls {
-			if c.Name != st.Name || c.User || (m.tlFailOnly && !c.Fail) {
+			if toolKey(c) != st.Name || c.User || (m.tlFailOnly && !c.Fail) {
 				continue
 			}
 			if !started {

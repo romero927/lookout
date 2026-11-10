@@ -359,7 +359,7 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "esc", "left", "h", "enter":
 			*focus = false
 			return m, nil
-		case "q", "ctrl+c", "e", "c", "o", "1", "2", "3", "4", "5", "6", "7", "8", "9", "tab", "shift+tab", "?", "s", "R":
+		case "q", "ctrl+c", "e", "c", "o", "1", "2", "3", "4", "5", "6", "7", "8", "9", "tab", "shift+tab", "?", "s", "P", "R":
 		default:
 			var cmd tea.Cmd
 			*view, cmd = view.Update(k)
@@ -383,6 +383,8 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, nil
 	case "s":
 		return m.openPicker(), nil
+	case "P":
+		return m.togglePin(), nil
 	case "tab":
 		m.tab = (m.tab + 1) % len(tabNames)
 		if m.loaded {
@@ -666,11 +668,16 @@ func (m Model) headerParts() (brand string, tabs, right []string) {
 			if short && i != m.tab {
 				label = fmt.Sprint(i + 1)
 			}
+			t := sTab.Render(label)
 			if i == m.tab {
-				tabs = append(tabs, sTabOn.Render(label))
-			} else {
-				tabs = append(tabs, sTab.Render(label))
+				t = sTabOn.Render(label)
 			}
+			// A divider sets the setup panels (skills, files, cheatsheet)
+			// apart from the ones about the session.
+			if i == tabSkills {
+				t = sFaint.Render("│") + t
+			}
+			tabs = append(tabs, t)
 		}
 		return tabs
 	}
@@ -802,6 +809,7 @@ func (m Model) viewHelp() string {
 		"  f             Tools: show failed calls only",
 		"  y             copy an ID (Changes: the file's commit · session picker: the session)",
 		"  s             pick which session to show (a: follow the latest again)",
+		"  P             pin the session shown, or unpin to follow the latest",
 		"  ↑↓ / j k      move · enter to focus the viewer · esc to go back",
 		"  e             edit the selected file in $EDITOR (needs [files] allow_edit = true)",
 		"  o             Files, Changes: open the selected file's folder in your file manager",

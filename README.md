@@ -42,7 +42,7 @@ Lookout is a **dashboard, not a wrapper**:
 
 Full detail for each panel: [docs/panels.md](docs/panels.md).
 
-Keys: `1`–`9` or `tab` switch panels · `s` picks which session to show (`a` in the picker follows the latest again) · `↑↓`/`jk` move · `enter` focuses a viewer · `esc` goes back · `c` copies (Context, Skills, Cheatsheet) · `y` copies an ID (a file's commit in Changes, a session in the picker) · `e` edits (if enabled) · `R` restarts · `?` help · `q` quits.
+Keys: `1`–`9` or `tab` switch panels · `s` picks which session to show (`a` in the picker follows the latest again) · `P` pins the session shown, or unpins · `↑↓`/`jk` move · `enter` focuses a viewer · `esc` goes back · `c` copies (Context, Skills, Cheatsheet) · `y` copies an ID (a file's commit in Changes, a session in the picker) · `e` edits (if enabled) · `R` restarts · `?` help · `q` quits.
 
 **Alerts.** When a limit passes 80% or 95%, or your pace would reach it before the reset, the dashboard rings the terminal bell (tmux marks the window), sends a desktop notification (`notify-send` on Linux, `osascript` on macOS) and shows the alert in the footer. Each alert fires once per limit window, even across restarts and several open dashboards. Tune or turn them off under `[alerts]`.
 
