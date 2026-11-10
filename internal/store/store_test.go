@@ -2,7 +2,9 @@ package store
 
 import (
 	"database/sql"
+	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -143,5 +145,63 @@ func TestOutcomesAndMigration(t *testing.T) {
 	rows, _ := s.Recent(5)
 	if len(rows) != 1 || rows[0].Outcome != OutcomeSmooth {
 		t.Errorf("rows: %+v", rows)
+	}
+}
+
+func TestPrune(t *testing.T) {
+	s, err := Open(filepath.Join(t.TempDir(), "p.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	t0 := time.Date(2026, 1, 10, 10, 0, 0, 0, time.UTC)
+	for i, at := range []time.Time{t0.AddDate(0, 0, -100), t0.AddDate(0, 0, -91), t0.AddDate(0, 0, -89), t0} {
+		sg := strategy.Suggestion{SessionID: "s" + string(rune('a'+i)), Current: "claude-opus-x", Suggested: "sonnet", Action: strategy.Downgrade, Reason: "r", At: at}
+		if _, err := s.LogSuggestion(sg); err != nil {
+			t.Fatal(err)
+		}
+	}
+	n, err := s.Prune(t0.AddDate(0, 0, -90))
+	if err != nil || n != 2 {
+		t.Fatalf("pruned %d, %v; want 2", n, err)
+	}
+	rows, _ := s.Recent(10)
+	if len(rows) != 2 {
+		t.Fatalf("%d rows left, want 2", len(rows))
+	}
+}
+
+func TestOwnerOnly(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix permissions")
+	}
+	dir := t.TempDir()
+	path := filepath.Join(dir, "p.db")
+	// A database left readable by an older version is tightened.
+	for _, p := range []string{path, path + "-shm"} {
+		if err := os.WriteFile(p, nil, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(p, 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	os.Remove(path) // start fresh, keeping the stale -shm
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.LogSuggestion(strategy.Suggestion{SessionID: "a", Current: "x", Suggested: "x", Action: strategy.Keep, At: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	for _, p := range []string{path, path + "-wal", path + "-shm"} {
+		fi, err := os.Stat(p)
+		if err != nil {
+			continue
+		}
+		if fi.Mode().Perm() != 0o600 {
+			t.Errorf("%s: mode %o, want 600", filepath.Base(p), fi.Mode().Perm())
+		}
 	}
 }

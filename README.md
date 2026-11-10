@@ -104,7 +104,7 @@ To stop using it, remove the `statusLine` entry from `~/.claude/settings.json`, 
 
 Highlights:
 
-- `[models]`: every threshold (repeated edits, tool errors, multi-file turns, long prompts, frustration phrases, simple-turn streaks, short prompts, context %) and the model tier order (`model_tiers = ["haiku", "sonnet", "opus"]`).
+- `[models]`: every threshold (repeated edits, tool errors, multi-file turns, long prompts, frustration phrases, simple-turn streaks, short prompts, context %) and the model tier order (`model_tiers = ["haiku", "sonnet", "opus"]`), and how long the suggestion log keeps rows (`log_days = 90`).
 - `[usage.price_weights]`: per-model prices used to weight tokens for the session-share estimate, overriding the built-in ones. Keys are substrings of the model ID (the longest match wins), e.g. `"opus-5-5" = { input = 4, output = 20, cache_write = 5, cache_read = 0.20 }`.
 - `[files] allow_edit = true` turns on `e`, which opens the file in `$VISUAL`/`$EDITOR`. A timestamped backup is written to the data directory's `backups/` first, and is discarded if you didn't change anything.
 - `[alerts]`: `bell`, `desktop`, `thresholds` (default `[80, 95]`; `[]` turns them off) and `pace`.
@@ -119,12 +119,12 @@ Lookout writes only to its own config and data directories (run `lookout paths` 
 | File | Directory | What's in it | How long it's kept |
 |---|---|---|---|
 | `config.toml` | config | Your settings. Written only by `lookout config init`. | Until you delete it |
-| `lookout.db` (plus `-wal` and `-shm` files) | data | SQLite log of model suggestions, one row each: time, session ID, current and suggested model, action, the reason and the signals behind it, context tokens, the model you used next and when, and the outcome (`smooth` or `rough`). The reason and signals can name a file (its base name) and, for the short-prompt signal, quote your latest prompt when it is at most `short_prompt_chars` (default 40) characters long. Written by the dashboard. | Until you delete it |
+| `lookout.db` (plus `-wal` and `-shm` files) | data | SQLite log of model suggestions, one row each: time, session ID, current and suggested model, action, the reason and the signals behind it, context tokens, the model you used next and when, and the outcome (`smooth` or `rough`). The reason and signals can name a file (its base name) and, for the short-prompt signal, quote your latest prompt when it is at most `short_prompt_chars` (default 40) characters long. Written by the dashboard, readable only by you. | 90 days (`[models] log_days`; `0` keeps everything). Older rows are deleted when the dashboard starts |
 | `limits/<session-id>.json` | data | What Claude Code passed to the status line for that session: 5-hour and weekly percentages and reset times, up to 720 one-a-minute samples of them (about 12 hours, for the pace), context use, and the cost Claude Code reports. Written by `lookout statusline`. | Deleted after 8 days without an update |
 | `history.json` | data | Per local day: percentage points of the weekly and 5-hour limits used, and the day's 5-hour peak. Also the last reading of each limit window. Written by `lookout statusline`. | 35 days |
 | `alerts.json` | data | Which limit alerts already fired (window, threshold, time), so they don't repeat. Written by the dashboard. | Dropped a week after the window resets |
 | `backups/<path>.<time>.bak` | data | A copy of a file taken before you edit it with `e` (only with `[files] allow_edit = true`). | Removed right away if you changed nothing; otherwise until you delete it |
-| `logs/hook.log` | data | Status line problems: unreadable input, failed saves, and a wrapped command's failure, with that command. | Appended; not rotated |
+| `logs/hook.log`, `logs/hook.log.1` | data | Status line problems: unreadable input, failed saves, and a wrapped command's failure, with that command. | At 1 MB, `hook.log` becomes `hook.log.1`, replacing the older one (about 2 MB at most) |
 
 The first time it runs, Lookout also moves folders left by its old name (`overwatch`) to the locations above. Deleting the config and data directories removes everything.
 

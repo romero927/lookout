@@ -107,6 +107,9 @@ type Models struct {
 	// CompactAtPercent suggests /compact; FreshSessionAtPercent suggests /clear.
 	CompactAtPercent      int `toml:"compact_at_percent"`
 	FreshSessionAtPercent int `toml:"fresh_session_at_percent"`
+
+	// LogDays is how long the suggestion log keeps a row; 0 keeps them all.
+	LogDays int `toml:"log_days"`
 }
 
 // Default returns the built-in configuration.
@@ -136,6 +139,7 @@ func Default() Config {
 			ContextWindowTokens:   200000,
 			CompactAtPercent:      60,
 			FreshSessionAtPercent: 85,
+			LogDays:               90,
 		},
 	}
 }
@@ -198,6 +202,9 @@ func (c *Config) fill() {
 	pos(&s.ContextWindowTokens, ds.ContextWindowTokens)
 	pos(&s.CompactAtPercent, ds.CompactAtPercent)
 	pos(&s.FreshSessionAtPercent, ds.FreshSessionAtPercent)
+	if s.LogDays < 0 { // 0 is allowed: keep everything
+		s.LogDays = ds.LogDays
+	}
 }
 
 // WriteDefault writes a commented default config to path if none exists.
@@ -256,5 +263,6 @@ short_prompt_chars = 40       # prompts this short count as trivial
 context_window_tokens = 200000
 compact_at_percent = 60       # suggest /compact
 fresh_session_at_percent = 85 # suggest a fresh session (/clear)
+log_days = 90                 # delete suggestion log rows older than this; 0 keeps them all
 
 `

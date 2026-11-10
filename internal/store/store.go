@@ -7,7 +7,9 @@ package store
 import (
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -41,9 +43,13 @@ CREATE TABLE IF NOT EXISTS suggestions (
 CREATE INDEX IF NOT EXISTS suggestions_session ON suggestions(session_id, ts_ms);
 `
 
-// Open opens (creating if needed) the database at path.
+// Open opens (creating if needed) the database at path. The log can quote
+// short prompts, so the database and its -wal/-shm files are owner-only.
 func Open(path string) (*Store, error) {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return nil, err
+	}
+	if err := ownerOnly(path); err != nil {
 		return nil, err
 	}
 	db, err := sql.Open("sqlite", "file:"+path+"?_pragma=busy_timeout(3000)&_pragma=journal_mode(WAL)")
@@ -60,6 +66,32 @@ func Open(path string) (*Store, error) {
 		return nil, fmt.Errorf("update %s: %w", path, err)
 	}
 	return &Store{db: db, last: map[string]string{}}, nil
+}
+
+// ownerOnly creates path if it is missing and makes it and any existing
+// -wal/-shm files readable by their owner only. SQLite creates the -wal and
+// -shm files with the database's permissions.
+func ownerOnly(path string) error {
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+	if err != nil {
+		return err
+	}
+	f.Close()
+	for _, p := range []string{path, path + "-wal", path + "-shm"} {
+		if err := os.Chmod(p, 0o600); err != nil && !errors.Is(err, fs.ErrNotExist) {
+			return err
+		}
+	}
+	return nil
+}
+
+// Prune deletes suggestions logged before cutoff and reports how many.
+func (s *Store) Prune(cutoff time.Time) (int64, error) {
+	res, err := s.db.Exec(`DELETE FROM suggestions WHERE ts_ms < ?`, cutoff.UnixMilli())
+	if err != nil {
+		return 0, err
+	}
+	return res.RowsAffected()
 }
 
 // migrate adds columns introduced after the first release.

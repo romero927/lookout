@@ -162,6 +162,11 @@ func cmdTUI(args []string, stderr io.Writer) int {
 	db, dbErr := store.Open(paths.DBFile())
 	if db != nil {
 		defer db.Close()
+		if d := cfg.Models.LogDays; d > 0 {
+			if _, err := db.Prune(time.Now().AddDate(0, 0, -d)); err != nil {
+				hookLog("pruning the suggestion log: %v", err)
+			}
+		}
 	}
 	exe, _ := os.Executable()
 	model := ui.New(ui.Options{
@@ -367,11 +372,19 @@ func cmdPaths(stdout io.Writer) int {
 	return 0
 }
 
+// maxHookLog is the size at which hook.log is moved to hook.log.1, replacing
+// the previous one, so the two together stay under about 2 MB.
+const maxHookLog = 1 << 20
+
 // hookLog appends a line to the log. Commands Claude Code runs (the status
 // line) must stay quiet on stderr, so problems go here.
 func hookLog(format string, a ...any) {
 	_ = os.MkdirAll(paths.LogDir(), 0o700)
-	f, err := os.OpenFile(filepath.Join(paths.LogDir(), "hook.log"), os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
+	name := filepath.Join(paths.LogDir(), "hook.log")
+	if fi, err := os.Stat(name); err == nil && fi.Size() >= maxHookLog {
+		_ = os.Rename(name, name+".1")
+	}
+	f, err := os.OpenFile(name, os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0o600)
 	if err != nil {
 		return
 	}

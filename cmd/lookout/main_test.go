@@ -121,3 +121,24 @@ func TestPathsListsEverything(t *testing.T) {
 		}
 	}
 }
+
+func TestHookLogRotates(t *testing.T) {
+	statusEnv(t)
+	dir := paths.LogDir()
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	log := filepath.Join(dir, "hook.log")
+	if err := os.WriteFile(log, bytes.Repeat([]byte("x"), maxHookLog), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	hookLog("after rotation")
+	old, err := os.Stat(log + ".1")
+	if err != nil || old.Size() != maxHookLog {
+		t.Fatalf("hook.log.1: %v %v", old, err)
+	}
+	b, _ := os.ReadFile(log)
+	if !strings.Contains(string(b), "after rotation") || len(b) > 200 {
+		t.Fatalf("new hook.log = %q", b)
+	}
+}

@@ -41,6 +41,16 @@ func TestLoad(t *testing.T) {
 				t.Fatalf("price weights = %+v (negative entries should be dropped)", c.Usage.PriceWeights)
 			}
 		}},
+		{name: "log_days 0 keeps everything", content: ptr("[models]\nlog_days = 0\n"), check: func(t *testing.T, c Config) {
+			if c.Models.LogDays != 0 {
+				t.Fatalf("log_days = %d", c.Models.LogDays)
+			}
+		}},
+		{name: "negative log_days falls back", content: ptr("[models]\nlog_days = -5\n"), check: func(t *testing.T, c Config) {
+			if c.Models.LogDays != 90 {
+				t.Fatalf("log_days = %d", c.Models.LogDays)
+			}
+		}},
 		{name: "files edit opt-in", content: ptr("[files]\nallow_edit = true\n"), check: func(t *testing.T, c Config) {
 			if !c.Files.AllowEdit {
 				t.Fatal("allow_edit not set")
