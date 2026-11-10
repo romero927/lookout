@@ -50,7 +50,7 @@ Keys: `1`–`9` or `tab` switch panels · `s` picks which session to show (`a` i
 
 ## Install
 
-Requires Go 1.26+ to build from source. With `GOTOOLCHAIN=auto`, the default, an older `go` downloads 1.26 automatically. The result is a single static binary (pure Go, no cgo).
+Requires Go 1.26+ to build from source. That minimum comes from the pure-Go SQLite driver (`modernc.org/sqlite`) and its dependencies; Lookout's own code needs only Go 1.22. With `GOTOOLCHAIN=auto`, the default, an older `go` downloads 1.26 automatically. The result is a single static binary (pure Go, no cgo).
 
 ```sh
 go install github.com/romero927/lookout/cmd/lookout@latest
