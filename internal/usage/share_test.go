@@ -87,3 +87,15 @@ func TestSnapshotCostsBilledSessionsOnly(t *testing.T) {
 		t.Errorf("no Billed should mean no costs: %+v", s.Today)
 	}
 }
+
+func TestWeightCacheWriteTTL(t *testing.T) {
+	// Opus 5.5: 5-minute writes at $5/M, 1-hour writes at twice input ($8/M).
+	u := transcript.Usage{CacheCreate: 3_000_000, CacheCreate1h: 2_000_000}
+	if w := Weight("claude-opus-5-5", u); math.Abs(w-(5+16)) > 1e-9 {
+		t.Errorf("weight %.3f, want 21", w)
+	}
+	// An override without a 1-hour rate falls back to twice its input.
+	if w := weigh(Price{Input: 1, CacheWrite: 3}, u); math.Abs(w-(3+4)) > 1e-9 {
+		t.Errorf("override weight %.3f, want 7", w)
+	}
+}

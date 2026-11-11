@@ -67,8 +67,11 @@ type Usage struct {
 	Input       int64 // uncached input tokens
 	Output      int64 // output tokens (includes thinking)
 	CacheCreate int64 // tokens written to the prompt cache
-	CacheRead   int64 // tokens read from the prompt cache
-	Thinking    int64 // portion of Output spent thinking, when reported
+	// CacheCreate1h is the part of CacheCreate written with a 1-hour TTL,
+	// which is billed at a higher rate than the default 5-minute TTL.
+	CacheCreate1h int64
+	CacheRead     int64 // tokens read from the prompt cache
+	Thinking      int64 // portion of Output spent thinking, when reported
 }
 
 // Total is every token category added together.
@@ -82,6 +85,7 @@ func (u *Usage) Add(o Usage) {
 	u.Input += o.Input
 	u.Output += o.Output
 	u.CacheCreate += o.CacheCreate
+	u.CacheCreate1h += o.CacheCreate1h
 	u.CacheRead += o.CacheRead
 	u.Thinking += o.Thinking
 }
@@ -92,6 +96,7 @@ func (u *Usage) Max(o Usage) {
 	u.Input = max(u.Input, o.Input)
 	u.Output = max(u.Output, o.Output)
 	u.CacheCreate = max(u.CacheCreate, o.CacheCreate)
+	u.CacheCreate1h = max(u.CacheCreate1h, o.CacheCreate1h)
 	u.CacheRead = max(u.CacheRead, o.CacheRead)
 	u.Thinking = max(u.Thinking, o.Thinking)
 }

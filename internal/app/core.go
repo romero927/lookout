@@ -53,7 +53,7 @@ func New(cfg config.Config, cwdFilter string, onChange func()) *Core {
 	if len(cfg.Usage.PriceWeights) > 0 {
 		prices := make(map[string]usage.Price, len(cfg.Usage.PriceWeights))
 		for k, w := range cfg.Usage.PriceWeights {
-			prices[k] = usage.Price{Input: w.Input, Output: w.Output, CacheWrite: w.CacheWrite, CacheRead: w.CacheRead}
+			prices[k] = usage.Price{Input: w.Input, Output: w.Output, CacheWrite: w.CacheWrite, CacheWrite1h: w.CacheWrite1h, CacheRead: w.CacheRead}
 		}
 		c.Agg.SetPrices(prices)
 	}

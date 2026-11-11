@@ -35,8 +35,8 @@ func TestLoad(t *testing.T) {
 				t.Fatalf("block hours = %d", c.Usage.BlockHours)
 			}
 		}},
-		{name: "price weights override", content: ptr("[usage.price_weights]\n\"opus\" = { input = 1, output = 2, cache_write = 3, cache_read = 4 }\n\"bad\" = { input = -1 }\n"), check: func(t *testing.T, c Config) {
-			want := map[string]PriceWeight{"opus": {1, 2, 3, 4}}
+		{name: "price weights override", content: ptr("[usage.price_weights]\n\"opus\" = { input = 1, output = 2, cache_write = 3, cache_write_1h = 5, cache_read = 4 }\n\"bad\" = { input = -1 }\n"), check: func(t *testing.T, c Config) {
+			want := map[string]PriceWeight{"opus": {Input: 1, Output: 2, CacheWrite: 3, CacheWrite1h: 5, CacheRead: 4}}
 			if !reflect.DeepEqual(c.Usage.PriceWeights, want) {
 				t.Fatalf("price weights = %+v (negative entries should be dropped)", c.Usage.PriceWeights)
 			}

@@ -53,10 +53,10 @@ func TestParseLine(t *testing.T) {
 		},
 		{
 			name:   "assistant with usage and unknown fields",
-			line:   `{"type":"assistant","uuid":"a","sessionId":"s","timestamp":"2026-01-10T10:00:00Z","requestId":"r1","newTopLevel":true,"message":{"id":"msg_a","model":"claude-x","stop_reason":"end_turn","content":[{"type":"text","text":"hi"},{"type":"mystery_block","data":1}],"usage":{"input_tokens":1,"output_tokens":2,"cache_creation_input_tokens":3,"cache_read_input_tokens":4,"output_tokens_details":{"thinking_tokens":1},"iterations":[{}]}}}`,
+			line:   `{"type":"assistant","uuid":"a","sessionId":"s","timestamp":"2026-01-10T10:00:00Z","requestId":"r1","newTopLevel":true,"message":{"id":"msg_a","model":"claude-x","stop_reason":"end_turn","content":[{"type":"text","text":"hi"},{"type":"mystery_block","data":1}],"usage":{"input_tokens":1,"output_tokens":2,"cache_creation_input_tokens":3,"cache_creation":{"ephemeral_5m_input_tokens":1,"ephemeral_1h_input_tokens":2},"cache_read_input_tokens":4,"output_tokens_details":{"thinking_tokens":1},"iterations":[{}]}}}`,
 			status: StatusOK,
 			check: func(t *testing.T, r Record) {
-				want := Usage{Input: 1, Output: 2, CacheCreate: 3, CacheRead: 4, Thinking: 1}
+				want := Usage{Input: 1, Output: 2, CacheCreate: 3, CacheCreate1h: 2, CacheRead: 4, Thinking: 1}
 				if r.Usage != want || !r.HasUsage {
 					t.Fatalf("usage = %+v", r.Usage)
 				}

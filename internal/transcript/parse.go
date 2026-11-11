@@ -172,6 +172,12 @@ func parseAssistant(rec *Record, msg []byte) bool {
 				rec.Usage.CacheCreate = integer(v)
 			case "cache_read_input_tokens":
 				rec.Usage.CacheRead = integer(v)
+			case "cache_creation":
+				eachField(v, func(k, v []byte) {
+					if string(k) == "ephemeral_1h_input_tokens" {
+						rec.Usage.CacheCreate1h = integer(v)
+					}
+				})
 			case "output_tokens_details":
 				eachField(v, func(k, v []byte) {
 					if string(k) == "thinking_tokens" {

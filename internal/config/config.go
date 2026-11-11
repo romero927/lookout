@@ -56,7 +56,9 @@ type PriceWeight struct {
 	Input      float64 `toml:"input"`
 	Output     float64 `toml:"output"`
 	CacheWrite float64 `toml:"cache_write"`
-	CacheRead  float64 `toml:"cache_read"`
+	// CacheWrite1h is the 1-hour cache write price; 0 means twice Input.
+	CacheWrite1h float64 `toml:"cache_write_1h"`
+	CacheRead    float64 `toml:"cache_read"`
 }
 
 // Alerts controls limit notifications from the dashboard.
@@ -195,7 +197,7 @@ func (c *Config) fill() {
 	pos(&c.Usage.BurnWindowMinutes, d.Usage.BurnWindowMinutes)
 	pos(&c.Usage.BlockHours, d.Usage.BlockHours)
 	for k, w := range c.Usage.PriceWeights {
-		if w.Input < 0 || w.Output < 0 || w.CacheWrite < 0 || w.CacheRead < 0 {
+		if w.Input < 0 || w.Output < 0 || w.CacheWrite < 0 || w.CacheWrite1h < 0 || w.CacheRead < 0 {
 			delete(c.Usage.PriceWeights, k)
 		}
 	}
@@ -259,7 +261,9 @@ block_hours = 5            # rolling window and estimated usage block length
 # override a model here if they change. Keys are substrings of the model ID;
 # the longest match wins.
 # [usage.price_weights]
-# "opus-5-5" = { input = 4, output = 20, cache_write = 5, cache_read = 0.20 }
+# cache_write is the 5-minute cache rate; cache_write_1h (default: twice input)
+# is the 1-hour rate Claude Code usually uses.
+# "opus-5-5" = { input = 4, output = 20, cache_write = 5, cache_write_1h = 8, cache_read = 0.20 }
 
 [files]
 allow_edit = false         # true enables "e" to open a file in $EDITOR (a backup is made first)
