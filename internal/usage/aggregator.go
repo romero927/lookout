@@ -54,6 +54,10 @@ type Aggregator struct {
 	sorted   bool
 	sessions map[string]*Session
 	prices   map[string]Price // config overrides, by model ID substring
+
+	rev       int               // bumped whenever entries change
+	totals    map[string]Totals // AllTotals' result, valid while totalsRev == rev
+	totalsRev int
 }
 
 // New returns an empty Aggregator.
@@ -122,6 +126,7 @@ func (a *Aggregator) Add(r transcript.Record, src transcript.Source) {
 		// Another content block of the same response: same usage, maybe
 		// more complete. Keep the field-wise maximum.
 		a.entries[i].Usage.Max(r.Usage)
+		a.rev++
 		return
 	}
 	e := Entry{Time: r.Timestamp, SessionID: sid, Model: r.Model, Subagent: sub, Usage: r.Usage, key: key}
@@ -130,6 +135,7 @@ func (a *Aggregator) Add(r transcript.Record, src transcript.Source) {
 	}
 	a.index[key] = len(a.entries)
 	a.entries = append(a.entries, e)
+	a.rev++
 }
 
 // Sessions returns all known sessions, most recently active first.

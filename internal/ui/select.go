@@ -24,7 +24,7 @@ type selection struct {
 // pane is the area a drag starting at column x is kept within.
 func (m Model) pane(x int) [4]int {
 	y0 := lipgloss.Height(m.viewHeader())
-	y1 := m.height - lipgloss.Height(m.viewFooter()) - 1
+	y1 := m.height - footerHeight - 1
 	b := [4]int{0, m.width, y0, max(y0, y1)}
 	split := !m.help && m.loaded &&
 		(m.tab == tabActivity || m.tab == tabChanges || m.tab == tabSkills || m.tab == tabFiles || m.tab == tabTools)
@@ -57,14 +57,7 @@ func (m Model) mouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	case msg.Action == tea.MouseActionMotion:
 		// The pointer moved with no button down: highlight the tab or
 		// session under it.
-		m.hoverTab, m.hoverStrip = -1, ""
-		switch {
-		case m.help:
-		case msg.Y == 0:
-			m.hoverTab = m.tabAt(msg.X)
-		case msg.Y == m.stripRow():
-			m.hoverStrip = m.stripAt(msg.X)
-		}
+		m.hoverTab, m.hoverStrip = m.hoverAt(msg.X, msg.Y)
 	case msg.Action == tea.MouseActionRelease && m.sel.on:
 		m.sel.to = m.sel.clamp(msg.X, msg.Y)
 		if m.sel.from == m.sel.to {
@@ -206,7 +199,7 @@ func (m Model) click(x, y int) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	top := lipgloss.Height(m.viewHeader())
-	h := max(3, m.height-top-lipgloss.Height(m.viewFooter()))
+	h := max(3, m.height-top-footerHeight)
 	if y < top || y >= top+h {
 		return m, nil
 	}
@@ -257,4 +250,27 @@ func (m Model) click(x, y int) (tea.Model, tea.Cmd) {
 	nm, c1 := p.reload(m, "")
 	nm, c2 := p.reload(nm.(Model), "enter")
 	return nm, tea.Batch(c1, c2)
+}
+
+// hoverAt is the tab, or the session in the strip, under the pointer.
+func (m Model) hoverAt(x, y int) (tab int, session string) {
+	switch {
+	case m.help || !m.loaded:
+	case y == 0:
+		return m.tabAt(x), ""
+	case y == m.stripRow():
+		return -1, m.stripAt(x)
+	}
+	return -1, ""
+}
+
+// idleMotion reports whether msg is a mouse movement that changes nothing:
+// no drag in progress, and the same tab or session (or none) under the
+// pointer as before.
+func (m Model) idleMotion(msg tea.MouseMsg) bool {
+	if msg.Action != tea.MouseActionMotion || m.sel.on || msg.Button != tea.MouseButtonNone {
+		return false
+	}
+	tab, session := m.hoverAt(msg.X, msg.Y)
+	return tab == m.hoverTab && session == m.hoverStrip
 }

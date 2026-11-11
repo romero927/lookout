@@ -36,6 +36,16 @@ type Core struct {
 	LiveDir string
 	live    liveCache
 
+	ctxMu   sync.Mutex
+	ctxSeen map[string]reportedCtx // see reportedContext
+
+	snapMu  sync.Mutex
+	snap    usage.Snapshot
+	snapID  string
+	snapRev int
+	snapAt  time.Time
+	snapOK  bool
+
 	billedMu sync.Mutex
 	billed   func(string) (limits.Reported, bool) // pay-as-you-go sessions, cached
 	billedAt time.Time
@@ -252,6 +262,16 @@ func (c *Core) Resolve(id string) (string, bool) {
 // Snapshot computes usage for the current session.
 func (c *Core) Snapshot(now time.Time) (usage.Snapshot, usage.Session, bool) {
 	s, ok := c.Current()
+	// Adding up every response takes a few milliseconds. With no new usage,
+	// the same session and a recent result, reuse it: its figures (today,
+	// the last 5 hours, the recent pace) barely move in a few seconds.
+	c.snapMu.Lock()
+	defer c.snapMu.Unlock()
+	if rev := c.Agg.Rev(); c.snapOK && rev == c.snapRev && s.ID == c.snapID &&
+		now.Sub(c.snapAt) >= 0 && now.Sub(c.snapAt) < snapshotReuse {
+		return c.snap, s, ok
+	}
+	rev := c.Agg.Rev()
 	snap := c.Agg.Snapshot(now, usage.Options{
 		SessionID:   s.ID,
 		BurnWindow:  time.Duration(c.Cfg.Usage.BurnWindowMinutes) * time.Minute,
@@ -262,8 +282,13 @@ func (c *Core) Snapshot(now time.Time) (usage.Snapshot, usage.Session, bool) {
 			return r.USD, r.At, ok
 		},
 	})
+	c.snap, c.snapID, c.snapRev, c.snapAt, c.snapOK = snap, s.ID, rev, now, true
 	return snap, s, ok
 }
+
+// snapshotReuse is how long Snapshot reuses a result while no new usage
+// arrives.
+const snapshotReuse = 5 * time.Second
 
 // payAsYouGo returns the test for pay-as-you-go sessions, re-reading the
 // saved limit files at most every 10 seconds.

@@ -100,12 +100,16 @@ func (c *Core) Sessions(now time.Time, recent int) []Overview {
 			continue
 		}
 		seen[s.ID] = true
-		o := c.overview(s, now)
+		l, isLive := live[s.ID]
+		if !isLive && len(closed) >= recent {
+			continue // not listed: skip the work
+		}
+		o := c.overview(s, now, isLive)
 		o.Tokens = totals[s.ID].Tokens
 		if r, ok := billed(s.ID); ok && r.USD > 0 {
 			o.Cost = r.USD
 		}
-		if l, ok := live[s.ID]; ok {
+		if isLive {
 			applyLive(&o, l, now)
 			running = append(running, o)
 		} else if len(closed) < recent && (o.Tokens > 0 || o.Brief.First != "") {
@@ -131,19 +135,16 @@ func (c *Core) Sessions(now time.Time, recent int) []Overview {
 	return append(running, closed...)
 }
 
-// overview fills in what the transcript says about s.
-func (c *Core) overview(s usage.Session, now time.Time) Overview {
+// overview fills in what the transcript says about s. live says a Claude
+// Code process has it open, so what it last reported may still change.
+func (c *Core) overview(s usage.Session, now time.Time, live bool) Overview {
 	o := Overview{Session: s, State: StateClosed, Since: s.LastActivity}
 	if c.Activity != nil {
 		o.Brief = c.Activity.Brief(s.ID)
 	}
 	if c.Strategy != nil {
 		st, _ := c.Strategy.State(s.ID)
-		var reported *float64
-		if p, ok := limits.Load(limits.FileFor(paths.LimitsDir(), s.ID)).ContextPercent(now, 30*time.Minute); ok {
-			reported = &p
-		}
-		o.Context = strategy.Context(st, c.Cfg.Models, reported)
+		o.Context = strategy.Context(st, c.Cfg.Models, c.reportedContext(s.ID, now, live))
 	}
 	return o
 }
@@ -209,4 +210,29 @@ func (c *Core) liveSession(id string) (LiveSession, bool) {
 		}
 	}
 	return LiveSession{}, false
+}
+
+// reportedContext is the context use Claude Code last reported for a
+// session through the status line, or nil. A closed session's report is
+// read once; a running one's at most every two seconds.
+func (c *Core) reportedContext(id string, now time.Time, live bool) *float64 {
+	c.ctxMu.Lock()
+	defer c.ctxMu.Unlock()
+	if r, ok := c.ctxSeen[id]; ok && (!live || now.Sub(r.at) < 2*time.Second) && !now.Before(r.at) {
+		return r.pct
+	}
+	var pct *float64
+	if p, ok := limits.Load(limits.FileFor(paths.LimitsDir(), id)).ContextPercent(now, 30*time.Minute); ok {
+		pct = &p
+	}
+	if c.ctxSeen == nil {
+		c.ctxSeen = map[string]reportedCtx{}
+	}
+	c.ctxSeen[id] = reportedCtx{pct: pct, at: now}
+	return pct
+}
+
+type reportedCtx struct {
+	pct *float64
+	at  time.Time
 }

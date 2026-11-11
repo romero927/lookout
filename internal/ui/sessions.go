@@ -16,7 +16,6 @@ import (
 )
 
 const (
-	maxPick = 40
 	// maxRecent is how many closed sessions the Sessions panel lists.
 	maxRecent = 12
 )
@@ -24,7 +23,7 @@ const (
 // refreshSessions re-reads every session's state and notes which ones
 // need you or finished while another session was on screen.
 func (m *Model) refreshSessions(now time.Time) {
-	m.ovs = m.o.Core.Sessions(now, maxPick)
+	m.ovs = m.o.Core.Sessions(now, maxRecent)
 	m.share5h = map[string]float64{}
 	if five, _ := m.limits.Paces(now); five != nil && !five.Expired {
 		for _, o := range m.ovs {

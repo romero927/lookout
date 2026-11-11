@@ -11,10 +11,12 @@ import (
 // window is too short for one, it scrolls, and a line at the bottom says
 // how much is hidden.
 
+// footerHeight is the footer's height: always one line.
+const footerHeight = 1
+
 // bodyHeight is how many lines the panel gets between header and footer.
 func (m Model) bodyHeight() int {
-	// The footer is always one line (and asks canScroll, which asks this).
-	return max(3, m.height-lipgloss.Height(m.viewHeader())-1)
+	return max(3, m.height-lipgloss.Height(m.viewHeader())-footerHeight)
 }
 
 // page is the full text of a scrolling panel.
@@ -31,18 +33,18 @@ func (m Model) page() string {
 // scrolled shows the part of a page that fits in h lines, from the
 // panel's scroll position, with a hint on the last line when more is
 // hidden below.
-func (m Model) scrolled(page string, h int) string {
+func (m Model) scrolled(page string, h int) (string, bool) {
 	lines := pageLines(page)
 	if len(lines) <= h {
-		return page
+		return page, false
 	}
 	off := min(max(0, m.scroll[m.tab]), maxScroll(len(lines), h))
 	if off+h >= len(lines) {
-		return strings.Join(lines[off:], "\n") // the end: no hint
+		return strings.Join(lines[off:], "\n"), true // the end: no hint
 	}
 	end := off + h - 1 // the last line is the hint
 	hint := fmt.Sprintf("↓ %d more %s · ↑↓ or the mouse wheel to scroll", len(lines)-end, map[bool]string{true: "line", false: "lines"}[len(lines)-end == 1])
-	return strings.Join(append(lines[off:end:end], sMuted.Render(clip(hint, m.width))), "\n")
+	return strings.Join(append(lines[off:end:end], sMuted.Render(clip(hint, m.width))), "\n"), true
 }
 
 // maxScroll is the furthest a page of n lines scrolls in h lines: the
@@ -77,13 +79,9 @@ func (m Model) scrollKey(key string) Model {
 	return m
 }
 
-// canScroll reports whether the panel on screen is a page too long for it.
-func (m Model) canScroll() bool {
-	if m.tab != tabUsage && m.tab != tabModels {
-		return false
-	}
-	return len(pageLines(m.page())) > m.bodyHeight()
-}
+// canScroll reports whether the panel being drawn is a page too long for
+// the window. render works it out while drawing the page.
+func (m Model) canScroll() bool { return m.overflow }
 
 // pageLines splits a page into lines, leaving out blank lines at the end.
 func pageLines(page string) []string {

@@ -186,6 +186,9 @@ type Model struct {
 	prevShown  string               // the session on screen before the last refresh
 	scroll     map[int]int          // how far Usage and Models are scrolled down, in lines
 
+	vc       *viewCache // the last screen drawn, until the next change
+	overflow bool       // while drawing: the page on screen is taller than the window
+
 	// Under the mouse pointer, to highlight what a click would pick.
 	hoverTab   int    // a tab, or -1
 	hoverStrip string // a session in the strip under the tabs, or ""
@@ -232,7 +235,7 @@ type Model struct {
 
 // New creates the model.
 func New(o Options) Model {
-	m := Model{o: o, tab: tabUsage, hoverTab: -1, now: time.Now(), shareFive: -1, shareWeek: -1, stab: &strategy.Stabilizer{}, gView: viewport.New(40, 10), cView: viewport.New(40, 10), aView: viewport.New(40, 10), sView: viewport.New(40, 10), tlView: viewport.New(40, 10)}
+	m := Model{o: o, tab: tabUsage, hoverTab: -1, vc: &viewCache{}, now: time.Now(), shareFive: -1, shareWeek: -1, stab: &strategy.Stabilizer{}, gView: viewport.New(40, 10), cView: viewport.New(40, 10), aView: viewport.New(40, 10), sView: viewport.New(40, 10), tlView: viewport.New(40, 10)}
 	if t := tabFor(o.Tab); t >= 0 {
 		m.tab = t
 	}
@@ -258,6 +261,19 @@ func (m *Model) setFlash(s string, st lipgloss.Style, d time.Duration) {
 
 // Update handles messages.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	// The terminal reports every mouse movement (for the hover highlight),
+	// often 100 a second. One that changes nothing on screen is dropped
+	// here, before it costs a redraw.
+	if mm, ok := msg.(tea.MouseMsg); ok && m.idleMotion(mm) {
+		return m, nil
+	}
+	if m.vc != nil {
+		m.vc.ok = false
+	}
+	return m.update(msg)
+}
+
+func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
@@ -696,7 +712,21 @@ func (m Model) listWidth() int {
 
 // View renders the screen.
 func (m Model) View() string {
-	return m.sel.highlight(m.render())
+	if m.vc != nil && m.vc.ok {
+		return m.vc.out
+	}
+	out := m.sel.highlight(m.render())
+	if m.vc != nil {
+		m.vc.out, m.vc.ok = out, true
+	}
+	return out
+}
+
+// viewCache keeps the last screen drawn, so View can return it again when
+// nothing has changed since. It is shared by every copy of the Model.
+type viewCache struct {
+	out string
+	ok  bool
 }
 
 // render draws the screen; View adds any mouse selection on top.
@@ -705,8 +735,7 @@ func (m Model) render() string {
 		return "starting lookout…"
 	}
 	header := m.viewHeader()
-	footer := m.viewFooter()
-	bodyH := max(3, m.height-lipgloss.Height(header)-lipgloss.Height(footer))
+	bodyH := max(3, m.height-lipgloss.Height(header)-footerHeight)
 	var body string
 	switch {
 	case m.help:
@@ -718,7 +747,7 @@ func (m Model) render() string {
 	default:
 		switch m.tab {
 		case tabUsage:
-			body = m.scrolled(m.viewUsage(), bodyH)
+			body, m.overflow = m.scrolled(m.viewUsage(), bodyH)
 		case tabChanges:
 			body = m.viewChanges(bodyH)
 		case tabActivity:
@@ -730,7 +759,7 @@ func (m Model) render() string {
 		case tabSkills:
 			body = m.viewSkills(bodyH)
 		case tabModels:
-			body = m.scrolled(m.viewModels(), bodyH)
+			body, m.overflow = m.scrolled(m.viewModels(), bodyH)
 		case tabTools:
 			body = m.viewTools(bodyH)
 		case tabFiles:
@@ -739,6 +768,7 @@ func (m Model) render() string {
 			body = m.viewSessions(bodyH)
 		}
 	}
+	footer := m.viewFooter()
 	body = lipgloss.NewStyle().MaxHeight(bodyH).Height(bodyH).Render(body)
 	return lipgloss.NewStyle().MaxWidth(m.width).MaxHeight(m.height).Render(
 		lipgloss.JoinVertical(lipgloss.Left, header, body, footer))

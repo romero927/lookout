@@ -123,10 +123,15 @@ type Totals struct {
 	Cost   float64 // the tokens at API list prices, in dollars
 }
 
-// AllTotals returns every session's totals, by session ID, in one pass.
+// AllTotals returns every session's totals, by session ID. They are
+// worked out again only after new usage arrives. The map is shared: don't
+// change it.
 func (a *Aggregator) AllTotals() map[string]Totals {
 	a.mu.Lock()
 	defer a.mu.Unlock()
+	if a.totals != nil && a.totalsRev == a.rev {
+		return a.totals
+	}
 	prices := map[string]Price{}
 	out := map[string]Totals{}
 	for _, e := range a.entries {
@@ -140,5 +145,14 @@ func (a *Aggregator) AllTotals() map[string]Totals {
 		t.Cost += weigh(p, e.Usage)
 		out[e.SessionID] = t
 	}
+	a.totals, a.totalsRev = out, a.rev
 	return out
+}
+
+// Rev changes whenever usage is added, so callers can tell whether a result
+// worked out from it is still current.
+func (a *Aggregator) Rev() int {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.rev
 }
