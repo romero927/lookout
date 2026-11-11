@@ -265,7 +265,7 @@ func cmdStats(args []string, stdout, stderr io.Writer) int {
 	if showCost {
 		fmt.Fprintf(stdout, "\nCost: session %s (Claude Code) · today %s · last %dh %s\n", limits.Money(*st.CostUSD),
 			est(snap.Today.Cost), cfg.Usage.BlockHours, est(snap.Rolling.Cost))
-		fmt.Fprintln(stdout, "  ~ = estimated: pay-as-you-go sessions' tokens at Anthropic's API list prices")
+		fmt.Fprintln(stdout, "  ~ = estimated: pay-as-you-go sessions' tokens at Anthropic's API list prices, scaled to Claude Code's per-session cost")
 	}
 
 	fmt.Fprintf(stdout, "\nBurn: %s tok/min (%s excl. cache reads, %s output) over the last %dm\n", ui.Rate(snap.BurnPerMin), ui.Rate(snap.FreshPerMin), ui.Rate(snap.OutputPerMin), cfg.Usage.BurnWindowMinutes)

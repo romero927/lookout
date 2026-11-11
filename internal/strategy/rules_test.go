@@ -16,6 +16,7 @@ const (
 	opus   = "claude-opus-test"
 	sonnet = "claude-sonnet-test"
 	haiku  = "claude-haiku-test"
+	fable  = "claude-fable-test"
 )
 
 // turn builds an active turn.
@@ -161,10 +162,33 @@ func TestEvaluate(t *testing.T) {
 		},
 		{
 			name: "upgrade signals on top tier keep",
+			st: state(fable,
+				turn(fable, "still broken", tools(4)),
+			),
+			action: Keep, signal: "frustration", reasonHas: "top tier",
+		},
+		{
+			name: "upgrade signals on opus suggest fable",
 			st: state(opus,
 				turn(opus, "still broken", tools(4)),
 			),
-			action: Keep, signal: "frustration", reasonHas: "top tier",
+			action: Upgrade, suggested: "fable", signal: "frustration",
+		},
+		{
+			name: "two signals on sonnet jump to opus, not fable",
+			st: state(sonnet,
+				turn(sonnet, "this doesn't work", errs(3, 0)),
+			),
+			action: Upgrade, suggested: "opus",
+		},
+		{
+			name: "simple streak on fable downgrades to opus",
+			st: state(fable,
+				turn(fable, "rename the variable foo to bar in util"),
+				turn(fable, "now add a doc comment to that function"),
+				turn(fable, "and update the changelog line for it", edits("/p/CHANGELOG.md")),
+			),
+			action: Downgrade, suggested: "opus", signal: "simple-streak", reasonHas: "on fable",
 		},
 		{
 			name: "simple streak on opus downgrades",
@@ -224,10 +248,10 @@ func TestEvaluate(t *testing.T) {
 		},
 		{
 			name: "upgrade beats downgrade",
-			st: state(opus,
-				turn(opus, "a"),
-				turn(opus, "b"),
-				turn(opus, "doesn't work"),
+			st: state(fable,
+				turn(fable, "a"),
+				turn(fable, "b"),
+				turn(fable, "doesn't work"),
 			),
 			action: Keep, signal: "frustration",
 		},
@@ -241,9 +265,9 @@ func TestEvaluate(t *testing.T) {
 		},
 		{
 			name:   "custom tiers",
-			st:     state("claude-fable-test", turn("claude-fable-test", "what's 2+2?"), turn("claude-fable-test", "and 3+3?")),
-			cfg:    func(c *config.Models) { c.ModelTiers = []string{"haiku", "sonnet", "opus", "fable"} },
-			action: Downgrade, suggested: "opus",
+			st:     state(opus, turn(opus, "what's 2+2?"), turn(opus, "and 3+3?")),
+			cfg:    func(c *config.Models) { c.ModelTiers = []string{"sonnet", "opus"} },
+			action: Downgrade, suggested: "sonnet",
 		},
 		{
 			name: "inactive turns are ignored",
@@ -473,8 +497,10 @@ func TestEvaluateEffort(t *testing.T) {
 	}{
 		{"struggling at medium raises effort first", struggling(sonnet, "medium"), Extra{}, RaiseEffort, "high", "/effort high"},
 		{"struggling at high switches model", struggling(sonnet, "high"), Extra{}, Upgrade, "opus", "/model opus"},
-		{"struggling on top model raises effort", struggling(opus, "high"), Extra{}, RaiseEffort, "xhigh", "/effort xhigh"},
-		{"struggling on top model at top effort keeps", struggling(opus, "xhigh"), Extra{}, Keep, opus, ""},
+		{"struggling on opus at high raises effort before fable", struggling(opus, "high"), Extra{}, RaiseEffort, "xhigh", "/effort xhigh"},
+		{"struggling on opus at top effort switches to fable", struggling(opus, "xhigh"), Extra{}, Upgrade, "fable", "/model fable"},
+		{"struggling on top model raises effort", struggling(fable, "high"), Extra{}, RaiseEffort, "xhigh", "/effort xhigh"},
+		{"struggling on top model at top effort keeps", struggling(fable, "xhigh"), Extra{}, Keep, fable, ""},
 		{"no effort recorded upgrades as before", struggling(sonnet, ""), Extra{}, Upgrade, "opus", "/model opus"},
 		{"struggling near limit does not raise", struggling(sonnet, "medium"), Extra{Pressure: PressureOver, PressureDetail: "At this pace you'll run out"}, Keep, sonnet, ""},
 		{"simple on top model at high lowers effort", simple(opus, "high"), Extra{}, LowerEffort, "medium", "/effort medium"},

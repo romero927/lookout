@@ -111,7 +111,8 @@ type Models struct {
 	// FrustrationPhrases are matched case-insensitively against the latest prompt.
 	FrustrationPhrases []string `toml:"frustration_phrases"`
 
-	// SimpleTurnStreak: consecutive simple, successful turns on the top tier.
+	// SimpleTurnStreak: consecutive simple, successful turns on a heavy tier
+	// (the top tier, or the top two when there are four or more).
 	SimpleTurnStreak int `toml:"simple_turn_streak"`
 	// SimpleMaxToolCalls / SimpleMaxOutputTokens define a "simple" turn.
 	SimpleMaxToolCalls    int `toml:"simple_max_tool_calls"`
@@ -137,7 +138,7 @@ func Default() Config {
 		Files:  Files{AllowEdit: false, ExtraFiles: []string{}},
 		Alerts: Alerts{Bell: true, Desktop: true, Thresholds: []float64{80, 95}, Pace: true},
 		Models: Models{
-			ModelTiers:            []string{"haiku", "sonnet", "opus"},
+			ModelTiers:            []string{"haiku", "sonnet", "opus", "fable"},
 			EffortLevels:          []string{"low", "medium", "high", "xhigh"},
 			DefaultEffort:         "medium",
 			RecentTurns:           3,
@@ -279,7 +280,7 @@ pace = true                # alert when the current pace runs out before the res
 check = false              # true asks GitHub once a day for a newer release (Lookout's only network call)
 
 [models]
-model_tiers = ["haiku", "sonnet", "opus"]   # cheapest -> most capable (/model aliases)
+model_tiers = ["haiku", "sonnet", "opus", "fable"]   # cheapest -> most capable (/model aliases)
 effort_levels = ["low", "medium", "high", "xhigh"]   # lightest -> heaviest (/effort levels); tried before a model switch
 default_effort = "medium"     # simple work at a higher effort is brought back to this
 recent_turns = 3              # upgrade signals look at the last N turns...
@@ -289,7 +290,7 @@ tool_error_threshold = 3      # N failing tool results recently -> upgrade
 multi_file_threshold = 5      # N distinct files edited in one turn -> upgrade
 long_prompt_chars = 1500      # a prompt this long is a large task -> upgrade
 frustration_phrases = ["still broken", "doesn't work", "does not work", "still not working", "still failing", "not working", "same error", "still wrong", "that's wrong", "you broke", "didn't work", "did not work"]
-simple_turn_streak = 3        # N simple, successful turns on the top tier -> downgrade
+simple_turn_streak = 3        # N simple, successful turns on opus or fable -> downgrade
 simple_max_tool_calls = 3
 simple_max_output_tokens = 1500
 short_prompt_chars = 40       # prompts this short count as trivial

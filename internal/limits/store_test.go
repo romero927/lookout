@@ -96,8 +96,11 @@ func TestPayAsYouGoSessions(t *testing.T) {
 	save("sub-1", State{CostUSD: &spent, UpdatedAt: 1, FiveHour: &Window{UsedPercent: 3}})
 	billed := PayAsYouGoSessions(dir)
 	for id, want := range map[string]bool{"api-1": true, "new-1": false, "sub-1": false, "unknown": false} {
-		if got := billed(id); got != want {
+		if _, got := billed(id); got != want {
 			t.Errorf("%s: got %v, want %v", id, got, want)
 		}
+	}
+	if r, _ := billed("api-1"); r.USD != 1.5 || r.At.Unix() != 1 {
+		t.Errorf("api-1 reported %+v, want $1.50 at 1", r)
 	}
 }

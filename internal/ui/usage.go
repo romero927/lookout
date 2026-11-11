@@ -151,7 +151,7 @@ func (m Model) viewUsage() string {
 		out = append(out, "", m.viewModelsToday(min(w, 48)), "", m.viewDays(w))
 	}
 	if showCost {
-		out = append(out, "", sMuted.Render(clip("~ = estimated from tokens at API list prices, pay-as-you-go sessions only", w)),
+		out = append(out, "", sMuted.Render(clip("~ = estimated from tokens at API list prices, scaled to Claude Code's per-session cost", w)),
 			sMuted.Render(clip("the session cost is Claude Code's own figure; discounts aren't known here", w)))
 	}
 	return strings.Join(out, "\n")

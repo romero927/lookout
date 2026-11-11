@@ -4,8 +4,11 @@
 // weights tokens by each model's API list price so that, say, an Opus token
 // counts for more of a limit than a Haiku token. And for pay-as-you-go
 // sessions (Options.Billed) each window carries an estimated cost: tokens
-// priced at those list prices. Claude Code reports only the current
-// session's cost, so these are estimates.
+// priced at those list prices, then scaled to match the cost Claude Code
+// last reported for each session. Claude Code also bills calls it never
+// writes to the transcript (a few percent of a session), which the scaling
+// spreads over that session's responses. Windows cut sessions by time, so
+// these are still estimates.
 package usage
 
 import (
@@ -247,8 +250,10 @@ type Options struct {
 	BlockLength time.Duration
 	Days        int
 	// Billed, when set, picks the pay-as-you-go sessions whose tokens are
-	// priced into each window's Cost. Nil means no costs.
-	Billed func(sessionID string) bool
+	// priced into each window's Cost (ok), with the cost Claude Code last
+	// reported for the session and when (usd is 0 when unknown). Nil means
+	// no costs.
+	Billed func(sessionID string) (usd float64, at time.Time, ok bool)
 }
 
 // Snapshot is everything the Telemetry panel shows.
@@ -267,6 +272,22 @@ type Snapshot struct {
 	ProjectedBlock int64
 	Days           []DayTotal
 	TotalEntries   int
+}
+
+// maxCostScale caps costScale. Calls missing from the transcript add a few
+// percent; far more means the two figures don't describe the same
+// responses.
+const maxCostScale = 1.5
+
+// costScale is the factor that brings a session's list-price estimate up to
+// the cost Claude Code reported for it. It is never below 1: a lower report
+// means Claude Code's count restarted (a resumed session) rather than that
+// the transcript overcounts.
+func costScale(reported, estimate float64) float64 {
+	if reported <= 0 || estimate <= 0 {
+		return 1
+	}
+	return min(max(reported/estimate, 1), maxCostScale)
 }
 
 // Snapshot computes totals as of now.
@@ -304,25 +325,50 @@ func (a *Aggregator) Snapshot(now time.Time, o Options) Snapshot {
 	var burn, burnOut, burnFresh int64
 
 	prices := map[string]Price{}
-	billed := map[string]bool{}
-	costOf := func(e Entry) float64 {
-		if o.Billed == nil {
-			return 0
-		}
-		b, ok := billed[e.SessionID]
-		if !ok {
-			b = o.Billed(e.SessionID)
-			billed[e.SessionID] = b
-		}
-		if !b {
-			return 0
-		}
+	listCost := func(e Entry) float64 {
 		p, ok := prices[e.Model]
 		if !ok {
 			p = a.priceLocked(e.Model)
 			prices[e.Model] = p
 		}
 		return weigh(p, e.Usage)
+	}
+	// scale is, per billed session, what to multiply its list-price cost by
+	// (absent: not billed).
+	scale := map[string]float64{}
+	if o.Billed != nil {
+		type rep struct {
+			usd      float64
+			at       time.Time
+			ok       bool
+			estimate float64
+		}
+		reps := map[string]*rep{}
+		for _, e := range entries {
+			r := reps[e.SessionID]
+			if r == nil {
+				r = &rep{}
+				r.usd, r.at, r.ok = o.Billed(e.SessionID)
+				reps[e.SessionID] = r
+			}
+			// Responses up to the report; it comes after the reply, to
+			// the second.
+			if r.ok && r.usd > 0 && !e.Time.After(r.at.Add(time.Second)) {
+				r.estimate += listCost(e)
+			}
+		}
+		for sid, r := range reps {
+			if r.ok {
+				scale[sid] = costScale(r.usd, r.estimate)
+			}
+		}
+	}
+	costOf := func(e Entry) float64 {
+		f, ok := scale[e.SessionID]
+		if !ok {
+			return 0
+		}
+		return listCost(e) * f
 	}
 
 	var blk *Block

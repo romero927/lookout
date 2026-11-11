@@ -97,23 +97,32 @@ func (s State) PayAsYouGo() bool {
 	return !s.HasData() && s.CostUSD != nil && *s.CostUSD > 0
 }
 
-// PayAsYouGoSessions reads every saved session and returns a test for
-// whether a session ID belongs to a pay-as-you-go session. Sessions with no
-// saved file (never seen by the status line, or pruned) count as not
-// pay-as-you-go.
-func PayAsYouGoSessions(dir string) func(sessionID string) bool {
-	set := map[string]bool{}
+// Reported is the cost Claude Code last reported for a session, and when.
+type Reported struct {
+	USD float64
+	At  time.Time
+}
+
+// PayAsYouGoSessions reads every saved session and returns a lookup that
+// reports whether a session ID belongs to a pay-as-you-go session, and if
+// so the cost Claude Code last reported for it. Sessions with no saved file
+// (never seen by the status line, or pruned) count as not pay-as-you-go.
+func PayAsYouGoSessions(dir string) func(sessionID string) (Reported, bool) {
+	set := map[string]Reported{}
 	entries, _ := os.ReadDir(dir)
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") || strings.HasPrefix(e.Name(), ".") {
 			continue
 		}
 		p := filepath.Join(dir, e.Name())
-		if Load(p).PayAsYouGo() {
-			set[p] = true
+		if st := Load(p); st.PayAsYouGo() {
+			set[p] = Reported{USD: *st.CostUSD, At: time.Unix(st.ContextAt, 0)}
 		}
 	}
-	return func(sessionID string) bool { return set[FileFor(dir, sessionID)] }
+	return func(sessionID string) (Reported, bool) {
+		r, ok := set[FileFor(dir, sessionID)]
+		return r, ok
+	}
 }
 
 // HasLimits reports whether any saved session has ever received usage limits

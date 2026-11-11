@@ -214,7 +214,7 @@ The settings you're most likely to change:
 | `[files]` | `extra_files` | More files to show in Config, e.g. `["~/.claude/keybindings.json"]`. |
 | `[updates]` | `check = true` | Checks GitHub once a day for a new release and shows it in the header (e.g. `↑ v0.6.4`). Off by default. |
 | `[ui]` | `theme` | `auto`, `dark` or `light`. Inside tmux, dark is assumed. `LOOKOUT_THEME` overrides it. |
-| `[models]` | thresholds, `model_tiers`, `effort_levels`, `default_effort`, `log_days` | When the Models panel suggests a change. Tiers default to `["haiku", "sonnet", "opus"]`; effort levels to `["low", "medium", "high", "xhigh"]`, with `"medium"` as the default. The suggestion log keeps 90 days. |
+| `[models]` | thresholds, `model_tiers`, `effort_levels`, `default_effort`, `log_days` | When the Models panel suggests a change. Tiers default to `["haiku", "sonnet", "opus", "fable"]`; effort levels to `["low", "medium", "high", "xhigh"]`, with `"medium"` as the default. The suggestion log keeps 90 days. |
 | `[usage]` | `history_days`, `burn_window_minutes`, `block_hours` | How far back the first scan reads (30 days), the tokens-per-minute window (10 min), and the estimated usage block length (5 h). |
 | `[usage.price_weights]` | one entry per model | Override the model prices (dollars per million tokens) used to estimate each session's share of a limit and, on pay-as-you-go accounts, the dollar estimates, e.g. `"opus-5-5" = { input = 4, output = 20, cache_write = 5, cache_read = 0.20 }`. Keys match part of the model ID; the longest match wins. |
 

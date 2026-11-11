@@ -27,7 +27,7 @@ The first time it runs, Lookout also moves folders left by its old name (`overwa
 - **Pace.** The 5-hour pace is the change over the last 30 minutes (idle time counts). The weekly pace is the average since the week started. The projection assumes the pace holds.
 - **Weekly limit per day** (the "Last 7 days" chart). Each time Claude Code reports limits, the rise since the previous reading is added to that local day. After a window resets, the new window's usage counts in full. The very first reading only sets a starting point, so the chart fills in from the day you connect the status line.
 - **This session's share of a limit.** Claude Code reports one percentage for the whole account, so Lookout splits it by this session's share of the Claude Code usage recorded on this computer in that window. Tokens are weighted by each model's API list price (input, output, cache write and cache read separately), so an Opus token counts for more than a Haiku token. Only the ratios matter here. They are hardcoded in `internal/usage/share.go` and updated by hand in releases; unknown models are weighted like Sonnet 4.6. Anthropic doesn't publish how each model counts against the limits, so this is an estimate. Override prices under `[usage.price_weights]` if they change before Lookout is updated.
-- **Estimated cost** (pay-as-you-go accounts only). Claude Code reports a cost for the current session only, so the dollars for today, the last 5 hours, each model and each day are Lookout's estimates: each response's tokens priced at the same list prices, counting only sessions known to be pay-as-you-go (a cost but no limits in their saved status line data). Sessions on a subscription, or never seen by the status line, aren't priced. Discounts and negotiated rates aren't reflected.
+- **Estimated cost** (pay-as-you-go accounts only). Claude Code reports a cost for the current session only, so the dollars for today, the last 5 hours, each model and each day are Lookout's estimates: each response's tokens priced at the same list prices (1-hour cache writes at twice the input price), then scaled so each session adds up to the cost Claude Code last reported for it. The scaling covers calls Claude Code bills but doesn't write to the transcript, a few percent of a session; it never lowers an estimate and is capped at 1.5×. Only sessions known to be pay-as-you-go count (a cost but no limits in their saved status line data). Sessions on a subscription, or never seen by the status line, aren't priced. Discounts and negotiated rates aren't reflected.
 - **Estimated usage block.** Shown only until the status line is connected: a 5-hour window starting at the first message after a break, rounded down to the hour. It is a guess, not Anthropic's actual limit meter.
 - **Context.** With the status line connected, this is the percentage Claude Code reports. Otherwise it is estimated as input + cache read + cache write of the latest main-chain response, against the configured window (default 200k, or 1M once a session goes past 200k).
 
@@ -39,9 +39,10 @@ The first time it runs, Lookout also moves folders left by its old name (`overwa
 
 - **Work looks hard** (repeated edits, failing tool results, frustration):
   - below `high` effort (the second-highest of `effort_levels`) → suggest one more level of effort
-  - at `high` → suggest a stronger model
-  - already on the top model → suggest one more level of effort, up to `xhigh`
-- **Work looks simple**, on the top model or with effort above `default_effort` → suggest going back to `default_effort` before suggesting a lighter model.
+  - at `high` → suggest a stronger model (on Opus, `xhigh` first: Fable costs more and may need usage credits)
+  - two or more signals at once → jump to Opus, never straight to Fable
+  - already on the top model (Fable) → suggest one more level of effort, up to `xhigh`
+- **Work looks simple**, on Opus or Fable or with effort above `default_effort` → suggest going back to `default_effort` before suggesting the next lighter model.
 - It never suggests `max`.
 - Sessions with no recorded effort (older Claude Code, or models without effort levels) get model suggestions only.
 

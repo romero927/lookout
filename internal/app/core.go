@@ -36,7 +36,7 @@ type Core struct {
 	live    liveCache
 
 	billedMu sync.Mutex
-	billed   func(string) bool // pay-as-you-go sessions, cached
+	billed   func(string) (limits.Reported, bool) // pay-as-you-go sessions, cached
 	billedAt time.Time
 }
 
@@ -128,14 +128,17 @@ func (c *Core) Snapshot(now time.Time) (usage.Snapshot, usage.Session, bool) {
 		BurnWindow:  time.Duration(c.Cfg.Usage.BurnWindowMinutes) * time.Minute,
 		BlockLength: time.Duration(c.Cfg.Usage.BlockHours) * time.Hour,
 		Days:        7,
-		Billed:      c.payAsYouGo(now),
+		Billed: func(sid string) (float64, time.Time, bool) {
+			r, ok := c.payAsYouGo(now)(sid)
+			return r.USD, r.At, ok
+		},
 	})
 	return snap, s, ok
 }
 
 // payAsYouGo returns the test for pay-as-you-go sessions, re-reading the
 // saved limit files at most every 10 seconds.
-func (c *Core) payAsYouGo(now time.Time) func(string) bool {
+func (c *Core) payAsYouGo(now time.Time) func(string) (limits.Reported, bool) {
 	c.billedMu.Lock()
 	defer c.billedMu.Unlock()
 	if c.billed == nil || now.Sub(c.billedAt) > 10*time.Second || now.Before(c.billedAt) {

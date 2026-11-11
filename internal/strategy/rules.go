@@ -118,6 +118,18 @@ func TierOf(model string, tiers []string) int {
 	return best
 }
 
+// heavyFrom is the index of the lowest heavy tier: the top tier, or the top
+// two once there are four or more (opus and fable by default). Simple work
+// on a heavy tier is nudged down a tier, and a two-signal upgrade jumps to
+// the lowest heavy tier rather than straight to the most expensive one.
+func heavyFrom(tiers []string) int {
+	top := len(tiers) - 1
+	if top >= 3 {
+		return top - 1
+	}
+	return top
+}
+
 // Evaluate applies the rules to a session. It is pure: same input, same output.
 func Evaluate(s SessionState, c config.Models, now time.Time, x Extra) Suggestion {
 	sg := Suggestion{SessionID: s.ID, Current: s.Model, Effort: s.Effort, Suggested: s.Model, Action: Keep, At: now}
@@ -140,7 +152,8 @@ func Evaluate(s SessionState, c config.Models, now time.Time, x Extra) Suggestio
 	if x.Pressure >= PressureWatch {
 		c.SimpleTurnStreak = 1
 	}
-	down := downgradeSignals(active, cur == top, eff > defEff && defEff >= 0, c)
+	heavy := heavyFrom(c.ModelTiers)
+	down := downgradeSignals(active, cur, cur >= heavy, eff > defEff && defEff >= 0, c)
 	if x.Pressure == PressureOver && x.PressureDetail != "" {
 		down = append([]Signal{{Downgrade, "limits", x.PressureDetail}}, down...)
 	} else if x.Pressure == PressureWatch && x.PressureDetail != "" {
@@ -157,13 +170,14 @@ func Evaluate(s SessionState, c config.Models, now time.Time, x Extra) Suggestio
 		sg.Reason = fmt.Sprintf("%s isn't in model_tiers; add it to the config to get suggestions.", s.Model)
 	case len(up) > 0 && x.Pressure == PressureOver:
 		sg.Reason = up[0].Detail + ", but " + lowerFirst(x.PressureDetail) + " — more effort or a stronger model would use it up faster. Narrow the task instead."
-	case len(up) > 0 && cur < top && eff >= 0 && eff < topEff-1:
-		// Effort is the cheaper step: try it before a model switch.
+	case len(up) > 0 && cur < top && eff >= 0 && (eff < topEff-1 || (cur >= heavy && eff < topEff)):
+		// Effort is the cheaper step: try it before a model switch. Before
+		// the top tier (fable), use every effort level first.
 		raise(eff+1, "more effort may get there without switching models.")
 	case len(up) > 0 && cur < top:
 		next := cur + 1
 		if len(up) >= 2 && x.Pressure == PressureNone {
-			next = top
+			next = max(next, heavy)
 		}
 		sg.Action, sg.Suggested = Upgrade, c.ModelTiers[next]
 		sg.Reason = up[0].Detail + " — a stronger model may get there faster."
@@ -274,25 +288,24 @@ func (c simpleCfg) simple(t *Turn) bool {
 
 type simpleCfg struct{ config.Models }
 
-// downgradeSignals looks for simple work on the top model (onTop) or at an
-// effort above the default (highEffort).
-func downgradeSignals(active []*Turn, onTop, highEffort bool, c config.Models) []Signal {
+// downgradeSignals looks for simple work on a heavy tier (onHeavy, cur is
+// the session's tier) or at an effort above the default (highEffort).
+func downgradeSignals(active []*Turn, cur int, onHeavy, highEffort bool, c config.Models) []Signal {
 	var sig []Signal
-	if !onTop && !highEffort {
+	if !onHeavy && !highEffort {
 		return nil
 	}
 	sc := simpleCfg{c}
-	top := len(c.ModelTiers) - 1
 	defEff := EffortIndex(c.DefaultEffort, c.EffortLevels)
 	heavy := func(t *Turn) bool {
-		if onTop && TierOf(t.Model, c.ModelTiers) == top {
+		if onHeavy && TierOf(t.Model, c.ModelTiers) == cur {
 			return true
 		}
 		return highEffort && EffortIndex(t.Effort, c.EffortLevels) > defEff
 	}
-	where := "on the top model"
-	if !onTop {
-		where = "at above-default effort"
+	where := "at above-default effort"
+	if onHeavy {
+		where = "on " + c.ModelTiers[cur]
 	}
 	streak := 0
 	for i := len(active) - 1; i >= 0; i-- {
