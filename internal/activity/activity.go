@@ -110,6 +110,11 @@ type session struct {
 	ctx     ctxState
 	agents  map[string]string // subagent ID -> task
 	dirs    []string          // see Session.Dirs; oldest first
+	// prompted is when you last sent the session a message: a prompt,
+	// a slash command, or a message queued while Claude worked.
+	prompted time.Time
+	first    string // the first prompt you typed (not a slash command)
+	prompts  int    // prompts and slash commands, kept past maxTurns
 }
 
 // Engine tracks every session. Safe for concurrent use.
@@ -151,6 +156,9 @@ func (e *Engine) Observe(r transcript.Record, src transcript.Source) {
 	}
 	switch r.Kind {
 	case transcript.KindQueued:
+		if !sub && r.Timestamp.After(s.prompted) {
+			s.prompted = r.Timestamp
+		}
 		if t := s.current(sub); t != nil && !sub {
 			if len(t.Calls) < maxCalls {
 				t.Calls = append(t.Calls, Call{Text: clip(r.Prompt, maxPrompt), User: true, At: r.Timestamp})
@@ -303,6 +311,16 @@ func (e *Engine) Observe(r transcript.Record, src transcript.Source) {
 }
 
 func (s *session) newTurn(r transcript.Record) {
+	if r.Timestamp.After(s.prompted) {
+		s.prompted = r.Timestamp
+	}
+	if p := strings.TrimSpace(r.Prompt); p != "" || r.Command != "" {
+		s.prompts++
+		if s.first == "" && p != "" && r.Command == "" {
+			line, _, _ := strings.Cut(p, "\n")
+			s.first = clip(line, 200)
+		}
+	}
 	s.turns = append(s.turns, &turn{
 		Turn: Turn{Start: r.Timestamp, End: r.Timestamp, Prompt: clip(r.Prompt, maxPrompt), Command: r.Command},
 		seen: map[string]bool{}, files: map[string]bool{},
@@ -326,6 +344,64 @@ func (s *session) current(sub bool) *turn {
 		s.newTurn(transcript.Record{})
 	}
 	return s.turns[len(s.turns)-1]
+}
+
+// Brief is a short summary of a session, cheap enough to build for every
+// running session on each refresh.
+type Brief struct {
+	Prompted time.Time // when you last sent it a message
+	Prompt   string    // the latest prompt (or slash command), first line
+	First    string    // the first prompt you typed, first line: what the session was about
+	Prompts  int       // how many prompts and slash commands you sent
+	Doing    string    // the main-conversation tool call still running, e.g. "Bash: run the tests"
+	Files    int       // files edited this session
+}
+
+// Brief summarises one session; the zero Brief if it is unknown.
+func (e *Engine) Brief(id string) Brief {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	s := e.sessions[id]
+	if s == nil {
+		return Brief{}
+	}
+	b := Brief{Prompted: s.prompted, First: s.first, Prompts: s.prompts}
+	for _, f := range s.files {
+		if f.Edits > 0 {
+			b.Files++
+		}
+	}
+	for i := len(s.turns) - 1; i >= 0; i-- {
+		t := s.turns[i]
+		if p := strings.TrimSpace(t.Prompt); p != "" || t.Command != "" {
+			if p == "" {
+				p = t.Command
+			}
+			line, _, _ := strings.Cut(p, "\n")
+			b.Prompt = clip(line, 200)
+			break
+		}
+	}
+	if n := len(s.turns); n > 0 {
+		calls := s.turns[n-1].Calls
+		for i := len(calls) - 1; i >= 0; i-- {
+			c := calls[i]
+			if c.Subagent || c.User {
+				continue
+			}
+			if c.ID == "" {
+				break // a message after the last call: the call returned
+			}
+			if _, open := s.pending[c.ID]; open {
+				b.Doing = c.Name
+				if c.Summary != "" {
+					b.Doing += ": " + c.Summary
+				}
+			}
+			break
+		}
+	}
+	return b
 }
 
 // Session returns a copy of one session's activity.

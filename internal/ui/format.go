@@ -57,7 +57,7 @@ func Ago(t, now time.Time) string {
 	case d < time.Hour:
 		return fmt.Sprintf("%dm ago", int(d.Minutes()))
 	case d < 48*time.Hour:
-		return fmt.Sprintf("%dh%02dm ago", int(d.Hours()), int(d.Minutes())%60)
+		return fmt.Sprintf("%dh ago", int(d.Hours()))
 	default:
 		return fmt.Sprintf("%dd ago", int(d.Hours()/24))
 	}
@@ -78,12 +78,53 @@ func Dur(d time.Duration) string {
 	}
 }
 
-// ShortModel drops the "claude-" prefix.
+// ShortModel names a model the way Claude Code shows it: "claude-opus-5-5"
+// becomes "Opus 5.5", "claude-haiku-4-5-20251001" "Haiku 4.5". IDs it
+// doesn't recognise lose only the "claude-" prefix.
 func ShortModel(m string) string {
 	if m == "" {
 		return "—"
 	}
-	return strings.TrimPrefix(m, "claude-")
+	id := strings.TrimPrefix(m, "claude-")
+	suffix := ""
+	if i := strings.Index(id, "["); i > 0 {
+		id, suffix = id[:i], " "+id[i:] // e.g. "[1m]"
+	}
+	var family string
+	var version, extra []string
+	for _, p := range strings.Split(id, "-") {
+		switch {
+		case p == "":
+		case isDigits(p) && len(p) >= 8:
+			// a release date: left out
+		case isDigits(p):
+			version = append(version, p)
+		case family == "":
+			family = strings.ToUpper(p[:1]) + p[1:]
+		default:
+			extra = append(extra, p)
+		}
+	}
+	if family == "" {
+		return strings.TrimPrefix(m, "claude-")
+	}
+	out := family
+	if len(version) > 0 {
+		out += " " + strings.Join(version, ".")
+	}
+	if len(extra) > 0 {
+		out += " " + strings.Join(extra, " ")
+	}
+	return out + suffix
+}
+
+func isDigits(s string) bool {
+	for _, r := range s {
+		if r < '0' || r > '9' {
+			return false
+		}
+	}
+	return s != ""
 }
 
 // ShortPath replaces the home directory with ~.

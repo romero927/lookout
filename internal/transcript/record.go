@@ -172,6 +172,12 @@ type Record struct {
 	// Compaction fields.
 	CompactPre  int64
 	CompactPost int64
+
+	// Title is the session's title, from an "ai-title" line (Claude Code
+	// names each session) or a "custom-title" line (you renamed it, which
+	// sets TitleCustom). Those lines carry nothing else Lookout uses.
+	Title       string
+	TitleCustom bool
 }
 
 // IsHumanPrompt reports whether the record is a prompt the user typed.

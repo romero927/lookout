@@ -26,7 +26,7 @@ func (m Model) pane(x int) [4]int {
 	y0 := lipgloss.Height(m.viewHeader())
 	y1 := m.height - lipgloss.Height(m.viewFooter()) - 1
 	b := [4]int{0, m.width, y0, max(y0, y1)}
-	split := !m.help && !m.picking && m.loaded &&
+	split := !m.help && m.loaded &&
 		(m.tab == tabActivity || m.tab == tabChanges || m.tab == tabSkills || m.tab == tabFiles || m.tab == tabTools)
 	if split {
 		if lw := m.listWidth(); x < lw {
@@ -54,6 +54,17 @@ func (m Model) mouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		m.sel.to = m.sel.from
 	case msg.Action == tea.MouseActionMotion && m.sel.on:
 		m.sel.to = m.sel.clamp(msg.X, msg.Y)
+	case msg.Action == tea.MouseActionMotion:
+		// The pointer moved with no button down: highlight the tab or
+		// session under it.
+		m.hoverTab, m.hoverStrip = -1, ""
+		switch {
+		case m.help:
+		case msg.Y == 0:
+			m.hoverTab = m.tabAt(msg.X)
+		case msg.Y == m.stripRow():
+			m.hoverStrip = m.stripAt(msg.X)
+		}
 	case msg.Action == tea.MouseActionRelease && m.sel.on:
 		m.sel.to = m.sel.clamp(msg.X, msg.Y)
 		if m.sel.from == m.sel.to {
@@ -130,7 +141,7 @@ type splitPane struct {
 
 // split returns the current panel's list and reader, if it has them.
 func (m *Model) split() (splitPane, bool) {
-	if m.help || m.picking || !m.loaded {
+	if m.help || !m.loaded {
 		return splitPane{}, false
 	}
 	lw := m.listWidth()
@@ -175,18 +186,6 @@ func (m Model) wheel(x, dir int) (tea.Model, tea.Cmd) {
 // click handles a click without a drag: a tab in the header; a row in a
 // list, which opens it as enter does; or the reader beside the list.
 func (m Model) click(x, y int) (tea.Model, tea.Cmd) {
-	if m.picking {
-		// A click on a session shows it, as enter does.
-		top := lipgloss.Height(m.viewHeader())
-		h := max(3, m.height-top-lipgloss.Height(m.viewFooter()))
-		if y >= top && y < top+h {
-			if row := m.pickerRowAt(y-top, h); row >= 0 {
-				m.pSel = row
-				return m.pickerKey("enter")
-			}
-		}
-		return m, nil
-	}
 	if m.help || !m.loaded {
 		return m, nil
 	}
@@ -197,12 +196,28 @@ func (m Model) click(x, y int) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	}
+	if y == m.stripRow() {
+		// The session strip under the tabs.
+		if id := m.stripAt(x); id != "" {
+			if o, ok := m.overviewOf(id); ok {
+				m.show(id, o.Label())
+			}
+		}
+		return m, nil
+	}
 	top := lipgloss.Height(m.viewHeader())
 	h := max(3, m.height-top-lipgloss.Height(m.viewFooter()))
 	if y < top || y >= top+h {
 		return m, nil
 	}
 	switch m.tab {
+	case tabSessions:
+		// A click on a session shows it, as enter does.
+		if row := m.sessionRowAt(y-top, h); row >= 0 {
+			m.svSel, m.svID = row, m.ovs[row].ID
+			return m.sessionsKey("enter")
+		}
+		return m, nil
 	case tabContext:
 		return m.clickContext(y-top, h)
 	case tabCheatsheet:

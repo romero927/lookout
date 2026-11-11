@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/charmbracelet/lipgloss"
 
@@ -20,14 +19,10 @@ func (m Model) viewUsage() string {
 	// This session.
 	out = append(out, section("This session", w))
 	if m.hasSess {
+		// The header already names the session, its folder and state.
 		s := m.sess
-		live := sMuted.Render("○ idle")
-		if m.now.Sub(s.LastActivity) < 2*time.Minute {
-			live = sGreen.Render("● active")
-		}
-		out = append(out, clip(fmt.Sprintf("%s%s  %s  %s  %s",
-			sLabel.Render(pad("FOLDER", 9)), sText.Render(ShortPath(s.Cwd)), sPurple.Render(ShortModel(s.Model)),
-			live, sMuted.Render(Ago(s.LastActivity, m.now)+" · "+ShortID(s.ID))), w+80))
+		out = append(out, clip(sLabel.Render(pad("MODEL", 9))+sPurple.Render(ShortModel(s.Model))+
+			sMuted.Render("  · session "+ShortID(s.ID)+" · started "+Ago(s.FirstSeen, m.now)), w))
 	} else {
 		out = append(out, sMuted.Render("Waiting for a Claude Code session in "+m.waitingFor()+". Start `claude` there and it shows up here."))
 	}

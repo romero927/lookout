@@ -116,3 +116,29 @@ func (a *Aggregator) Share(sessionID string, from, to time.Time) (session, all f
 	}
 	return session, all
 }
+
+// Totals is one session's token use, its subagents included.
+type Totals struct {
+	Tokens int64   // every token: input, output, cache writes and reads
+	Cost   float64 // the tokens at API list prices, in dollars
+}
+
+// AllTotals returns every session's totals, by session ID, in one pass.
+func (a *Aggregator) AllTotals() map[string]Totals {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	prices := map[string]Price{}
+	out := map[string]Totals{}
+	for _, e := range a.entries {
+		p, ok := prices[e.Model]
+		if !ok {
+			p = a.priceLocked(e.Model)
+			prices[e.Model] = p
+		}
+		t := out[e.SessionID]
+		t.Tokens += e.Usage.Total()
+		t.Cost += weigh(p, e.Usage)
+		out[e.SessionID] = t
+	}
+	return out
+}

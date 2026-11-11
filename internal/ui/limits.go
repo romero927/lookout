@@ -153,10 +153,6 @@ func (m Model) viewLimits(w int) []string {
 		note = "limits last updated " + Ago(m.limits.Updated(), m.now) + " · they refresh when Claude Code replies"
 	}
 	out = append(out, "", sMuted.Render(clip(note, w)))
-	if m.shareFive >= 0 || m.shareWeek >= 0 {
-		out = append(out, sMuted.Render(clip("session estimate: this session's share of the Claude Code tokens used on this computer in that window,", w)),
-			sMuted.Render(clip("weighted by model; it assumes no other Claude usage (claude.ai, other computers) in the window", w)))
-	}
 	return out
 }
 
@@ -313,6 +309,27 @@ func (m *Model) checkBuild() {
 
 // RestartRequested reports whether the user asked to restart into a new build.
 func (m Model) RestartRequested() bool { return m.restart }
+
+// Pinned is the pinned session, or "", so a restart can keep it.
+func (m Model) Pinned() string { return m.o.Core.Pinned }
+
+// Tab is the key of the panel on screen, so a restart can reopen it.
+func (m Model) Tab() string { return tabKey(m.tab) }
+
+// pinAtStart pins the session asked for with --session, once the
+// transcripts are loaded and a short ID can be matched.
+func (m *Model) pinAtStart() {
+	id := m.o.Session
+	if id == "" {
+		return
+	}
+	if full, ok := m.o.Core.Resolve(id); ok {
+		m.o.Core.Pinned = full
+		return
+	}
+	m.o.Core.Pinned = ""
+	m.setFlash("no single session matches "+id+" · following the latest · s to pick one", sYellow, 8*time.Second)
+}
 
 // SuggestExtra turns limits into input for the model suggestion. exact says
 // whether st belongs to the session being evaluated (context use is

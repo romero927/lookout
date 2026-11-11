@@ -396,3 +396,9 @@ func snapWindow(w int64) int64 {
 	}
 	return w
 }
+
+// Context says how full a session's context window is. reported is the
+// percentage Claude Code reported for it, or nil to estimate from tokens.
+func Context(s SessionState, c config.Models, reported *float64) ContextAdvice {
+	return contextAdvice(s, c, reported)
+}

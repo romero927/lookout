@@ -39,8 +39,8 @@ var (
 const usage = `Lookout — a dashboard for Claude Code sessions (unofficial).
 
 Usage:
-  lookout [--cwd DIR | --here]     open the dashboard
-  lookout stats [--cwd DIR]        print usage and the model suggestion once, then exit
+  lookout [--cwd DIR | --here] [--session ID]   open the dashboard
+  lookout stats [--cwd DIR] [--session ID]      print usage and the model suggestion once, then exit
   lookout statusline               status line entry point (Claude Code runs this)
   lookout statusline --wrap CMD    run your existing status line CMD too and add Lookout's line to it
   lookout statusline install --print   print the settings.json snippet for it
@@ -52,11 +52,12 @@ Usage:
 Flags for the dashboard and stats:
   --cwd DIR   focus on the latest session started in DIR
   --here      same as --cwd "$PWD"
+  --session ID  show this session (its ID, or the start of it) instead of following the latest
 
 Environment:
   LOOKOUT_THEME=dark|light   skip terminal background detection
 
-Keys: 1-9 or tab switch panels · R restart · ? help · q quit
+Keys: 0-9 or tab switch panels · [ ] switch session · R restart · ? help · q quit
 `
 
 // appVersion is the release version, or the module version for builds made
@@ -120,14 +121,21 @@ func loadConfig(stderr io.Writer) config.Config {
 	return cfg
 }
 
-func focusFlags(name string, args []string, stderr io.Writer) (string, bool) {
+// focus is what the dashboard and stats show: sessions in dir (all when
+// empty), or the one session given with --session.
+type focus struct {
+	dir, session string
+}
+
+func focusFlags(name string, args []string, stderr io.Writer) (focus, bool) {
 	fs := flag.NewFlagSet(name, flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	cwd := fs.String("cwd", "", "focus on the latest session in this directory")
 	here := fs.Bool("here", false, "focus on the latest session in the current directory")
+	session := fs.String("session", "", "show this session (its ID or the start of it)")
 	fs.Usage = func() { fmt.Fprint(stderr, usage) }
 	if err := fs.Parse(args); err != nil {
-		return "", false
+		return focus{}, false
 	}
 	dir := *cwd
 	if *here {
@@ -138,13 +146,38 @@ func focusFlags(name string, args []string, stderr io.Writer) (string, bool) {
 			dir = abs
 		}
 	}
-	return dir, true
+	return focus{dir: dir, session: strings.TrimSpace(*session)}, true
+}
+
+// Set before restarting into a new build, so the new process shows the
+// same session and panel. Read once and cleared, so the programs Lookout
+// runs don't inherit them.
+const (
+	envRestorePin = "LOOKOUT_RESTORE_PIN"
+	envRestoreTab = "LOOKOUT_RESTORE_TAB"
+)
+
+// restored returns what the previous process left for a restart.
+func restored() (pin, tab string, ok bool) {
+	pin, okPin := os.LookupEnv(envRestorePin)
+	t, okTab := os.LookupEnv(envRestoreTab)
+	_ = os.Unsetenv(envRestorePin)
+	_ = os.Unsetenv(envRestoreTab)
+	if !okPin && !okTab {
+		return "", "", false
+	}
+	return pin, t, true
 }
 
 func cmdTUI(args []string, stderr io.Writer) int {
-	dir, ok := focusFlags("lookout", args, stderr)
+	f, ok := focusFlags("lookout", args, stderr)
 	if !ok {
 		return 2
+	}
+	dir, session, tab := f.dir, f.session, ""
+	if pin, t, ok := restored(); ok {
+		// A restart (R): keep what was on screen, pinned or not.
+		session, tab = pin, t
 	}
 	cfg, cfgErr := config.Load(paths.ConfigFile())
 	theme := cfg.UI.Theme
@@ -176,8 +209,9 @@ func cmdTUI(args []string, stderr io.Writer) int {
 	exe, _ := os.Executable()
 	model := ui.New(ui.Options{
 		Core: core, Store: db, StoreErr: dbErr, ConfigErr: cfgErr, Version: appVersion(), Exe: exe,
+		Session: session, Tab: tab,
 	})
-	prog = tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion())
+	prog = tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseAllMotion())
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
@@ -193,19 +227,29 @@ func cmdTUI(args []string, stderr io.Writer) int {
 	}
 	if fm, ok := final.(ui.Model); ok && fm.RestartRequested() && exe != "" {
 		restartExe = exe
+		_ = os.Setenv(envRestorePin, fm.Pinned())
+		_ = os.Setenv(envRestoreTab, fm.Tab())
 	}
 	return 0
 }
 
 func cmdStats(args []string, stdout, stderr io.Writer) int {
-	dir, ok := focusFlags("stats", args, stderr)
+	f, ok := focusFlags("stats", args, stderr)
 	if !ok {
 		return 2
 	}
 	cfg := loadConfig(stderr)
-	core := app.New(cfg, dir, nil)
+	core := app.New(cfg, f.dir, nil)
 	start := time.Now()
 	n := core.Load()
+	if f.session != "" {
+		id, ok := core.Resolve(f.session)
+		if !ok {
+			fmt.Fprintf(stderr, "lookout: no single session matches %q\n", f.session)
+			return 1
+		}
+		core.Pinned = id
+	}
 	now := time.Now()
 	snap, sess, hasSess := core.Snapshot(now)
 	var extra strategy.Extra

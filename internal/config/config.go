@@ -72,6 +72,9 @@ type Alerts struct {
 	Thresholds []float64 `toml:"thresholds"`
 	// Pace alerts when the current pace reaches 100% before the reset.
 	Pace bool `toml:"pace"`
+	// Sessions alerts when a session other than the one on screen stops on
+	// a permission prompt or question, or finishes what you asked.
+	Sessions bool `toml:"sessions"`
 }
 
 // Files controls the config/memory file browser.
@@ -136,7 +139,7 @@ func Default() Config {
 		UI:     UI{Theme: "auto"},
 		Usage:  Usage{HistoryDays: 30, BurnWindowMinutes: 10, BlockHours: 5},
 		Files:  Files{AllowEdit: false, ExtraFiles: []string{}},
-		Alerts: Alerts{Bell: true, Desktop: true, Thresholds: []float64{80, 95}, Pace: true},
+		Alerts: Alerts{Bell: true, Desktop: true, Thresholds: []float64{80, 95}, Pace: true, Sessions: true},
 		Models: Models{
 			ModelTiers:            []string{"haiku", "sonnet", "opus", "fable"},
 			EffortLevels:          []string{"low", "medium", "high", "xhigh"},
@@ -275,6 +278,7 @@ bell = true                # ring the terminal bell when a limit alert fires
 desktop = true             # also send a desktop notification (notify-send / osascript)
 thresholds = [80, 95]      # alert when a limit passes these percentages; [] turns them off
 pace = true                # alert when the current pace runs out before the reset
+sessions = true            # alert when another session needs you or finishes
 
 [updates]
 check = false              # true asks GitHub once a day for a newer release (Lookout's only network call)

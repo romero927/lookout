@@ -44,10 +44,11 @@ This prints a snippet. Paste it into `~/.claude/settings.json` (Lookout never ed
 
 ## Panels
 
-Press `1`–`9` (or `tab`) to switch panels.
+Press `0`–`9` (or `tab`) to switch panels.
 
 | # | Panel | What it shows |
 |---|-------|---------------|
+| 0 | **Sessions** | Every running session by title: working, needs you, finished or idle, with context, limit share and your last prompt; then recent ones with model, size and cost. Jump to one, or to its tmux pane. |
 | 1 | **Usage** | Your 5-hour and weekly limits with a pace projection, plus token counts for the session, today and the week. |
 | 2 | **Activity** | Each prompt you sent and everything Claude did for it: messages, tool calls, edits and subagent work. |
 | 3 | **Changes** | Every file that changed during the session, with its diff or commits, plus other things Claude's commands and tools changed: pushes, API writes, deploys, MCP tools that create or send. |
@@ -80,13 +81,15 @@ More on each panel: [docs/panels.md](docs/panels.md). All screenshots below use 
 
 | Key | Does |
 |-----|------|
-| `1`–`9`, `tab` | Switch panels |
+| `0`–`9`, `tab` | Switch panels |
+| `[` `]` | Show the previous / next running session |
 | `↑` `↓` / `j` `k` | Move |
 | `enter` / `esc` | Open / go back |
-| `s` | Pick which session to show (`a` in the picker goes back to following the latest) |
+| `s` | Open Sessions to pick which session to show (`a` there goes back to following the latest) |
 | `P` | Pin the session on screen so it stays put, or unpin it |
 | `c` | Copy a command (Context, Skills, Cheatsheet) |
-| `y` | Copy an ID (a commit in Changes, a session in the picker), or an action's command in Changes |
+| `y` | Copy an ID (a commit in Changes, a session in Sessions), or an action's command in Changes |
+| `g` | Go to the session's tmux pane (Sessions) |
 | `e` | Edit the file (Config, only if [enabled](#configuration)) |
 | `o` | Open your usage page on claude.ai (Usage), or the selected file's folder (Config, Changes) |
 | `R` | Restart |
@@ -97,7 +100,11 @@ The mouse works too: click a tab or an item, scroll what's under the pointer, an
 
 **Copying.** Lookout never types into Claude Code; commands it offers are copied for you to paste. It uses `xclip`, `xsel`, `wl-copy`, `pbcopy` or `clip.exe`. On Linux, install one (`sudo apt install xclip`). Without one, it falls back to tmux's paste buffer (paste with your prefix, then `]`) or the terminal's clipboard, and tells you which.
 
-**Alerts.** When a limit passes 80% or 95%, or your pace would hit it before the reset, Lookout rings the terminal bell, sends a desktop notification (`notify-send` on Linux, `osascript` on macOS) and shows the alert at the bottom. Each alert fires once per limit window, even across restarts. Change or turn them off under `[alerts]`.
+**Alerts.** When a limit passes 80% or 95%, or your pace would hit it before the reset, Lookout rings the terminal bell, sends a desktop notification (`notify-send` on Linux, `osascript` on macOS) and shows the alert at the bottom. Each alert fires once per limit window, even across restarts. It does the same when a session other than the one on screen stops on a permission prompt or finishes. Change or turn them off under `[alerts]`.
+
+### Several sessions at once
+
+Lookout follows the session you last sent a message to, so a session busy in the background doesn't pull the view away, but it switches to any session that stops on a permission prompt or question until you answer. The line under the tabs always names the session on screen, highlighted like the active tab, and lists the other running sessions beside it: `●` working, `▲` needs you, `✓` finished while you were elsewhere, `○` idle. `[` and `]` (or a click) switch between them, `0` opens the Sessions panel with all of them side by side, and `g` there jumps to a session's tmux pane. `lookout --session ID` opens on one session, e.g. one dashboard per tmux pane. [More](docs/panels.md#which-session-is-on-screen).
 
 **Updates while running.** If the `lookout` binary is replaced while it runs (say, after `make build`), the header shows `↻ R restart`. Press `R` to switch to the new build.
 
@@ -119,6 +126,7 @@ Building needs Go 1.26 or newer. (That comes from the SQLite library it uses; wi
 |---------|------|
 | `lookout` | Open the dashboard, following your most recently active session |
 | `lookout --here` | Open it focused on the session in this folder (or a parent or subfolder) |
+| `lookout --session ID` | Open it on one session (the start of its ID is enough) |
 | `lookout stats` | Print a one-off text summary instead of the dashboard |
 | `lookout statusline install --print` | Print the `settings.json` snippet that connects your limits |
 | `lookout config init` | Write a `config.toml` with every default, commented |
@@ -186,7 +194,7 @@ Lookout is a **dashboard, not a wrapper**.
 - **It never touches credentials.** It doesn't read `~/.claude/.credentials.json`, and the Config panel refuses to open it.
 - **It sends nothing anywhere.** No telemetry and no network calls, with one opt-in exception: with `[updates] check = true`, it asks GitHub once a day for the latest version number. That request carries nothing about you or your usage.
 
-The only other programs it runs are `git` (read-only `diff`, `status` and `log`, for the Changes panel), a desktop notifier for alerts, a clipboard tool when you copy, your `$EDITOR` if you turn on editing, and your own status line command if you wrap it.
+The only other programs it runs are `git` (read-only `diff`, `status` and `log`, for the Changes panel), a desktop notifier for alerts, a clipboard tool when you copy, `tmux` when you press `g` to go to a session's pane (it only changes which pane is shown), your `$EDITOR` if you turn on editing, and your own status line command if you wrap it.
 
 ## Configuration
 
@@ -209,7 +217,7 @@ The settings you're most likely to change:
 
 | Section | Setting | What it does |
 |---------|---------|--------------|
-| `[alerts]` | `thresholds`, `bell`, `desktop`, `pace` | When and how alerts fire. Thresholds default to `[80, 95]`; `[]` turns them off. |
+| `[alerts]` | `thresholds`, `bell`, `desktop`, `pace`, `sessions` | When and how alerts fire. Thresholds default to `[80, 95]`; `[]` turns them off. `sessions = false` stops alerts about other sessions. |
 | `[files]` | `allow_edit = true` | Lets `e` open a file in `$VISUAL`/`$EDITOR`. A backup is saved first (and discarded if you change nothing). |
 | `[files]` | `extra_files` | More files to show in Config, e.g. `["~/.claude/keybindings.json"]`. |
 | `[updates]` | `check = true` | Checks GitHub once a day for a new release and shows it in the header (e.g. `↑ v0.6.4`). Off by default. |

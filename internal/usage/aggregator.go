@@ -40,6 +40,10 @@ type Session struct {
 	Model        string // model of the latest main-chain response
 	Context      int64  // context size of the latest main-chain response
 	Compactions  int
+	// Title is what the session is about: the title you gave it, else the
+	// one Claude Code generated. Empty until Claude Code names it.
+	Title       string
+	titleCustom bool
 }
 
 // Aggregator collects usage entries. It is safe for concurrent use.
@@ -76,6 +80,9 @@ func (a *Aggregator) Add(r transcript.Record, src transcript.Source) {
 		a.sessions[sid] = s
 	}
 	sub := r.Sidechain || src.IsSubagent
+	if t := strings.TrimSpace(r.Title); t != "" && !sub && (r.TitleCustom || !s.titleCustom) {
+		s.Title, s.titleCustom = t, r.TitleCustom
+	}
 	if !r.Timestamp.IsZero() && !sub {
 		if s.FirstSeen.IsZero() || r.Timestamp.Before(s.FirstSeen) {
 			s.FirstSeen = r.Timestamp

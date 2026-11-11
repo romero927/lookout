@@ -73,3 +73,5 @@ Outcomes are judged by the dashboard while it shows that session, so a suggestio
 ## The transcript format is undocumented
 
 Claude Code's transcript format isn't a public API and can change with any Claude Code update. Lookout reads only the fields it needs, ignores unknown fields and record types, skips malformed lines, and never crashes on bad input. If recent lines start failing to parse, a **! PARSER** warning appears in the header and token figures may be incomplete until Lookout is updated. Lookout was developed against Claude Code 2.1.x.
+
+The same goes for the files in `~/.claude/sessions` that say which sessions are running and what each is doing (working, idle, or waiting on a permission prompt). When they don't give a status, Lookout works it out from the transcript instead, and can't tell when a session needs you.

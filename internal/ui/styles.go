@@ -3,6 +3,8 @@ package ui
 import (
 	"strings"
 
+	"github.com/charmbracelet/x/ansi"
+
 	"github.com/charmbracelet/lipgloss"
 )
 
@@ -16,11 +18,14 @@ var (
 	cText     = lipgloss.AdaptiveColor{Light: "#1F2328", Dark: "#E6EDF3"}
 	cMuted    = lipgloss.AdaptiveColor{Light: "#6E7781", Dark: "#8B949E"}
 	cFaint    = lipgloss.AdaptiveColor{Light: "#D0D7DE", Dark: "#30363D"}
+	cChip     = lipgloss.AdaptiveColor{Light: "#E6EAEF", Dark: "#262C36"} // tab buttons
 	cOnAccent = lipgloss.Color("#FFFFFF")
 	cAccent   = lipgloss.AdaptiveColor{Light: "#0550AE", Dark: "#1F6FEB"}
 
 	sBrand    = lipgloss.NewStyle().Bold(true).Foreground(cBlue)
-	sTab      = lipgloss.NewStyle().Padding(0, 1).Foreground(cMuted)
+	sTabKey   = lipgloss.NewStyle().Foreground(cBlue)  // a tab's key, e.g. the 2 in "2 Activity"
+	sTabName  = lipgloss.NewStyle().Foreground(cMuted) // the name of a tab not on screen
+	sChip     = lipgloss.NewStyle().Background(cChip)  // the session on screen, under the tabs
 	sTabOn    = lipgloss.NewStyle().Padding(0, 1).Bold(true).Foreground(cOnAccent).Background(cAccent)
 	sMuted    = lipgloss.NewStyle().Foreground(cMuted)
 	sText     = lipgloss.NewStyle().Foreground(cText)
@@ -96,6 +101,8 @@ func clipLeft(s string, w int) string {
 	return "…" + string(r)
 }
 
+// clip shortens s to w cells, ending in "…". Styled text keeps its
+// closing codes, so a color doesn't run on past the cut.
 func clip(s string, w int) string {
 	if w <= 0 {
 		return ""
@@ -103,9 +110,5 @@ func clip(s string, w int) string {
 	if lipgloss.Width(s) <= w {
 		return s
 	}
-	r := []rune(s)
-	for len(r) > 0 && lipgloss.Width(string(r))+1 > w {
-		r = r[:len(r)-1]
-	}
-	return string(r) + "…"
+	return ansi.Truncate(s, w, "…")
 }

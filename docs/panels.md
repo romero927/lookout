@@ -1,8 +1,26 @@
 # Panels
 
-Full detail for each of Lookout's panels. Press `1`–`9` or `tab` to switch between them. The [README](../README.md#panels) has the short version.
+Full detail for each of Lookout's panels. Press `0`–`9` or `tab` to switch between them. The [README](../README.md#panels) has the short version.
+
+## Which session is on screen
+
+With nothing pinned, Lookout follows **the session you last sent a message to**: a prompt, a slash command, or a message typed while Claude was working. A session working on its own doesn't take over, so with several running the panels stay on the one you're talking to. The exception is a session that stops on a permission prompt or a question for you: Lookout switches to it (and says so at the bottom) until you answer, then goes back. Press `P` while it's on screen to stay on it. `--here` (or `--cwd`) limits this to sessions in that folder.
+
+To look at another session: `[` and `]` step through the running ones, a click on one in the strip under the tabs shows it, and the [Sessions panel](#0-sessions) (`0` or `s`) lists them all. Showing any session but the one Lookout follows pins it (`◆ pinned` in the header); `P`, or `a` in Sessions, goes back to following. `lookout --session ID` (the start of the ID is enough) opens on one session. A pin survives `R` (restart).
+
+The line under the tabs always names the **session on screen**, highlighted like the active tab. When other sessions are running it lists them too, one entry each: `●` working, `▲` needs you (a permission prompt or a question), `✓` finished while you were looking at another session, `○` idle, `◌` open with nothing sent yet. A closed session you picked comes first, before a `│`. With no other session running, it adds the session's folder and what it's doing.
 
 Until Lookout finds a session (for example, `lookout --here` in a folder where Claude Code hasn't run yet), Activity, Changes, Context, Models and Tools show a placeholder saying which folder it's waiting on; `s` picks another session. The same happens when you start a new Claude Code session: it writes no transcript until you send the first message, so Lookout reads Claude Code's list of running sessions (`~/.claude/sessions`) and waits on the new one instead of showing the previous session. A pinned session stays on screen. Usage still shows your limits, and Skills, Config and the Cheatsheet work as usual.
+
+## 0. Sessions
+
+Every session in one place: the running ones first, in the order they started, then the 12 most recent closed ones (empty ones, such as a lone `/clear`, are left out). Sessions go by their title: the name you gave one (`/rename`), else the title Claude Code generates for it, else Claude Code's made-up name such as `lookout-3f`. A closed session is one line: when it was last active, its title, model, how many prompts you sent, files edited, how full its context was and, for pay-as-you-go accounts, what it cost as Claude Code reported it. Select one to see your last prompt to it, how long it ran, its tokens and its folder. A running session shows its state (as in the strip, with what it's doing, such as the command it's running, or what it waits for), model, how full its context is, its estimated share of your 5-hour limit, when it last did something, your last prompt to it, how many files it edited, its folder and its tmux pane. `▶` marks the session on screen.
+
+`enter` (or a click) shows the session in Usage. `g` switches tmux to the pane the session runs in (when both it and Lookout run in tmux; Lookout only moves tmux's focus, it never types into the pane). `y` copies the session ID, `c` copies `claude --resume <id>`, `esc` goes back without changing anything.
+
+Session states come from the files Claude Code keeps in `~/.claude/sessions` while it runs. They aren't documented, so if a Claude Code update changes them, Lookout falls back to the transcript: a session in the middle of a tool call is shown as working, anything else as idle, and "needs you" isn't shown.
+
+With `[alerts] sessions = true` (the default), Lookout also alerts when a session other than the one on screen stops on a permission prompt or question, or finishes, with the bell and desktop notification set in `[alerts]`. Each alert fires once, even with several dashboards open.
 
 ## 1. Usage
 

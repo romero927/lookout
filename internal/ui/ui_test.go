@@ -90,7 +90,7 @@ func TestPanelsRender(t *testing.T) {
 			key  string
 			want []string
 		}{
-			{"1", []string{"LOOKOUT", "STATUS LINE NOT INSTALLED", "statusline install --print", "settings.json", "LIMITS", "THIS SESSION", "TOKENS", "last 10 min"}},
+			{"1", []string{"◉", "STATUS LINE NOT INSTALLED", "statusline install --print", "settings.json", "LIMITS", "THIS SESSION", "TOKENS"}},
 			{"2", []string{"ACTIVITY", "this still doesn't work", "WHAT CLAUDE DID", "Edit"}},
 			{"3", []string{"CHANGES", "1 edited file no longer"}},
 			{"4", []string{"CONTEXT", "Startup", "LARGEST ITEMS"}},
@@ -316,20 +316,21 @@ func TestActivityDetailAndSessionPicker(t *testing.T) {
 	core.Load()
 
 	m = drive(m, key("esc"), key("s"))
-	if v := plain(m.View()); !strings.Contains(v, "SESSIONS") || !strings.Contains(v, "Following the latest") || !strings.Contains(v, "latest") {
-		t.Fatalf("picker not shown:\n%s", v)
+	if v := plain(m.View()); m.(Model).tab != tabSessions || !strings.Contains(v, "SESSIONS") || !strings.Contains(v, "Following the session you last prompted") {
+		t.Fatalf("s should open Sessions:\n%s", v)
 	}
-	// Picking the latest session keeps following, not pinning.
+	// Picking the latest session keeps following, not pinning, and opens
+	// Usage.
 	m = drive(m, key("enter"))
-	if core.Pinned != "" || m.(Model).picking {
-		t.Errorf("enter on the latest session should follow it, not pin it (pinned=%q)", core.Pinned)
+	if core.Pinned != "" || m.(Model).tab != tabUsage {
+		t.Errorf("enter on the latest session should follow it, not pin it (pinned=%q, tab %d)", core.Pinned, m.(Model).tab)
 	}
 	m = drive(m, key("s"), key("down"), key("enter"))
 	if v := plain(m.View()); !strings.Contains(v, "pinned") || core.Pinned != "sess-old" {
 		t.Errorf("enter should pin an older session (pinned=%q)\n%s", core.Pinned, v)
 	}
 	m = drive(m, key("s"), tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
-	if core.Pinned != "" || strings.Contains(plain(m.View()), "◆ pinned") {
+	if core.Pinned != "" || strings.Contains(plain(m.View()), "◆ pinned") || m.(Model).tab != tabActivity {
 		t.Error("a should go back to following the latest session")
 	}
 
@@ -343,28 +344,27 @@ func TestActivityDetailAndSessionPicker(t *testing.T) {
 		t.Errorf("P again should unpin (pinned=%q)", core.Pinned)
 	}
 
-	// Clicking a session in the picker does what enter does.
-	rowOf := func(id string) int {
+	// Clicking a session in Sessions does what enter does.
+	rowOf := func(text string) int {
 		for y, l := range strings.Split(plain(m.View()), "\n") {
-			if strings.Contains(l, ShortID(id)) && strings.Contains(l, "ago") {
+			if strings.Contains(l, text) {
 				return y
 			}
 		}
-		t.Fatalf("row for %s not found:\n%s", id, plain(m.View()))
+		t.Fatalf("row with %q not found:\n%s", text, plain(m.View()))
 		return -1
 	}
 	m = drive(m, key("s"))
-	y := rowOf("sess-ui")
-	m = drive(m, click(10, y-2)...) // the help line above the list
-	if core.Pinned != "" || !m.(Model).picking {
+	m = drive(m, click(10, rowOf("Following the session"))...) // the summary line above the list
+	if core.Pinned != "" || m.(Model).tab != tabSessions {
 		t.Fatal("clicking outside the list should do nothing")
 	}
-	m = drive(m, click(10, rowOf("sess-old"))...)
-	if core.Pinned != "sess-old" || m.(Model).picking {
-		t.Errorf("click should pin the session and close the picker (pinned=%q)", core.Pinned)
+	m = drive(m, click(10, rowOf("older"))...)
+	if core.Pinned != "sess-old" || m.(Model).tab != tabUsage {
+		t.Errorf("click should pin the session and open Usage (pinned=%q)", core.Pinned)
 	}
 	m = drive(m, key("s"))
-	m = drive(m, click(10, rowOf("sess-ui"))...)
+	m = drive(m, click(10, rowOf("this still doesn't work"))...)
 	if core.Pinned != "" {
 		t.Errorf("clicking the latest session should follow it (pinned=%q)", core.Pinned)
 	}
@@ -964,4 +964,27 @@ func findSteps(cmd tea.Cmd) []tea.Msg {
 		return out
 	}
 	return nil
+}
+
+func TestLongPagesScroll(t *testing.T) {
+	core, db := setup(t)
+	var m tea.Model = New(Options{Core: core, Store: db, Version: "test"})
+	m = drive(m, tea.WindowSizeMsg{Width: 70, Height: 24}, LoadedMsg{}, key("1"))
+	v := plain(m.View())
+	if !strings.Contains(v, "more lines") || strings.Contains(v, "last 10 min") {
+		t.Fatalf("a page taller than the window should say how much is hidden:\n%s", v)
+	}
+	m = drive(m, key("G"))
+	if v := plain(m.View()); !strings.Contains(v, "last 10 min") || strings.Contains(v, "more lines") {
+		t.Fatalf("at the end, the last lines show and the hint goes:\n%s", v)
+	}
+	m = drive(m, key("g"))
+	if v := plain(m.View()); !strings.Contains(v, "LIMITS") {
+		t.Fatalf("g goes back to the top:\n%s", v)
+	}
+	// A tall window shows the whole page with no hint.
+	m = drive(m, tea.WindowSizeMsg{Width: 130, Height: 60})
+	if v := plain(m.View()); !strings.Contains(v, "last 10 min") || strings.Contains(v, "more lines") {
+		t.Fatalf("whole page expected:\n%s", v)
+	}
 }

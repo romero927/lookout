@@ -105,13 +105,16 @@ func itemKind(it activity.CtxItem) string {
 func (m Model) itemList(v activity.ContextView, w, room int) []string {
 	var lines []string
 	for i, it := range v.Largest {
-		line := fmt.Sprintf("%s  %s %s  %s", lpad("~"+Tokens(it.Tokens), 7), pad(clip(itemKind(it.CtxItem), 14), 14),
-			clip(shortPaths(it.Label), max(10, w-42)), Ago(it.At, m.now))
+		size, kind := lpad("~"+Tokens(it.Tokens), 7), pad(clip(itemKind(it.CtxItem), 14), 14)
+		label, ago := clip(shortPaths(it.Label), max(10, w-42)), Ago(it.At, m.now)
 		if i == m.xSel {
+			line := fmt.Sprintf("%s  %s %s  %s", size, kind, label, ago)
 			lines = append(lines, sSelected.Render(pad(clip("▸"+line, w), w)))
-		} else {
-			lines = append(lines, " "+sPurple.Render(clip(line, w-1)))
+			continue
 		}
+		// The size and kind stand out; the description reads as plain text.
+		line := sBold.Render(size) + "  " + sPurple.Render(kind) + " " + sText.Render(label) + "  " + sMuted.Render(ago)
+		lines = append(lines, " "+clip(line, w-1))
 	}
 	if len(lines) == 0 {
 		return []string{sMuted.Render("no items yet")}

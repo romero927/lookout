@@ -75,6 +75,14 @@ func ParseLine(line []byte) (rec Record, st Status) {
 		case "effort":
 			// Optional and newer than the rest: never degrades the line.
 			rec.Effort, _ = str(v)
+		case "aiTitle":
+			if !rec.TitleCustom {
+				rec.Title, _ = str(v)
+			}
+		case "customTitle":
+			if t, _ := str(v); t != "" {
+				rec.Title, rec.TitleCustom = t, true
+			}
 		}
 	})
 	if !ok {

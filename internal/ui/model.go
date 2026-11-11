@@ -49,7 +49,10 @@ type UsageRow struct {
 // doing, what changed, what's in context), then the model, the tools
 // Claude used, skills and configuration, and the cheatsheet last.
 const (
-	tabUsage = iota
+	// tabSessions lists every session. It comes first, ahead of the
+	// panels about one session, and is key 0.
+	tabSessions = iota
+	tabUsage
 	tabActivity
 	tabChanges
 	tabContext
@@ -60,7 +63,18 @@ const (
 	tabCheatsheet
 )
 
-var tabNames = []string{"Usage", "Activity", "Changes", "Context", "Models", "Tools", "Skills", "Config", "Cheatsheet"}
+var tabNames = []string{"Sessions", "Usage", "Activity", "Changes", "Context", "Models", "Tools", "Skills", "Config", "Cheatsheet"}
+
+// tabKey is the key that opens tab i.
+func tabKey(i int) string { return fmt.Sprint(i) }
+
+// tabFor is the tab key k opens ("0"-"9"), or -1.
+func tabFor(k string) int {
+	if len(k) == 1 && k[0] >= '0' && k[0] <= '9' {
+		return int(k[0] - '0')
+	}
+	return -1
+}
 
 // Options configure the model.
 type Options struct {
@@ -70,6 +84,10 @@ type Options struct {
 	ConfigErr error
 	Version   string
 	Exe       string
+	// Session is a session ID (or the start of one) to pin at startup.
+	Session string
+	// Tab is the key of the panel to open first ("0"-"9"); Usage when "".
+	Tab string
 }
 
 // Model is the root Bubble Tea model.
@@ -155,10 +173,22 @@ type Model struct {
 	tlRev      int             // bumped when calls open
 	tlFailOnly bool            // show failed calls only
 
-	// Session picker
-	picking bool
-	pSel    int
-	pList   []usage.Session
+	// Every session (running ones first) and what each is doing.
+	ovs        []app.Overview
+	ovPrev     map[string]app.State // each running session's state at the last refresh
+	ovLast     map[string]app.State // ovPrev as it was before that refresh
+	share5h    map[string]float64   // each running session's estimated share of the 5-hour limit, in points
+	unseen     map[string]bool      // finished while another session was on screen
+	sessAlerts []sessionAlert       // waiting for the next tick
+	svSel      int                  // selected row in the Sessions panel
+	svID       string               // the selected session, kept as the list reorders
+	prevTab    int                  // the panel on screen before Sessions, to return to
+	prevShown  string               // the session on screen before the last refresh
+	scroll     map[int]int          // how far Usage and Models are scrolled down, in lines
+
+	// Under the mouse pointer, to highlight what a click would pick.
+	hoverTab   int    // a tab, or -1
+	hoverStrip string // a session in the strip under the tabs, or ""
 
 	// Skills
 	skills []skills.Item
@@ -202,7 +232,10 @@ type Model struct {
 
 // New creates the model.
 func New(o Options) Model {
-	m := Model{o: o, now: time.Now(), shareFive: -1, shareWeek: -1, stab: &strategy.Stabilizer{}, gView: viewport.New(40, 10), cView: viewport.New(40, 10), aView: viewport.New(40, 10), sView: viewport.New(40, 10), tlView: viewport.New(40, 10)}
+	m := Model{o: o, tab: tabUsage, hoverTab: -1, now: time.Now(), shareFive: -1, shareWeek: -1, stab: &strategy.Stabilizer{}, gView: viewport.New(40, 10), cView: viewport.New(40, 10), aView: viewport.New(40, 10), sView: viewport.New(40, 10), tlView: viewport.New(40, 10)}
+	if t := tabFor(o.Tab); t >= 0 {
+		m.tab = t
+	}
 	m.refreshLimits(true)
 	m.fired = limits.LoadFired(paths.AlertsFile())
 	m.checkBuild()
@@ -233,6 +266,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case LoadedMsg:
 		m.loaded = true
+		m.pinAtStart()
 		m.refresh()
 		m.refreshFiles()
 		m.refreshSkills()
@@ -253,8 +287,14 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		// Run these before the return: they change m, and Go doesn't say
 		// whether a return reads m before or after calls in the same list.
-		alerts, changes, upd := m.checkAlerts(), m.changesCmd(), m.updateCheck()
-		return m, tea.Batch(tick(), alerts, changes, upd)
+		alerts, sessAlerts, changes, upd := m.checkAlerts(), m.checkSessionAlerts(), m.changesCmd(), m.updateCheck()
+		return m, tea.Batch(tick(), alerts, sessAlerts, changes, upd)
+
+	case paneMsg:
+		if msg.err != nil {
+			m.setFlash("can't go to "+msg.label+": "+msg.err.Error(), sYellow, 6*time.Second)
+		}
+		return m, nil
 
 	case updateMsg:
 		m.onUpdate(msg)
@@ -324,9 +364,6 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.help = false
 		return m, nil
 	}
-	if m.picking {
-		return m.pickerKey(key)
-	}
 	// Keys the focused viewers consume first.
 	var focus *bool
 	var view *viewport.Model
@@ -371,7 +408,7 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "esc", "left", "h", "enter":
 			*focus = false
 			return m, nil
-		case "q", "ctrl+c", "e", "c", "o", "1", "2", "3", "4", "5", "6", "7", "8", "9", "tab", "shift+tab", "?", "s", "P", "R":
+		case "q", "ctrl+c", "e", "c", "o", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "tab", "shift+tab", "?", "s", "P", "R", "[", "]":
 		default:
 			var cmd tea.Cmd
 			*view, cmd = view.Update(k)
@@ -387,16 +424,31 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "?":
 		m.help = true
 		return m, nil
-	case "1", "2", "3", "4", "5", "6", "7", "8", "9":
-		m.tab = int(key[0] - '1')
+	case "0", "1", "2", "3", "4", "5", "6", "7", "8", "9":
+		if key == "0" {
+			return m.openSessions(), nil
+		}
+		m.tab = tabFor(key)
 		if m.loaded {
 			m.refresh()
 		}
 		return m, nil
 	case "s":
-		return m.openPicker(), nil
+		if m.tab == tabSessions {
+			return m.sessionsKey("esc")
+		}
+		return m.openSessions(), nil
 	case "P":
 		return m.togglePin(), nil
+	case "]", "[":
+		if !m.loaded {
+			return m, nil
+		}
+		dir := 1
+		if key == "[" {
+			dir = -1
+		}
+		return m.cycle(dir), nil
 	case "tab":
 		m.tab = (m.tab + 1) % len(tabNames)
 		if m.loaded {
@@ -412,10 +464,15 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 
 	switch m.tab {
+	case tabSessions:
+		return m.sessionsKey(key)
 	case tabUsage:
 		if key == "o" {
 			return m, openURL(UsagePageURL)
 		}
+		return m.scrollKey(key), nil
+	case tabModels:
+		return m.scrollKey(key), nil
 	case tabFiles:
 		return m.filesKey(key)
 	case tabChanges:
@@ -495,7 +552,13 @@ func (m Model) editSelected() (tea.Model, tea.Cmd) {
 // refresh recomputes usage and strategy.
 func (m *Model) refresh() {
 	now := time.Now()
+	m.prevShown = m.shownID()
 	m.snap, m.sess, m.hasSess = m.o.Core.Snapshot(now)
+	m.refreshSessions(now)
+	m.noteAutoSwitch()
+	if m.tab != tabSessions {
+		m.prevTab = m.tab
+	}
 	m.health = m.o.Core.Watcher.Health()
 	m.refreshShare(now)
 	raw, st := m.o.Core.Suggest(now, SuggestExtra(m.limits, m.limitsExact(), now))
@@ -614,7 +677,7 @@ func numbered(path, s string) string {
 
 // layoutViewports sizes the viewers for the current window.
 func (m *Model) layoutViewports() {
-	bodyH := max(5, m.height-5)
+	bodyH := max(5, m.height-3-lipgloss.Height(m.viewHeader()))
 	listW := m.listWidth()
 	viewW := max(20, m.width-listW-3)
 	for _, v := range []*viewport.Model{&m.gView, &m.cView, &m.aView, &m.sView, &m.tlView} {
@@ -648,8 +711,6 @@ func (m Model) render() string {
 	switch {
 	case m.help:
 		body = m.viewHelp()
-	case m.picking:
-		body = m.viewPicker(bodyH)
 	case !m.loaded:
 		body = "\n  " + sMuted.Render("scanning transcripts in "+ShortPath(paths.ClaudeProjectsDir())+" …")
 	case !m.hasSess && needsSession(m.tab):
@@ -657,7 +718,7 @@ func (m Model) render() string {
 	default:
 		switch m.tab {
 		case tabUsage:
-			body = m.viewUsage()
+			body = m.scrolled(m.viewUsage(), bodyH)
 		case tabChanges:
 			body = m.viewChanges(bodyH)
 		case tabActivity:
@@ -669,11 +730,13 @@ func (m Model) render() string {
 		case tabSkills:
 			body = m.viewSkills(bodyH)
 		case tabModels:
-			body = m.viewModels()
+			body = m.scrolled(m.viewModels(), bodyH)
 		case tabTools:
 			body = m.viewTools(bodyH)
 		case tabFiles:
 			body = m.viewFiles(bodyH)
+		case tabSessions:
+			body = m.viewSessions(bodyH)
 		}
 	}
 	body = lipgloss.NewStyle().MaxHeight(bodyH).Height(bodyH).Render(body)
@@ -684,28 +747,6 @@ func (m Model) render() string {
 // headerParts are the header's pieces: the brand, the tabs (full names,
 // or numbers when space is short) and the badges on the right.
 func (m Model) headerParts() (brand string, tabs, right []string) {
-	brand = sBrand.Render("◉ LOOKOUT")
-	tabsFor := func(short bool) []string {
-		var tabs []string
-		for i, n := range tabNames {
-			label := fmt.Sprintf("%d %s", i+1, n)
-			if short && i != m.tab {
-				label = fmt.Sprint(i + 1)
-			}
-			t := sTab.Render(label)
-			if i == m.tab {
-				t = sTabOn.Render(label)
-			}
-			// A divider sets the setup panels (skills, files, cheatsheet)
-			// apart from the ones about the session.
-			if i == tabSkills {
-				t = sFaint.Render("│") + t
-			}
-			tabs = append(tabs, t)
-		}
-		return tabs
-	}
-
 	// Right side, most important first; trimmed from the end to fit.
 	if w := m.health.Warning(); w != "" {
 		right = append(right, sWarn.Render("! PARSER"))
@@ -721,18 +762,72 @@ func (m Model) headerParts() (brand string, tabs, right []string) {
 	}
 	right = append(right, m.limitBadges()...)
 
-	// Prefer full tab names; fall back to short tabs, then fewer badges.
-	fits := func(t, r []string) bool {
-		return lipgloss.Width(brand+"  "+strings.Join(t, ""))+lipgloss.Width(strings.Join(r, "  "))+1 <= m.width
+	fits := func(b string, t, r []string) bool {
+		return lipgloss.Width(b+"  "+strings.Join(t, ""))+lipgloss.Width(strings.Join(r, "  "))+1 <= m.width
 	}
-	tabs = tabsFor(false)
-	if !fits(tabs, right) {
-		tabs = tabsFor(true)
+	// Keep tab names as long as possible: first tighten the spacing, then
+	// shorten tabs to their number one at a time (the setup panels first,
+	// the one on screen never), and only then drop badges.
+	short := make([]bool, len(tabNames))
+	tight := false
+	full := sBrand.Render("◉ LOOKOUT")
+	brand = full
+	steps := []func(){func() { tight = true }}
+	for _, i := range []int{tabCheatsheet, tabFiles, tabSkills} {
+		steps = append(steps, func() { short[i] = true })
 	}
-	for len(right) > 0 && !fits(tabs, right) {
+	steps = append(steps, func() { short[tabSessions] = true }, func() { brand = sBrand.Render("◉") })
+	for i := tabTools; i >= tabUsage; i-- {
+		steps = append(steps, func() { short[i] = true })
+	}
+	tabs = m.tabLabels(short, tight)
+	for _, step := range steps {
+		if fits(brand, tabs, right) {
+			break
+		}
+		step()
+		tabs = m.tabLabels(short, tight)
+	}
+	for len(right) > 0 && !fits(brand, tabs, right) {
 		right = right[:len(right)-1]
 	}
 	return brand, tabs, right
+}
+
+// tabLabels draws the tabs. The one on screen is a filled button; the
+// others are their key in blue and name in grey, or only the key where
+// short says so. tight puts one space between tabs instead of two.
+func (m Model) tabLabels(short []bool, tight bool) []string {
+	gap := "  "
+	if tight {
+		gap = " "
+	}
+	tabs := make([]string, 0, len(tabNames))
+	for i, n := range tabNames {
+		var t string
+		switch {
+		case i == m.tab:
+			t = sTabOn.Render(tabKey(i) + " " + n)
+		case i == m.hoverTab && short[i]:
+			t = sChip.Foreground(cBlue).Render(" " + tabKey(i) + " ")
+		case i == m.hoverTab:
+			t = sChip.Foreground(cBlue).Render(" "+tabKey(i)) + sChip.Foreground(cText).Render(" "+n+" ")
+		case short[i]:
+			t = " " + sTabKey.Render(tabKey(i)) + " "
+		default:
+			t = " " + sTabKey.Render(tabKey(i)) + " " + sTabName.Render(n) + " "
+		}
+		// A divider sets the panels about one session apart from Sessions
+		// before them and the setup panels (skills, config, cheatsheet) after.
+		switch {
+		case i == tabSkills || i == tabUsage:
+			t = gap[1:] + sFaint.Render("│") + gap[1:] + t
+		case i > 0:
+			t = gap[1:] + t
+		}
+		tabs = append(tabs, t)
+	}
+	return tabs
 }
 
 // tabAt is the tab under column x of the header's first line, or -1.
@@ -756,10 +851,18 @@ func (m Model) viewHeader() string {
 	if r := strings.Join(right, "  "); len(right) > 0 {
 		line = left + strings.Repeat(" ", m.width-lipgloss.Width(left)-lipgloss.Width(r)) + r
 	}
-	rule := sMuted.Render(strings.Repeat("━", max(0, m.width)))
-	out := line + "\n" + rule
+	out := line + "\n"
+	if m.stripRow() == 2 {
+		// Room between the tabs and the sessions under them.
+		out += "\n"
+	}
+	out += m.viewRule()
 	if w := m.health.Warning(); w != "" {
 		out += "\n" + sYellow.Render(clip("! "+w, m.width))
+	}
+	// A blank line between the header and the panel, when there's room.
+	if m.roomy() {
+		out += "\n"
 	}
 	return out
 }
@@ -767,8 +870,6 @@ func (m Model) viewHeader() string {
 func (m Model) viewFooter() string {
 	var keys string
 	switch {
-	case m.picking:
-		keys = "↑↓ select · enter show · a follow latest · y copy ID · esc close"
 	case m.tab == tabFiles && m.gFocus:
 		keys = "↑↓/pgup/pgdn scroll · esc back · e edit · o open folder · q quit"
 	case m.tab == tabFiles:
@@ -802,10 +903,19 @@ func (m Model) viewFooter() string {
 		keys = "↑↓ select · enter details · a largest only · ? help · q quit"
 	case m.tab == tabContext:
 		keys = "↑↓ select · enter details · a see all · ? help · q quit"
+	case m.tab == tabUsage && m.canScroll():
+		keys = "↑↓ scroll · o open usage on claude.ai · 0-9/tab panels · [ ] switch session · ? help · q quit"
 	case m.tab == tabUsage:
-		keys = "o open usage on claude.ai · 1-9/tab panels · s sessions · ? help · q quit"
+		keys = "o open usage on claude.ai · 0-9/tab panels · [ ] switch session · ? help · q quit"
+	case m.tab == tabModels && m.canScroll():
+		keys = "↑↓ scroll · 0-9/tab panels · s sessions · [ ] switch session · ? help · q quit"
+	case m.tab == tabSessions:
+		keys = "↑↓ select · enter show it · esc back · a follow the latest · y copy ID · c copy resume command"
+		if m.svSel < m.listedSessions() && canGoTo(m.ovs[m.svSel]) {
+			keys = "↑↓ select · enter show it · g go to its tmux pane · esc back · a follow the latest · y copy ID · c copy resume command"
+		}
 	default:
-		keys = "1-9/tab panels · s sessions · ? help · q quit"
+		keys = "0-9/tab panels · s sessions · [ ] switch session · ? help · q quit"
 	}
 	if m.newBuild {
 		keys = "R restart into new build · " + keys
@@ -813,7 +923,31 @@ func (m Model) viewFooter() string {
 	if m.flash != "" && time.Now().Before(m.flashUntil) {
 		return m.flashStyle.Render(clip(m.flash, m.width))
 	}
-	return sMuted.Render(clip(keys, m.width))
+	return footerKeys(clip(keys, m.width))
+}
+
+// footerKeys draws a footer hint like "↑↓ select · enter details": each
+// key in bold, what it does in grey.
+func footerKeys(s string) string {
+	parts := strings.Split(s, " · ")
+	for i, p := range parts {
+		key, rest := p, ""
+		switch {
+		case strings.HasPrefix(p, "[ ] "):
+			key, rest = "[ ]", p[3:]
+		default:
+			if j := strings.IndexByte(p, ' '); j > 0 {
+				key, rest = p[:j], p[j:]
+			}
+		}
+		// Plain prose (e.g. "type to search…") isn't a key.
+		if len([]rune(key)) > 14 || key == "type" {
+			parts[i] = sMuted.Render(p)
+			continue
+		}
+		parts[i] = sBold.Render(key) + sMuted.Render(rest)
+	}
+	return strings.Join(parts, sMuted.Render(" · "))
 }
 
 func (m Model) viewHelp() string {
@@ -821,6 +955,9 @@ func (m Model) viewHelp() string {
 		section("Help", m.width),
 		"",
 		sBold.Render("Panels"),
+		"  0 Sessions    every running session: working, needs you (▲), finished (✓) or idle, with\n" +
+			"                context, limit share and your last prompt; enter shows one in Usage,\n" +
+			"                esc goes back, g goes to its tmux pane",
 		"  1 Usage       limits, token usage for the session, today and the last 5h, and limit use per day",
 		"  2 Activity    one entry per prompt: Claude's messages and tool calls in order, files edited;\n" +
 			"                click a step (or x for all) to see its full command and output",
@@ -835,13 +972,14 @@ func (m Model) viewHelp() string {
 		"  9 Cheatsheet  Claude Code commands to copy and paste, incl. ones for this session",
 		"",
 		sBold.Render("Keys"),
-		"  1-9, tab      switch panel",
+		"  0-9, tab      switch panel",
+		"  [ ]           show the previous / next running session (also: click it in the strip under the tabs)",
 		"  c             copy (Skills: how to run it · Cheatsheet: the command)",
 		"  a             Context: see all items / only the largest · Tools: show the call in Activity",
 		"  f             Tools: show failed calls only",
-		"  y             copy an ID (Changes: the file's commit · session picker: the session)",
-		"  s             pick which session to show (a: follow the latest again)",
-		"  P             pin the session shown, or unpin to follow the latest",
+		"  y             copy an ID (Changes: the file's commit · Sessions: the session)",
+		"  s, 0          open Sessions to pick which session to show (a: follow the latest again, esc: back)",
+		"  P             pin the session shown, or unpin to follow the session you last prompted",
 		"  ↑↓ / j k      move · enter to focus the viewer · esc to go back",
 		"  e             edit the selected file in $EDITOR (needs [files] allow_edit = true)",
 		"  o             Config, Changes: open the selected file's folder in your file manager",
@@ -852,9 +990,15 @@ func (m Model) viewHelp() string {
 		"                drag to select text: it's copied when you let go (Shift+drag: the terminal's own)",
 		"  q             quit",
 		"",
+		sBold.Render("Session estimates"),
+		"  \"this session: about N of the X% used\" (Usage) and \"5h N%\" (Sessions) are the session's share",
+		"  of the Claude Code tokens used on this computer in that limit window, weighted by model price.",
+		"  They assume no other Claude usage (claude.ai, other computers) in the window.",
+		"",
 		sBold.Render("Alerts"),
 		"  A bell, a desktop notification and a footer message when a limit passes 80% or 95%,",
-		"  or when your pace would reach it before the reset. Set them in [alerts] in config.toml.",
+		"  or when your pace would reach it before the reset, and when another session needs you",
+		"  or finishes. Set them in [alerts] in config.toml.",
 		"",
 		sBold.Render("Updates"),
 		"  " + m.updateHelp(),

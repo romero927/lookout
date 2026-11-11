@@ -12,10 +12,23 @@ import (
 // Code keeps in ~/.claude/sessions while it runs (one per process). They
 // appear as soon as Claude Code starts, before the session writes anything
 // to its transcript, which only happens once you send the first message.
+//
+// Newer Claude Code versions also say what the session is doing (Status:
+// "busy", "idle" or "waiting", with BlockedOn saying why it waits) and give
+// it a name. These fields are undocumented, so each may be empty.
 type LiveSession struct {
 	ID      string
 	Cwd     string
 	Started time.Time
+
+	Name      string    // e.g. "lookout-3f", or one you gave it
+	NameSet   bool      // you named it (Name isn't one Claude Code made up)
+	Status    string    // "busy", "idle", "waiting", or "" when not reported
+	StatusAt  time.Time // when Status last changed
+	BlockedOn string    // why it waits: "permission prompt", "input needed", ...
+	Blocked   string    // a longer description of what it waits for, if given
+	Working   string    // what it is doing, if given
+	Tmux      string    // its tmux pane, e.g. "main:@0.%3", if it runs in tmux
 }
 
 // liveCache re-reads the sessions folder at most once a second; the
@@ -46,10 +59,18 @@ func readLive(dir string) []LiveSession {
 			continue
 		}
 		var v struct {
-			PID       int    `json:"pid"`
-			SessionID string `json:"sessionId"`
-			Cwd       string `json:"cwd"`
-			StartedAt int64  `json:"startedAt"` // Unix milliseconds
+			PID             int    `json:"pid"`
+			SessionID       string `json:"sessionId"`
+			Cwd             string `json:"cwd"`
+			StartedAt       int64  `json:"startedAt"` // Unix milliseconds
+			Name            string `json:"name"`
+			NameSource      string `json:"nameSource"`
+			Status          string `json:"status"`
+			StatusUpdatedAt int64  `json:"statusUpdatedAt"`
+			BlockedOn       string `json:"blockedOn"`
+			BlockedText     string `json:"blockedText"`
+			WorkingDetail   string `json:"workingDetail"`
+			Tmux            string `json:"tmux"`
 		}
 		if json.Unmarshal(b, &v) != nil || v.SessionID == "" || v.StartedAt == 0 {
 			continue
@@ -57,7 +78,12 @@ func readLive(dir string) []LiveSession {
 		if v.PID > 0 && !processAlive(v.PID) {
 			continue
 		}
-		out = append(out, LiveSession{ID: v.SessionID, Cwd: v.Cwd, Started: time.UnixMilli(v.StartedAt)})
+		l := LiveSession{ID: v.SessionID, Cwd: v.Cwd, Started: time.UnixMilli(v.StartedAt),
+			Name: v.Name, NameSet: v.NameSource == "user", Status: v.Status, BlockedOn: v.BlockedOn, Blocked: v.BlockedText, Working: v.WorkingDetail, Tmux: v.Tmux}
+		if v.StatusUpdatedAt > 0 {
+			l.StatusAt = time.UnixMilli(v.StatusUpdatedAt)
+		}
+		out = append(out, l)
 	}
 	return out
 }

@@ -4,6 +4,7 @@ package app
 
 import (
 	"path/filepath"
+	"strings"
 	"sync"
 	"time"
 
@@ -72,9 +73,10 @@ func (c *Core) handle(r transcript.Record, src transcript.Source) {
 func (c *Core) Load() int { return c.Watcher.Scan() }
 
 // Current returns the session in focus: the pinned one if it still exists,
-// else the latest (in CwdFilter, when set). When a newer Claude Code session
-// has started but has no transcript yet (nothing sent so far), there is no
-// current session: Lookout waits for that one instead of showing an older one.
+// else the one Lookout follows (see Followed). When a newer Claude Code
+// session has started but has no transcript yet (nothing sent so far), or
+// the pinned session is open but hasn't sent anything, there is no current
+// session: Lookout waits for that one instead of showing an older one.
 func (c *Core) Current() (usage.Session, bool) {
 	if c.Pinned != "" {
 		for _, s := range c.Agg.Sessions() {
@@ -82,26 +84,104 @@ func (c *Core) Current() (usage.Session, bool) {
 				return s, true
 			}
 		}
+		if c.IsLive(c.Pinned) {
+			return usage.Session{}, false
+		}
 	}
-	s, ok := c.Agg.Current(c.CwdFilter)
+	if s, ok := c.NeedsYou(); ok {
+		return s, true
+	}
+	s, ok := c.Latest()
 	if _, waiting := c.Starting(); waiting {
 		return usage.Session{}, false
 	}
 	return s, ok
 }
 
+// Followed is the session Lookout shows when nothing is pinned: one that
+// needs you if any does, else the latest (see Latest). It doesn't wait for
+// newly started sessions as Current does.
+func (c *Core) Followed() (usage.Session, bool) {
+	if s, ok := c.NeedsYou(); ok {
+		return s, true
+	}
+	return c.Latest()
+}
+
+// NeedsYou returns the running session (in the --cwd folder, when set)
+// that most recently stopped on a permission prompt or a question for you.
+// Lookout shows it until you answer, then goes back to the latest.
+func (c *Core) NeedsYou() (usage.Session, bool) {
+	if c.LiveDir == "" {
+		return usage.Session{}, false
+	}
+	var best LiveSession
+	found := false
+	for _, l := range c.live.get(c.LiveDir, time.Now()) {
+		if l.Status != "waiting" || usage.DirMatch(l.Cwd, c.CwdFilter) == 0 || !c.Agg.Known(l.ID) {
+			continue
+		}
+		if !found || l.StatusAt.After(best.StatusAt) {
+			best, found = l, true
+		}
+	}
+	if !found {
+		return usage.Session{}, false
+	}
+	for _, s := range c.Agg.Sessions() {
+		if s.ID == best.ID {
+			return s, true
+		}
+	}
+	return usage.Session{}, false
+}
+
+// Latest is the session Lookout follows when nothing is pinned: among the
+// sessions in (or closest to) the --cwd folder, the one you last sent a
+// message to. Sessions that are busy on their own don't take over, so with
+// several running the view stays on the one you're talking to.
+func (c *Core) Latest() (usage.Session, bool) {
+	var best usage.Session
+	var bestAt time.Time
+	bestRank := 0
+	for _, s := range c.Agg.Sessions() { // most recently active first
+		r := usage.DirMatch(s.Cwd, c.CwdFilter)
+		if r == 0 {
+			continue
+		}
+		at := c.attention(s)
+		if r > bestRank || (r == bestRank && at.After(bestAt)) {
+			best, bestAt, bestRank = s, at, r
+		}
+	}
+	return best, bestRank > 0
+}
+
+// attention is when you last turned to s: your last message to it, or its
+// last activity when no message is known.
+func (c *Core) attention(s usage.Session) time.Time {
+	if c.Activity != nil {
+		if t := c.Activity.Brief(s.ID).Prompted; !t.IsZero() {
+			return t
+		}
+	}
+	return s.LastActivity
+}
+
 // Starting returns the newest running session that hasn't sent anything yet
-// when it is newer than (or a closer folder match than) the latest session
-// with a transcript, so it is the one to show once it gets going. It ignores
-// Pinned.
+// when it started after you last sent a message to the followed session
+// (or is a closer folder match), so it is the one to show once it gets
+// going. It ignores Pinned.
 func (c *Core) Starting() (LiveSession, bool) {
 	if c.LiveDir == "" {
 		return LiveSession{}, false
 	}
-	cur, ok := c.Agg.Current(c.CwdFilter)
+	cur, ok := c.Latest()
 	curRank := 0
+	var curAt time.Time
 	if ok {
 		curRank = usage.DirMatch(cur.Cwd, c.CwdFilter)
+		curAt = c.attention(cur)
 	}
 	var best LiveSession
 	found := false
@@ -110,7 +190,7 @@ func (c *Core) Starting() (LiveSession, bool) {
 		if r == 0 || r < curRank || (ok && l.ID == cur.ID) || c.Agg.Known(l.ID) {
 			continue
 		}
-		if r == curRank && !l.Started.After(cur.LastActivity) {
+		if r == curRank && !l.Started.After(curAt) {
 			continue
 		}
 		if !found || l.Started.After(best.Started) {
@@ -118,6 +198,55 @@ func (c *Core) Starting() (LiveSession, bool) {
 		}
 	}
 	return best, found
+}
+
+// Waiting returns the open session Lookout is waiting on to send its first
+// message: the pinned one, or a newly started one (see Starting).
+func (c *Core) Waiting() (LiveSession, bool) {
+	if c.Pinned != "" && !c.Agg.Known(c.Pinned) {
+		if l, ok := c.liveSession(c.Pinned); ok {
+			return l, true
+		}
+	}
+	if c.Pinned != "" {
+		return LiveSession{}, false
+	}
+	return c.Starting()
+}
+
+// Resolve finds the session whose ID is id or starts with it, among
+// sessions with a transcript and running ones. It reports false when none
+// or several match.
+func (c *Core) Resolve(id string) (string, bool) {
+	if id == "" {
+		return "", false
+	}
+	match := map[string]bool{}
+	for _, s := range c.Agg.Sessions() {
+		if s.ID == id {
+			return id, true
+		}
+		if strings.HasPrefix(s.ID, id) {
+			match[s.ID] = true
+		}
+	}
+	if c.LiveDir != "" {
+		for _, l := range c.live.get(c.LiveDir, time.Now()) {
+			if l.ID == id {
+				return id, true
+			}
+			if strings.HasPrefix(l.ID, id) {
+				match[l.ID] = true
+			}
+		}
+	}
+	if len(match) != 1 {
+		return "", false
+	}
+	for m := range match {
+		return m, true
+	}
+	return "", false
 }
 
 // Snapshot computes usage for the current session.
