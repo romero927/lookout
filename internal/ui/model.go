@@ -1014,7 +1014,7 @@ func (m Model) viewHelp() string {
 		sBold.Render("Keys"),
 		"  0-9, tab      switch panel",
 		"  [ ]           step through the tabs under the panels: ↻ Auto, then each running session (also: click one)",
-		"                ↻ Auto follows the session you last prompted; any other tab pins that session",
+		"                ↻ Auto follows the session you last prompted or clicked into (tmux); any other tab pins that session",
 		"  c             copy (Skills: how to run it · Cheatsheet: the command)",
 		"  a             Context: see all items / only the largest · Tools: show the call in Activity",
 		"  f             Tools: show failed calls only",

@@ -36,6 +36,7 @@ type Core struct {
 	// turns the check off.
 	LiveDir string
 	live    liveCache
+	focus   focusTracker // which tmux pane you switched to last
 
 	ctxMu   sync.Mutex
 	ctxSeen map[string]reportedCtx // see reportedContext
@@ -99,7 +100,7 @@ func (c *Core) Current() (usage.Session, bool) {
 			return usage.Session{}, false
 		}
 	}
-	if s, ok := c.NeedsYou(); ok {
+	if s, ok := c.needsYouNow(); ok {
 		return s, true
 	}
 	s, ok := c.Latest()
@@ -110,13 +111,31 @@ func (c *Core) Current() (usage.Session, bool) {
 }
 
 // Followed is the session Lookout shows when nothing is pinned: one that
-// needs you if any does, else the latest (see Latest). It doesn't wait for
-// newly started sessions as Current does.
+// needs you (see needsYouNow), else the latest (see Latest). It doesn't
+// wait for newly started sessions as Current does.
 func (c *Core) Followed() (usage.Session, bool) {
-	if s, ok := c.NeedsYou(); ok {
+	if s, ok := c.needsYouNow(); ok {
 		return s, true
 	}
 	return c.Latest()
+}
+
+// needsYouNow is the session that needs you (see NeedsYou) when it should
+// take over the view: it started waiting after you last turned to the
+// latest session. Once you prompt or switch to another session while it
+// waits, you stay there; its tab still shows ▲.
+func (c *Core) needsYouNow() (usage.Session, bool) {
+	s, at, ok := c.needsYou()
+	if !ok {
+		return s, false
+	}
+	if at.IsZero() {
+		return s, true // when it started waiting isn't known
+	}
+	if l, lok := c.Latest(); lok && l.ID != s.ID && c.attention(l, c.focusTimes(time.Now())).After(at) {
+		return usage.Session{}, false
+	}
+	return s, true
 }
 
 // LiveKnown reports whether Claude Code lists its running sessions, so a
@@ -132,10 +151,17 @@ func (c *Core) LiveKnown() bool {
 
 // NeedsYou returns the running session (in the --cwd folder, when set)
 // that most recently stopped on a permission prompt or a question for you.
-// Lookout shows it until you answer, then goes back to the latest.
+// Lookout shows it until you answer (or turn to another session; see
+// needsYouNow), then goes back to the latest.
 func (c *Core) NeedsYou() (usage.Session, bool) {
+	s, _, ok := c.needsYou()
+	return s, ok
+}
+
+// needsYou is NeedsYou, plus when that session started waiting.
+func (c *Core) needsYou() (usage.Session, time.Time, bool) {
 	if c.LiveDir == "" {
-		return usage.Session{}, false
+		return usage.Session{}, time.Time{}, false
 	}
 	var best LiveSession
 	found := false
@@ -148,22 +174,23 @@ func (c *Core) NeedsYou() (usage.Session, bool) {
 		}
 	}
 	if !found {
-		return usage.Session{}, false
+		return usage.Session{}, time.Time{}, false
 	}
 	for _, s := range c.Agg.Sessions() {
 		if s.ID == best.ID {
-			return s, true
+			return s, best.StatusAt, true
 		}
 	}
-	return usage.Session{}, false
+	return usage.Session{}, time.Time{}, false
 }
 
 // Latest is the session Lookout follows when nothing is pinned: among the
 // sessions in (or closest to) the --cwd folder, the one you last sent a
-// message to. Sessions that are busy on their own don't take over, so with
-// several running the view stays on the one you're talking to. Once you
-// close a session, Lookout moves on to a running one; it falls back to
-// closed sessions only when none is running.
+// message to or switched to in tmux (see attention). Sessions that are
+// busy on their own don't take over, so with several running the view
+// stays on the one you're talking to. Once you close a session, Lookout
+// moves on to a running one; it falls back to closed sessions only when
+// none is running.
 func (c *Core) Latest() (usage.Session, bool) {
 	var running map[string]bool
 	if c.LiveKnown() {
@@ -177,6 +204,7 @@ func (c *Core) Latest() (usage.Session, bool) {
 			running = nil
 		}
 	}
+	focus := c.focusTimes(time.Now())
 	var best usage.Session
 	var bestAt time.Time
 	bestRank := 0
@@ -185,7 +213,7 @@ func (c *Core) Latest() (usage.Session, bool) {
 		if r == 0 || (running != nil && !running[s.ID]) {
 			continue
 		}
-		at := c.attention(s)
+		at := c.attention(s, focus)
 		if r > bestRank || (r == bestRank && at.After(bestAt)) {
 			best, bestAt, bestRank = s, at, r
 		}
@@ -193,44 +221,55 @@ func (c *Core) Latest() (usage.Session, bool) {
 	return best, bestRank > 0
 }
 
-// attention is when you last turned to s: your last message to it, or its
-// last activity when no message is known.
-func (c *Core) attention(s usage.Session) time.Time {
+// attention is when you last turned to s: your last message to it (or
+// its last activity when no message is known), or when you last switched
+// to its tmux pane, whichever is later. focus is from focusTimes.
+func (c *Core) attention(s usage.Session, focus map[string]time.Time) time.Time {
+	at := s.LastActivity
 	if c.Activity != nil {
 		if t := c.Activity.Brief(s.ID).Prompted; !t.IsZero() {
-			return t
+			at = t
 		}
 	}
-	return s.LastActivity
+	if f := focus[s.ID]; f.After(at) {
+		at = f
+	}
+	return at
 }
 
 // Starting returns the newest running session that hasn't sent anything yet
-// when it started after you last sent a message to the followed session
-// (or is a closer folder match), so it is the one to show once it gets
-// going. It ignores Pinned.
+// when it started (or you switched to its tmux pane) after you last turned
+// to the followed session (or is a closer folder match), so it is the one
+// to show once it gets going. It ignores Pinned.
 func (c *Core) Starting() (LiveSession, bool) {
 	if c.LiveDir == "" {
 		return LiveSession{}, false
 	}
 	cur, ok := c.Latest()
+	focus := c.focusTimes(time.Now())
 	curRank := 0
 	var curAt time.Time
 	if ok {
 		curRank = usage.DirMatch(cur.Cwd, c.CwdFilter)
-		curAt = c.attention(cur)
+		curAt = c.attention(cur, focus)
 	}
 	var best LiveSession
+	var bestAt time.Time
 	found := false
 	for _, l := range c.live.get(c.LiveDir, time.Now()) {
 		r := usage.DirMatch(l.Cwd, c.CwdFilter)
 		if r == 0 || r < curRank || (ok && l.ID == cur.ID) || c.Agg.Known(l.ID) {
 			continue
 		}
-		if r == curRank && !l.Started.After(curAt) {
+		at := l.Started
+		if f := focus[l.ID]; f.After(at) {
+			at = f
+		}
+		if r == curRank && !at.After(curAt) {
 			continue
 		}
-		if !found || l.Started.After(best.Started) {
-			best, found = l, true
+		if !found || at.After(bestAt) {
+			best, bestAt, found = l, at, true
 		}
 	}
 	return best, found

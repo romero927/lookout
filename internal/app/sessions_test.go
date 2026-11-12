@@ -169,10 +169,11 @@ func TestCurrentShowsSessionThatNeedsYou(t *testing.T) {
 	if s, _ := c.Current(); s.ID != "talk" {
 		t.Fatalf("Current() = %q, want talk (last prompted)", s.ID)
 	}
-	// bg stops on a permission prompt: it takes over until answered.
-	writeLiveStatus(t, dir, pid, "bg", "waiting", `,"blockedOn":"permission prompt"`, now.Add(-time.Hour))
+	// bg stops on a permission prompt (statusUpdatedAt is a minute after
+	// the start passed here, so after talk's prompt): it takes over.
+	writeLiveStatus(t, dir, pid, "bg", "waiting", `,"blockedOn":"permission prompt"`, now.Add(-30*time.Second))
 	_ = os.Rename(filepath.Join(dir, fmt.Sprintf("%d.json", pid)), filepath.Join(dir, "bg.json"))
-	c.live = liveCache{} // drop the one-second cache
+	c.live.at = time.Time{} // drop the one-second cache
 	if s, _ := c.Current(); s.ID != "bg" {
 		t.Fatalf("Current() = %q, want bg (it needs you)", s.ID)
 	}
@@ -180,5 +181,19 @@ func TestCurrentShowsSessionThatNeedsYou(t *testing.T) {
 	c.Pinned = "talk"
 	if s, _ := c.Current(); s.ID != "talk" {
 		t.Fatalf("Current() = %q with talk pinned", s.ID)
+	}
+	// Back on Auto, you prompt talk again without answering bg: you stay
+	// on talk, as you do on clicking Auto.
+	c.Pinned = ""
+	feed(c, prompt("talk", now.Add(time.Minute)))
+	if s, _ := c.Current(); s.ID != "talk" {
+		t.Fatalf("Current() = %q after prompting talk while bg waits, want talk", s.ID)
+	}
+	// bg stops again later: it takes over again.
+	writeLiveStatus(t, dir, pid, "bg", "waiting", `,"blockedOn":"input needed"`, now.Add(2*time.Minute))
+	_ = os.Rename(filepath.Join(dir, fmt.Sprintf("%d.json", pid)), filepath.Join(dir, "bg.json"))
+	c.live.at = time.Time{}
+	if s, _ := c.Current(); s.ID != "bg" {
+		t.Fatalf("Current() = %q after bg stopped again, want bg", s.ID)
 	}
 }
