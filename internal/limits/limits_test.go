@@ -300,3 +300,23 @@ func TestStatusLineEffort(t *testing.T) {
 		t.Errorf("no effort: %q", got)
 	}
 }
+
+func TestCostOnlyReadingKeepsContextAge(t *testing.T) {
+	now := time.Unix(1_800_000_000, 0)
+	var s State
+	var in StatusInput
+	c := 50.0
+	in.ContextWindow.UsedPercentage = &c
+	s.Apply(in, now)
+	// Two hours later a reading with a cost but no context.
+	var later StatusInput
+	cost := 2.0
+	later.Cost.TotalCostUSD = &cost
+	s.Apply(later, now.Add(2*time.Hour))
+	if _, ok := s.ContextPercent(now.Add(2*time.Hour), 30*time.Minute); ok {
+		t.Fatal("a two-hour-old context figure should not look fresh")
+	}
+	if s.CostAt != now.Add(2*time.Hour).Unix() {
+		t.Fatalf("CostAt = %d", s.CostAt)
+	}
+}

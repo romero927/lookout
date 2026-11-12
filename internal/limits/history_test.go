@@ -115,3 +115,31 @@ func TestAlerts(t *testing.T) {
 }
 
 func itoa(n int64) string { return strconv.FormatInt(n, 10) }
+
+func TestHistoryIgnoresOlderReadingFromAnotherSession(t *testing.T) {
+	now := time.Date(2026, 11, 9, 10, 0, 0, 0, time.Local)
+	r1, wk := now.Add(2*time.Hour), now.Add(3*24*time.Hour)
+	var h History
+	// Session A rises 38 → 42 while idle session B keeps reporting 38.
+	for i, five := range []float64{38, 40, 38, 41, 38, 42} {
+		h.Record(reading(five, 30, r1, wk), now.Add(time.Duration(i)*time.Minute))
+	}
+	if d := h.Days[0]; d.FiveHour != 4 {
+		t.Fatalf("FiveHour = %v, want 4 (38 → 42)", d.FiveHour)
+	}
+}
+
+func TestAlertFiresOnceWhenResetTimeJitters(t *testing.T) {
+	now := time.Date(2026, 11, 9, 10, 0, 0, 0, time.UTC)
+	reset := now.Add(time.Hour)
+	key := func(r time.Time) string {
+		a := Alerts(State{FiveHour: &Window{UsedPercent: 85, ResetsAt: r.Unix()}}, now, []float64{80}, false)
+		if len(a) != 1 {
+			t.Fatalf("alerts: %+v", a)
+		}
+		return a[0].Key
+	}
+	if a, b := key(reset.Add(-time.Second)), key(reset.Add(time.Second)); a != b {
+		t.Fatalf("keys differ for one window: %s vs %s", a, b)
+	}
+}

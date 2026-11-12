@@ -27,12 +27,16 @@ type Price struct{ Input, Output, CacheWrite, CacheWrite1h, CacheRead float64 }
 func priceFor(model string) Price {
 	m := strings.ToLower(model)
 	switch {
+	case strings.Contains(m, "fable-5-2"), strings.Contains(m, "mythos-5-2"):
+		return Price{8, 40, 10, 16, 0.20}
 	case strings.Contains(m, "fable"), strings.Contains(m, "mythos"):
 		return Price{10, 50, 12.5, 20, 0.25}
 	case strings.Contains(m, "opus-5-5"):
 		return Price{4, 20, 5, 8, 0.20}
 	case strings.Contains(m, "opus"):
 		return Price{5, 25, 6.25, 10, 0.50}
+	case strings.Contains(m, "sonnet-5-5"):
+		return Price{2, 10, 2.5, 4, 0.10}
 	case strings.Contains(m, "sonnet-5"):
 		return Price{2, 10, 2.5, 4, 0.20}
 	case strings.Contains(m, "haiku-5"):

@@ -99,8 +99,11 @@ func (h *History) observe(kind string, w Window, now time.Time) float64 {
 	for i := range h.Windows {
 		s := &h.Windows[i]
 		if s.Kind == kind && abs64(s.ResetsAt-w.ResetsAt) <= sameWindow {
+			// Use only goes up within a window. Another session may still
+			// report an older, lower figure: keep the highest, so the next
+			// rise isn't counted twice.
 			d := max(0, w.UsedPercent-s.Used)
-			s.Used, s.ResetsAt = w.UsedPercent, w.ResetsAt
+			s.Used, s.ResetsAt = max(s.Used, w.UsedPercent), w.ResetsAt
 			return d
 		}
 	}

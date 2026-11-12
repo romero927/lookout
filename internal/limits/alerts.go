@@ -33,7 +33,9 @@ func Alerts(s State, now time.Time, thresholds []float64, pace bool) []Alert {
 		if p.ResetsAt.Sub(now) >= 24*time.Hour {
 			resets = p.ResetsAt.Local().Format("Mon 15:04")
 		}
-		base := fmt.Sprintf("%s:%d:", x.kind, p.ResetsAt.Unix())
+		// Readings of one window can give reset times a few seconds
+		// apart; round so they share a key and an alert fires once.
+		base := fmt.Sprintf("%s:%d:", x.kind, p.ResetsAt.Round(10*time.Minute).Unix())
 		top := -1.0
 		for _, t := range thresholds {
 			if p.Used >= t && t > top {

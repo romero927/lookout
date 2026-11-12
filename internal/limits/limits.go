@@ -60,10 +60,11 @@ type State struct {
 	Context   *float64 `json:"ctx,omitempty"`
 	ContextAt int64    `json:"ctx_at,omitempty"`
 
-	// CostUSD is the session's cost so far as Claude Code reports it. It is
-	// shown only for accounts without subscription limits, where it is what
-	// you actually pay.
+	// CostUSD is the session's cost so far as Claude Code reports it, and
+	// CostAt when. It is shown only for accounts without subscription
+	// limits, where it is what you actually pay.
 	CostUSD *float64 `json:"cost_usd,omitempty"`
+	CostAt  int64    `json:"cost_at,omitempty"`
 }
 
 // ContextPercent returns the reported context use if it is recent.
@@ -158,7 +159,7 @@ func (s *State) Apply(in StatusInput, now time.Time) bool {
 	}
 	if c := in.Cost.TotalCostUSD; c != nil {
 		v := *c
-		s.CostUSD, s.ContextAt, ctx = &v, now.Unix(), true
+		s.CostUSD, s.CostAt, ctx = &v, now.Unix(), true
 	}
 	if in.RateLimits == nil || (in.RateLimits.FiveHour == nil && in.RateLimits.SevenDay == nil) {
 		return ctx

@@ -127,3 +127,18 @@ func TestSnapshotCostsScaleToReported(t *testing.T) {
 		t.Errorf("today %.2f, want %.2f", s.Today.Cost, want)
 	}
 }
+
+func TestPriceForCurrentModels(t *testing.T) {
+	for model, want := range map[string]Price{
+		"claude-fable-5-2":  {8, 40, 10, 16, 0.20},
+		"claude-mythos-5-2": {8, 40, 10, 16, 0.20},
+		"claude-fable-5-1":  {10, 50, 12.5, 20, 0.25},
+		"claude-sonnet-5-5": {2, 10, 2.5, 4, 0.10},
+		"claude-sonnet-5":   {2, 10, 2.5, 4, 0.20},
+		"claude-opus-5-5":   {4, 20, 5, 8, 0.20},
+	} {
+		if got := priceFor(model); got != want {
+			t.Errorf("priceFor(%s) = %+v, want %+v", model, got, want)
+		}
+	}
+}

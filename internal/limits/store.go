@@ -116,7 +116,11 @@ func PayAsYouGoSessions(dir string) func(sessionID string) (Reported, bool) {
 		}
 		p := filepath.Join(dir, e.Name())
 		if st := Load(p); st.PayAsYouGo() {
-			set[p] = Reported{USD: *st.CostUSD, At: time.Unix(st.ContextAt, 0)}
+			at := st.CostAt
+			if at == 0 {
+				at = st.ContextAt // written before cost_at existed
+			}
+			set[p] = Reported{USD: *st.CostUSD, At: time.Unix(at, 0)}
 		}
 	}
 	return func(sessionID string) (Reported, bool) {
