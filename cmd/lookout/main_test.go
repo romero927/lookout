@@ -11,8 +11,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/muesli/termenv"
-
 	"github.com/romero927/lookout/internal/paths"
 	"github.com/romero927/lookout/internal/update"
 )
@@ -187,35 +185,5 @@ func TestUpdateCommand(t *testing.T) {
 	var out, errOut bytes.Buffer
 	if code := run([]string{"update"}, nil, &out, &errOut); code != 1 || !strings.Contains(errOut.String(), "couldn't check") {
 		t.Errorf("a failed check should exit 1 with a message (code %d, %q)", code, errOut.String())
-	}
-}
-
-func TestColorProfile(t *testing.T) {
-	env := func(kv ...string) func(string) string {
-		m := map[string]string{}
-		for i := 0; i+1 < len(kv); i += 2 {
-			m[kv[i]] = kv[i+1]
-		}
-		return func(k string) string { return m[k] }
-	}
-	cases := []struct {
-		name    string
-		setting string
-		getenv  func(string) string
-		want    termenv.Profile
-		ok      bool
-	}{
-		{"plain xterm gets 256", "auto", env("TERM", "xterm"), termenv.ANSI256, true},
-		{"xterm with truecolor kept", "auto", env("TERM", "xterm", "COLORTERM", "truecolor"), 0, false},
-		{"Terminal.app never truecolor", "auto", env("TERM", "xterm-256color", "COLORTERM", "truecolor", "TERM_PROGRAM", "Apple_Terminal"), termenv.ANSI256, true},
-		{"256color left to termenv", "auto", env("TERM", "xterm-256color"), 0, false},
-		{"setting wins", "16", env("TERM", "xterm-kitty"), termenv.ANSI, true},
-		{"truecolor setting", "truecolor", env("TERM", "xterm"), termenv.TrueColor, true},
-	}
-	for _, c := range cases {
-		got, ok := colorProfile(c.setting, c.getenv)
-		if ok != c.ok || (ok && got != c.want) {
-			t.Errorf("%s: got %v,%v want %v,%v", c.name, got, ok, c.want, c.ok)
-		}
 	}
 }

@@ -18,7 +18,6 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/muesli/termenv"
 
 	"github.com/romero927/lookout/internal/app"
 	"github.com/romero927/lookout/internal/config"
@@ -57,7 +56,9 @@ Flags for the dashboard and stats:
 
 Environment:
   LOOKOUT_THEME=dark|light   skip terminal background detection
-  LOOKOUT_COLOR=16|256|truecolor   skip guessing how many colors the terminal shows
+  LOOKOUT_COLOR=truecolor|256|16|none   skip guessing how many colors the terminal shows
+                             (e.g. 256 if colors look wrong under tmux in a terminal
+                             Lookout can't identify)
 
 Keys: 0-9 or tab switch panels · [ ] switch session · R restart · ? help · q quit
 `
@@ -192,11 +193,7 @@ func cmdTUI(args []string, stderr io.Writer) int {
 	case "light":
 		lipgloss.SetHasDarkBackground(false)
 	}
-	colors := cfg.UI.Colors
-	if c := os.Getenv("LOOKOUT_COLOR"); c != "" {
-		colors = c
-	}
-	if p, ok := colorProfile(colors, os.Getenv); ok {
+	if p, ok := colorProfile(cfg.UI.Colors, os.Getenv, tmuxOuterProgram); ok {
 		lipgloss.SetColorProfile(p)
 	}
 
@@ -621,37 +618,4 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stdout, "\nTo hear about new releases in the dashboard, set [updates] check = true in "+paths.ConfigFile())
 	}
 	return 0
-}
-
-// colorProfile picks how many colors to draw with, when the setting or the
-// environment says better than termenv's own guess. ok is false to keep
-// that guess.
-//
-// termenv takes TERM=xterm to mean 16 colors, which XQuartz's xterm and a
-// Terminal.app profile set to "xterm" report. Lookout's colors are then
-// rounded to the terminal's 16-color palette, and the shaded chips and
-// faint rules all turn black. Every xterm still in use shows 256 colors.
-// Terminal.app before macOS 26 can't show 24-bit color, even when
-// COLORTERM (set by a shell profile, or carried over ssh) says it can.
-func colorProfile(setting string, getenv func(string) string) (termenv.Profile, bool) {
-	switch setting {
-	case "16":
-		return termenv.ANSI, true
-	case "256":
-		return termenv.ANSI256, true
-	case "truecolor", "24bit":
-		return termenv.TrueColor, true
-	}
-	colorTerm := strings.ToLower(getenv("COLORTERM"))
-	truecolor := colorTerm == "truecolor" || colorTerm == "24bit"
-	if getenv("TERM_PROGRAM") == "Apple_Terminal" {
-		return termenv.ANSI256, true
-	}
-	switch getenv("TERM") {
-	case "xterm", "xterm-color":
-		if !truecolor {
-			return termenv.ANSI256, true
-		}
-	}
-	return termenv.Ascii, false
 }

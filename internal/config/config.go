@@ -34,8 +34,8 @@ type UI struct {
 	// Theme is "auto" (ask the terminal; inside tmux/screen dark is
 	// assumed), "dark" or "light".
 	Theme string `toml:"theme"`
-	// Colors is "auto" (guess from TERM, COLORTERM and TERM_PROGRAM),
-	// "16", "256" or "truecolor".
+	// Colors is "auto" (guess from TERM, COLORTERM and TERM_PROGRAM, and
+	// inside tmux the outer terminal), "truecolor", "256", "16" or "none".
 	Colors string `toml:"colors"`
 	// NewClaude is where N (or the "+ claude" button) opens a new Claude
 	// Code in tmux: "split" splits the pane of the session on screen (or
@@ -201,7 +201,7 @@ func (c *Config) fill() {
 		c.UI.Theme = d.UI.Theme
 	}
 	switch c.UI.Colors {
-	case "auto", "16", "256", "truecolor":
+	case "auto", "16", "256", "truecolor", "none":
 	default:
 		c.UI.Colors = d.UI.Colors
 	}
@@ -270,7 +270,7 @@ const DefaultTOML = `# Lookout configuration. Every value shown is the default.
 
 [ui]
 theme = "auto"             # "auto" asks the terminal (inside tmux, dark is assumed); or "dark" / "light"
-colors = "auto"            # "auto" guesses from TERM/COLORTERM; or "16" / "256" / "truecolor" if colors look wrong
+colors = "auto"            # "auto" guesses (in tmux, from the outer terminal); or "truecolor" / "256" / "16" / "none" if colors look wrong
 new_claude = "split"       # N in tmux: "split" the pane of the session on screen, or open a new "window"
 
 [usage]
