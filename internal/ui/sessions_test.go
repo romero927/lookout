@@ -186,8 +186,13 @@ func TestSessionAlerts(t *testing.T) {
 	if !strings.Contains(mm.flash, "two-two needs you") {
 		t.Errorf("flash = %q", mm.flash)
 	}
-	// The same alert doesn't fire twice.
-	mm.queueSessionAlert(mm.ovs[1], "again")
+	// The same alert doesn't fire twice. (Find sess-two by ID: the list's
+	// order depends on timing.)
+	two, ok := mm.overviewOf("sess-two")
+	if !ok {
+		t.Fatal("sess-two not listed")
+	}
+	mm.queueSessionAlert(two, "again")
 	if cmd := mm.checkSessionAlerts(); cmd != nil {
 		t.Error("an alert already shown fired again")
 	}
