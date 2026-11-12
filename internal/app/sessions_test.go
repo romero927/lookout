@@ -47,6 +47,30 @@ func TestLatestFollowsLastPromptNotLastActivity(t *testing.T) {
 	}
 }
 
+func TestLatestSkipsClosedSessions(t *testing.T) {
+	now := time.Now()
+	dir := t.TempDir()
+	c := &Core{Agg: usage.New(), Activity: activity.New(), LiveDir: dir}
+	// You prompt "a", then "b"; then you close "b".
+	feed(c, prompt("a", now.Add(-10*time.Minute)))
+	feed(c, prompt("b", now.Add(-5*time.Minute)))
+	writeLiveStatus(t, dir, os.Getpid(), "a", "idle", "", now.Add(-time.Hour))
+	if s, ok := c.Latest(); !ok || s.ID != "a" {
+		t.Fatalf("Latest() = %q, want a (b is closed)", s.ID)
+	}
+	if s, ok := c.Followed(); !ok || s.ID != "a" {
+		t.Fatalf("Followed() = %q, want a (b is closed)", s.ID)
+	}
+	// With nothing running, the session you last prompted is still shown.
+	if err := os.Remove(filepath.Join(dir, fmt.Sprintf("%d.json", os.Getpid()))); err != nil {
+		t.Fatal(err)
+	}
+	c.live.at = time.Time{} // re-read the running sessions
+	if s, ok := c.Latest(); !ok || s.ID != "b" {
+		t.Fatalf("Latest() = %q with nothing running, want b", s.ID)
+	}
+}
+
 func writeLiveStatus(t *testing.T, dir string, pid int, id, status, extra string, started time.Time) {
 	t.Helper()
 	b := fmt.Sprintf(`{"pid":%d,"sessionId":%q,"cwd":"/w","startedAt":%d,"name":"%s-name","status":%q,"statusUpdatedAt":%d%s}`,

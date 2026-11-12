@@ -161,14 +161,28 @@ func (c *Core) NeedsYou() (usage.Session, bool) {
 // Latest is the session Lookout follows when nothing is pinned: among the
 // sessions in (or closest to) the --cwd folder, the one you last sent a
 // message to. Sessions that are busy on their own don't take over, so with
-// several running the view stays on the one you're talking to.
+// several running the view stays on the one you're talking to. Once you
+// close a session, Lookout moves on to a running one; it falls back to
+// closed sessions only when none is running.
 func (c *Core) Latest() (usage.Session, bool) {
+	var running map[string]bool
+	if c.LiveKnown() {
+		running = map[string]bool{}
+		for _, l := range c.live.get(c.LiveDir, time.Now()) {
+			if usage.DirMatch(l.Cwd, c.CwdFilter) > 0 && c.Agg.Known(l.ID) {
+				running[l.ID] = true
+			}
+		}
+		if len(running) == 0 {
+			running = nil
+		}
+	}
 	var best usage.Session
 	var bestAt time.Time
 	bestRank := 0
 	for _, s := range c.Agg.Sessions() { // most recently active first
 		r := usage.DirMatch(s.Cwd, c.CwdFilter)
-		if r == 0 {
+		if r == 0 || (running != nil && !running[s.ID]) {
 			continue
 		}
 		at := c.attention(s)
