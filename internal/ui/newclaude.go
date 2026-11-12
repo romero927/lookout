@@ -14,8 +14,9 @@ import (
 
 // newClaudeMsg reports how opening a new Claude Code went.
 type newClaudeMsg struct {
-	dir string
-	err error
+	dir  string
+	note string // why it didn't split the session on screen, if it didn't
+	err  error
 }
 
 // canNewClaude reports whether N (and the "+ claude" button) can open a
@@ -37,21 +38,37 @@ func (m Model) newClaudeDir() string {
 	return d
 }
 
-// newClaude opens Claude Code in a new tmux pane: split from the pane of
-// the session on screen (new_claude = "split", the default), or in a new
-// window when that session isn't in tmux or new_claude = "window". tmux
-// then shows the new pane. Lookout follows it on Auto once it starts.
+// newClaude opens Claude Code in a new tmux pane (new_claude = "split",
+// the default), split from the pane of the session on screen. When that
+// session can't be split (it has closed, isn't in tmux, or its pane is
+// gone) it splits the largest running Claude Code pane in Lookout's own
+// window, else Lookout's own pane; only when none works, or with
+// new_claude = "window", it opens a new window. tmux then shows the new
+// pane. Lookout follows it on Auto once it starts.
 func (m Model) newClaude() tea.Cmd {
 	dir := m.newClaudeDir()
 	if !canNewClaude() {
 		return func() tea.Msg { return newClaudeMsg{dir: dir, err: errors.New("Lookout isn't running in tmux")} }
 	}
-	target := ""
-	if m.o.Core.Cfg.UI.NewClaude != "window" {
-		if o, ok := m.shownOverview(); ok && o.Running && o.Tmux != "" {
-			target = paneOf(o.Tmux)
+	split := m.o.Core.Cfg.UI.NewClaude != "window"
+	shown, why := "", ""
+	if o, ok := m.shownOverview(); ok {
+		switch {
+		case !o.Running:
+			why = o.Label() + " is closed"
+		case o.Tmux == "":
+			why = o.Label() + " isn't in tmux"
+		default:
+			shown = paneOf(o.Tmux)
 		}
 	}
+	var others []string
+	for _, o := range m.running() {
+		if p := paneOf(o.Tmux); o.Tmux != "" && p != shown {
+			others = append(others, p)
+		}
+	}
+	own := os.Getenv("TMUX_PANE")
 	return func() tea.Msg {
 		tmux, err := exec.LookPath("tmux")
 		if err != nil {
@@ -61,19 +78,17 @@ func (m Model) newClaude() tea.Cmd {
 		if err != nil {
 			return newClaudeMsg{dir: dir, err: errors.New("claude isn't on the PATH")}
 		}
-		split := ""
-		if target != "" {
-			split = "-v"
-			out, err := exec.Command(tmux, "display-message", "-p", "-t", target, "#{pane_width} #{pane_height}").Output()
-			if err != nil {
-				target = "" // the pane is gone: open a window instead
-			} else if f := strings.Fields(string(out)); len(f) == 2 {
-				w, _ := strconv.Atoi(f[0])
-				h, _ := strconv.Atoi(f[1])
-				split = splitFlag(w, h)
+		target, flag, note := "", "", ""
+		if split {
+			info := func(pane string) (paneInfo, bool) { return tmuxPaneInfo(tmux, pane) }
+			var p paneInfo
+			var ok bool
+			p, ok, note = chooseSplit(shown, why, others, own, info)
+			if ok {
+				target, flag = p.id, splitFlag(p.w, p.h)
 			}
 		}
-		out, err := exec.Command(tmux, newClaudeArgs(target, split, dir, claude)...).CombinedOutput()
+		out, err := exec.Command(tmux, newClaudeArgs(target, flag, dir, claude)...).CombinedOutput()
 		if err != nil {
 			if msg := strings.TrimSpace(string(out)); msg != "" {
 				err = errors.New(msg)
@@ -84,8 +99,67 @@ func (m Model) newClaude() tea.Cmd {
 			// Bring it into view, even in another tmux window or session.
 			_ = exec.Command(tmux, tmuxGotoArgs(ref)...).Run()
 		}
-		return newClaudeMsg{dir: dir}
+		return newClaudeMsg{dir: dir, note: note}
 	}
+}
+
+// paneInfo is what tmux says about a pane.
+type paneInfo struct {
+	id, window string
+	w, h       int
+}
+
+// tmuxPaneInfo asks tmux about pane; false when it is gone.
+func tmuxPaneInfo(tmux, pane string) (paneInfo, bool) {
+	if pane == "" {
+		return paneInfo{}, false
+	}
+	out, err := exec.Command(tmux, "display-message", "-p", "-t", pane, "#{pane_id} #{window_id} #{pane_width} #{pane_height}").Output()
+	if err != nil {
+		return paneInfo{}, false
+	}
+	f := strings.Fields(string(out))
+	if len(f) != 4 || f[0] != pane {
+		return paneInfo{}, false
+	}
+	w, _ := strconv.Atoi(f[2])
+	h, _ := strconv.Atoi(f[3])
+	return paneInfo{id: f[0], window: f[1], w: w, h: h}, true
+}
+
+// chooseSplit picks the pane a new Claude Code splits: the session on
+// screen's (shown), else the largest of the other running sessions' panes
+// (others) in Lookout's own window, else Lookout's own pane (own). false
+// means a new window. note says why it didn't split the session on screen
+// ("" when it did); why is the reason shown can't be split, if known.
+func chooseSplit(shown, why string, others []string, own string, info func(string) (paneInfo, bool)) (paneInfo, bool, string) {
+	if p, ok := info(shown); ok {
+		return p, true, ""
+	}
+	if why == "" {
+		why = "no session on screen in tmux"
+		if shown != "" {
+			why = "its pane is gone"
+		}
+	}
+	me, haveMe := info(own)
+	if !haveMe {
+		return paneInfo{}, false, why
+	}
+	best, found := paneInfo{}, false
+	for _, id := range others {
+		p, ok := info(id)
+		if !ok || p.window != me.window {
+			continue
+		}
+		if !found || p.w*p.h > best.w*best.h {
+			best, found = p, true
+		}
+	}
+	if found {
+		return best, true, why
+	}
+	return me, true, why
 }
 
 // newClaudeArgs is the tmux command line that starts claude in dir: a
@@ -125,6 +199,9 @@ func (m *Model) onNewClaude(msg newClaudeMsg) {
 		return
 	}
 	text := fmt.Sprintf("opened Claude in %s", ShortPath(msg.dir))
+	if msg.note != "" {
+		text += " (" + msg.note + ")"
+	}
 	if m.o.Core.Pinned != "" {
 		text += " · click ↻ Auto to follow it"
 	}

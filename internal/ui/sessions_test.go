@@ -255,3 +255,37 @@ func TestFollowSwitchesToSessionThatNeedsYou(t *testing.T) {
 		t.Fatalf("once answered, back to the last prompted session (shown %q, flash %q)", mm.sess.ID, mm.flash)
 	}
 }
+
+func TestChooseSplit(t *testing.T) {
+	panes := map[string]paneInfo{
+		"%1": {id: "%1", window: "@0", w: 100, h: 40}, // Lookout
+		"%2": {id: "%2", window: "@0", w: 100, h: 20},
+		"%3": {id: "%3", window: "@0", w: 100, h: 30},
+		"%4": {id: "%4", window: "@1", w: 200, h: 60}, // another window
+	}
+	info := func(id string) (paneInfo, bool) { p, ok := panes[id]; return p, ok }
+	cases := []struct {
+		name, shown, why string
+		others           []string
+		own              string
+		want             string // "" is a new window
+		note             string
+	}{
+		{"the session on screen", "%4", "", []string{"%2"}, "%1", "%4", ""},
+		{"closed: largest Claude pane in Lookout's window", "", "x is closed", []string{"%2", "%3", "%4"}, "%1", "%3", "x is closed"},
+		{"pane gone", "%9", "", []string{"%2"}, "%1", "%2", "its pane is gone"},
+		{"no Claude pane here: Lookout's own", "", "x isn't in tmux", []string{"%4"}, "%1", "%1", "x isn't in tmux"},
+		{"nothing on screen", "", "", nil, "%1", "%1", "no session on screen in tmux"},
+		{"Lookout's pane unknown: a window", "", "x is closed", []string{"%2"}, "", "", "x is closed"},
+	}
+	for _, c := range cases {
+		p, ok, note := chooseSplit(c.shown, c.why, c.others, c.own, info)
+		got := ""
+		if ok {
+			got = p.id
+		}
+		if got != c.want || note != c.note {
+			t.Errorf("%s: got %q (%q), want %q (%q)", c.name, got, note, c.want, c.note)
+		}
+	}
+}
