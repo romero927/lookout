@@ -71,12 +71,13 @@ func readLive(dir string) []LiveSession {
 			BlockedText     string `json:"blockedText"`
 			WorkingDetail   string `json:"workingDetail"`
 			Tmux            string `json:"tmux"`
+			ProcStart       string `json:"procStart"` // the process's start time, as the OS reports it
 		}
 		if json.Unmarshal(b, &v) != nil || v.SessionID == "" || v.StartedAt == 0 {
 			continue
 		}
-		if v.PID > 0 && !processAlive(v.PID) {
-			continue
+		if v.PID > 0 && !processAlive(v.PID, v.ProcStart) {
+			continue // ended; or its PID now belongs to another process
 		}
 		l := LiveSession{ID: v.SessionID, Cwd: v.Cwd, Started: time.UnixMilli(v.StartedAt),
 			Name: v.Name, NameSet: v.NameSource == "user", Status: v.Status, BlockedOn: v.BlockedOn, Blocked: v.BlockedText, Working: v.WorkingDetail, Tmux: v.Tmux}

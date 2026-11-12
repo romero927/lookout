@@ -160,6 +160,9 @@ type Record struct {
 
 	// User fields.
 	Prompt string // text the human typed; empty for tool results and meta
+	// Interrupt marks the note Claude Code writes when you press Esc
+	// ("[Request interrupted by user]"): you, but not a prompt.
+	Interrupt bool
 	// CompactSummary marks the summary Claude Code writes after /compact.
 	// It's stored as a user message, but you didn't type it.
 	CompactSummary bool

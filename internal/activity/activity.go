@@ -159,7 +159,7 @@ func (e *Engine) Observe(r transcript.Record, src transcript.Source) {
 		if !sub && r.Timestamp.After(s.prompted) {
 			s.prompted = r.Timestamp
 		}
-		if t := s.current(sub); t != nil && !sub {
+		if t := s.current(sub, r.Timestamp); t != nil && !sub {
 			if len(t.Calls) < maxCalls {
 				t.Calls = append(t.Calls, Call{Text: clip(r.Prompt, maxPrompt), User: true, At: r.Timestamp})
 				t.Queued++
@@ -171,6 +171,9 @@ func (e *Engine) Observe(r transcript.Record, src transcript.Source) {
 		if r.IsHumanPrompt() && !sub {
 			s.newTurn(r)
 			return
+		}
+		if r.Interrupt && !sub && !r.Sidechain && r.Timestamp.After(s.prompted) {
+			s.prompted = r.Timestamp // pressing Esc is turning to it too
 		}
 		for _, tr := range r.ToolResults {
 			p, ok := s.pending[tr.ToolUseID]
@@ -210,7 +213,7 @@ func (e *Engine) Observe(r transcript.Record, src transcript.Source) {
 		if r.Model == transcript.SyntheticModel {
 			return
 		}
-		t := s.current(sub)
+		t := s.current(sub, r.Timestamp)
 		if t != nil && sub && r.Text != "" {
 			textKey := fmt.Sprintf("t:%s:%d:%.64s", r.UsageKey(), len(r.Text), r.Text)
 			if !t.seen[textKey] {
@@ -334,14 +337,23 @@ func (s *session) newTurn(r transcript.Record) {
 	}
 }
 
-// current is the turn records belong to. Subagent records go to the latest
-// turn; main-chain records before any prompt start an untitled turn.
-func (s *session) current(sub bool) *turn {
+// current is the turn a record from at belongs to. Subagent records go to
+// the last turn that started by then (their file may be read after later
+// turns); main-chain records before any prompt start an untitled turn.
+func (s *session) current(sub bool, at time.Time) *turn {
 	if len(s.turns) == 0 {
 		if sub {
 			return nil
 		}
 		s.newTurn(transcript.Record{})
+	}
+	if sub && !at.IsZero() {
+		for i := len(s.turns) - 1; i > 0; i-- {
+			if st := s.turns[i].Start; st.IsZero() || !st.After(at) {
+				return s.turns[i]
+			}
+		}
+		return s.turns[0]
 	}
 	return s.turns[len(s.turns)-1]
 }
@@ -469,6 +481,9 @@ func summary(tu transcript.ToolUse) string {
 func clip(s string, n int) string {
 	if len(s) <= n {
 		return s
+	}
+	for n > 0 && s[n]&0xC0 == 0x80 {
+		n-- // don't cut a character in half
 	}
 	return s[:n] + "…"
 }

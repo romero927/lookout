@@ -426,3 +426,10 @@ func TestQueuedCommand(t *testing.T) {
 		t.Errorf("other attachments stay KindOther: %v", rec.Kind)
 	}
 }
+
+func TestParseInterrupt(t *testing.T) {
+	r, _ := ParseLine([]byte(`{"type":"user","sessionId":"s","timestamp":"2026-11-09T10:00:00Z","message":{"role":"user","content":[{"type":"text","text":"[Request interrupted by user for tool use]"}]}}`))
+	if !r.Interrupt || r.Prompt != "" || r.IsHumanPrompt() {
+		t.Fatalf("interrupt parsed as %+v", r)
+	}
+}

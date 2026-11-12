@@ -374,6 +374,10 @@ func setPrompt(rec *Record, s string) {
 		return
 	}
 	t := strings.TrimSpace(s)
+	if strings.HasPrefix(t, "[Request interrupted by user") && strings.HasSuffix(t, "]") {
+		rec.Interrupt = !rec.Meta
+		return
+	}
 	if rec.Meta || strings.HasPrefix(t, "<") {
 		// Injected content: bash output, task notifications, caveats, etc.
 		return

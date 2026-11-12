@@ -259,3 +259,41 @@ func TestScratchpadEditsLeftOutOfFiles(t *testing.T) {
 		t.Errorf("turn should still list both edits: %+v", s.Turns)
 	}
 }
+
+func TestSubagentWorkGoesToTheTurnItRanIn(t *testing.T) {
+	e := New()
+	at := time.Date(2026, 11, 9, 10, 0, 0, 0, time.UTC)
+	main := transcript.Source{SessionID: "q", Path: "/p/q.jsonl"}
+	sub := transcript.Source{SessionID: "q", Path: "/p/q/subagents/agent-abc123.jsonl", IsSubagent: true}
+	e.Observe(transcript.Record{Kind: transcript.KindUser, SessionID: "q", Timestamp: at, Prompt: "first"}, main)
+	e.Observe(transcript.Record{Kind: transcript.KindUser, SessionID: "q", Timestamp: at.Add(10 * time.Minute), Prompt: "second"}, main)
+	// The subagent ran during the first turn; its file is read after both.
+	e.Observe(transcript.Record{Kind: transcript.KindAssistant, SessionID: "q", Sidechain: true, Timestamp: at.Add(2 * time.Minute), MessageID: "s1", Model: "claude-haiku",
+		ToolUses: []transcript.ToolUse{{ID: "g1", Name: "Glob", Detail: "**/*.go"}}}, sub)
+	s := e.Session("q")
+	first, second := s.Turns[len(s.Turns)-1], s.Turns[0]
+	if first.Prompt != "first" {
+		first, second = second, first
+	}
+	if first.SubTools != 1 || second.SubTools != 0 {
+		t.Fatalf("subagent tool on the wrong turn: first %d, second %d", first.SubTools, second.SubTools)
+	}
+}
+
+func TestInterruptIsNotAPrompt(t *testing.T) {
+	e := New()
+	at := time.Date(2026, 11, 9, 10, 0, 0, 0, time.UTC)
+	src := transcript.Source{SessionID: "q", Path: "/p/q.jsonl"}
+	e.Observe(transcript.Record{Kind: transcript.KindUser, SessionID: "q", Timestamp: at, Prompt: "fix the bug"}, src)
+	e.Observe(transcript.Record{Kind: transcript.KindUser, SessionID: "q", Timestamp: at.Add(time.Minute), Interrupt: true}, src)
+	b := e.Brief("q")
+	if b.Prompts != 1 || b.Prompt != "fix the bug" {
+		t.Fatalf("brief = %+v, want one prompt, \"fix the bug\"", b)
+	}
+	if !b.Prompted.Equal(at.Add(time.Minute)) {
+		t.Fatalf("Prompted = %v: pressing Esc still counts as turning to the session", b.Prompted)
+	}
+	if got := clip("abécd", 3); got != "ab…" {
+		t.Fatalf("clip cut a character in half: %q", got)
+	}
+}

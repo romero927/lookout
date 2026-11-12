@@ -86,8 +86,22 @@ func (w *Watcher) Scan() int {
 	})
 	sort.Slice(files, func(i, j int) bool { return files[i].mod.Before(files[j].mod) })
 
-	// Files are independent, so parse them in parallel. Order within a file
-	// is preserved, which is all the consumers rely on.
+	// Subagent records are filed under the main transcript's turns, so
+	// every main transcript is read before any subagent one.
+	var main, sub []string
+	for _, f := range files {
+		if transcript.SourceFor(w.Root, f.path).IsSubagent {
+			sub = append(sub, f.path)
+		} else {
+			main = append(main, f.path)
+		}
+	}
+	return w.readAll(main) + w.readAll(sub)
+}
+
+// readAll parses files in parallel. Files are independent; order within a
+// file is preserved, which is all the consumers rely on.
+func (w *Watcher) readAll(paths []string) int {
 	var (
 		total atomic.Int64
 		wg    sync.WaitGroup
@@ -102,8 +116,8 @@ func (w *Watcher) Scan() int {
 			}
 		}()
 	}
-	for _, f := range files {
-		next <- f.path
+	for _, p := range paths {
+		next <- p
 	}
 	close(next)
 	wg.Wait()
