@@ -35,6 +35,7 @@ func TestScreenshot(t *testing.T) {
 	t.Setenv("LOOKOUT_DATA_DIR", filepath.Join(root, "data"))
 	t.Setenv("LOOKOUT_CONFIG_DIR", filepath.Join(root, "config"))
 	t.Setenv("PATH", root)
+	t.Setenv("TMUX", "/tmp/tmux-shot,1,0") // show the + claude button
 	_ = os.MkdirAll(claude, 0o755)
 	_ = os.WriteFile(filepath.Join(claude, "settings.json"),
 		[]byte(`{"statusLine":{"type":"command","command":"/usr/local/bin/lookout statusline"}}`), 0o644)

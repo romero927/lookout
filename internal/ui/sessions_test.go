@@ -10,6 +10,7 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/romero927/lookout/internal/app"
 )
@@ -52,22 +53,84 @@ func TestSessionStripAndSwitching(t *testing.T) {
 	if !strings.Contains(head, "demo-one") || !strings.Contains(head, "two-two") || !strings.Contains(head, "[ ] switch") {
 		t.Fatalf("session strip missing:\n%s", head)
 	}
-	m = drive(m, key("]"))
-	if core.Pinned != "sess-ui" || m.(Model).sess.ID != "sess-ui" {
-		t.Fatalf("] should show and pin the next session (pinned=%q shown=%q)", core.Pinned, m.(Model).sess.ID)
+	if !strings.Contains(head, "↻ Auto") || !strings.Contains(head, "↻ two-two") {
+		t.Fatalf("strip should start with the Auto tab and mark the session it follows:\n%s", head)
 	}
-	// Going back to the followed session follows it rather than pinning.
+	// [ ] step through Auto, then each running session, pinning it.
+	run := m.(Model).running()
+	m = drive(m, key("]"))
+	if core.Pinned != run[0].ID || m.(Model).sess.ID != run[0].ID {
+		t.Fatalf("] from Auto should pin the first session (pinned=%q shown=%q)", core.Pinned, m.(Model).sess.ID)
+	}
+	if !strings.Contains(plain(strings.Split(m.View(), "\n")[m.(Model).stripRow()]), "◆") {
+		t.Fatal("the pinned session's tab should show ◆")
+	}
 	m = drive(m, key("["))
 	if core.Pinned != "" || m.(Model).sess.ID != "sess-two" {
-		t.Fatalf("[ back to the latest should unpin (pinned=%q shown=%q)", core.Pinned, m.(Model).sess.ID)
+		t.Fatalf("[ back to Auto should follow again (pinned=%q shown=%q)", core.Pinned, m.(Model).sess.ID)
 	}
-	// A click on a session in the strip shows it.
-	items, _, _ := m.(Model).strip()
+	m = drive(m, key("["))
+	if core.Pinned != run[len(run)-1].ID {
+		t.Fatalf("[ from Auto should pin the last session (pinned=%q)", core.Pinned)
+	}
+	// A click on a session tab pins it, even the followed one; a click on
+	// Auto follows again.
 	row := m.(Model).stripRow()
-	m = drive(m, tea.MouseMsg{X: items[0].x, Y: row, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft},
-		tea.MouseMsg{X: items[0].x, Y: row, Action: tea.MouseActionRelease, Button: tea.MouseButtonLeft})
-	if m.(Model).sess.ID != items[0].id {
-		t.Fatalf("click on the strip showed %q, want %q", m.(Model).sess.ID, items[0].id)
+	clickID := func(id string) {
+		t.Helper()
+		items, _, _ := m.(Model).strip()
+		for _, it := range items {
+			if it.id == id {
+				m = drive(m, click(it.x, row)...)
+				return
+			}
+		}
+		t.Fatalf("no %q in the strip", id)
+	}
+	clickID("sess-two")
+	if core.Pinned != "sess-two" || m.(Model).sess.ID != "sess-two" {
+		t.Fatalf("clicking a session tab should pin it (pinned=%q)", core.Pinned)
+	}
+	clickID(stripAuto)
+	if core.Pinned != "" {
+		t.Fatalf("clicking Auto should follow again (pinned=%q)", core.Pinned)
+	}
+}
+
+func TestNewClaudeButton(t *testing.T) {
+	core, db := setup(t)
+	addRunning(t, core, "busy")
+	t.Setenv("TMUX", "")
+	var m tea.Model = New(Options{Core: core, Store: db, Version: "test"})
+	m = drive(m, tea.WindowSizeMsg{Width: 120, Height: 30}, LoadedMsg{})
+	if strings.Contains(plain(m.View()), "+ claude") {
+		t.Fatal("the + claude button should only show inside tmux")
+	}
+	t.Setenv("TMUX", "/tmp/tmux-test,1,0")
+	m = drive(m, tea.WindowSizeMsg{Width: 120, Height: 30})
+	line := strings.Split(m.View(), "\n")[m.(Model).stripRow()]
+	if w := lipgloss.Width(line); w != 120 || !strings.HasSuffix(plain(line), "+ claude ") {
+		t.Fatalf("button should end the %d-wide strip line (width %d):\n%s", 120, w, plain(line))
+	}
+	if id := m.(Model).stripAt(118); id != stripNew {
+		t.Fatalf("stripAt the button = %q", id)
+	}
+}
+
+func TestNewClaudeArgs(t *testing.T) {
+	got := strings.Join(newClaudeArgs("%7", "-h", "/w x", "/bin/claude"), " ")
+	if got != "split-window -h -t %7 -P -F #{session_name}:#{window_id}.#{pane_id} -c /w x /bin/claude" {
+		t.Errorf("split: %s", got)
+	}
+	got = strings.Join(newClaudeArgs("", "", "/w", "/my bin/claude"), " ")
+	if got != "new-window -P -F #{session_name}:#{window_id}.#{pane_id} -c /w '/my bin/claude'" {
+		t.Errorf("window: %s", got)
+	}
+	if paneOf("main:@2.%7") != "%7" || paneOf("%3") != "%3" {
+		t.Error("paneOf")
+	}
+	if splitFlag(200, 50) != "-h" || splitFlag(120, 40) != "-v" || splitFlag(170, 100) != "-v" {
+		t.Error("splitFlag")
 	}
 }
 

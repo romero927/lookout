@@ -306,6 +306,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		alerts, sessAlerts, changes, upd := m.checkAlerts(), m.checkSessionAlerts(), m.changesCmd(), m.updateCheck()
 		return m, tea.Batch(tick(), alerts, sessAlerts, changes, upd)
 
+	case newClaudeMsg:
+		m.onNewClaude(msg)
+		return m, nil
+
 	case paneMsg:
 		if msg.err != nil {
 			m.setFlash("can't go to "+msg.label+": "+msg.err.Error(), sYellow, 6*time.Second)
@@ -424,7 +428,7 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "esc", "left", "h", "enter":
 			*focus = false
 			return m, nil
-		case "q", "ctrl+c", "e", "c", "o", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "tab", "shift+tab", "?", "s", "P", "R", "[", "]":
+		case "q", "ctrl+c", "e", "c", "o", "0", "1", "2", "3", "4", "5", "6", "7", "8", "9", "tab", "shift+tab", "?", "s", "P", "N", "R", "[", "]":
 		default:
 			var cmd tea.Cmd
 			*view, cmd = view.Update(k)
@@ -456,6 +460,8 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.openSessions(), nil
 	case "P":
 		return m.togglePin(), nil
+	case "N":
+		return m, m.newClaude()
 	case "]", "[":
 		if !m.loaded {
 			return m, nil
@@ -785,7 +791,11 @@ func (m Model) headerParts() (brand string, tabs, right []string) {
 		right = append(right, sGreen.Bold(true).Render("↻ R restart"))
 	}
 	if m.o.Core.Pinned != "" {
-		right = append(right, sYellow.Bold(true).Render("◆ pinned"))
+		if o, ok := m.shownOverview(); ok && m.closed(o) {
+			right = append(right, sMuted.Bold(true).Render("◷ closed"))
+		} else {
+			right = append(right, sYellow.Bold(true).Render("◆ pinned"))
+		}
 	}
 	if m.updNew != "" {
 		right = append(right, sGreen.Render("↑ "+m.updNew))
@@ -1003,13 +1013,15 @@ func (m Model) viewHelp() string {
 		"",
 		sBold.Render("Keys"),
 		"  0-9, tab      switch panel",
-		"  [ ]           show the previous / next running session (also: click it in the strip under the tabs)",
+		"  [ ]           step through the tabs under the panels: ↻ Auto, then each running session (also: click one)",
+		"                ↻ Auto follows the session you last prompted; any other tab pins that session",
 		"  c             copy (Skills: how to run it · Cheatsheet: the command)",
 		"  a             Context: see all items / only the largest · Tools: show the call in Activity",
 		"  f             Tools: show failed calls only",
 		"  y             copy an ID (Changes: the file's commit · Sessions: the session)",
 		"  s, 0          open Sessions to pick which session to show (a: follow the latest again, esc: back)",
-		"  P             pin the session shown, or unpin to follow the session you last prompted",
+		"  P             pin the session shown, or go back to ↻ Auto",
+		"  N             in tmux: open a new Claude Code in the folder of the session shown (also: + claude)",
 		"  ↑↓ / j k      move · enter to focus the viewer · esc to go back",
 		"  e             edit the selected file in $EDITOR (needs [files] allow_edit = true)",
 		"  o             Config, Changes: open the selected file's folder in your file manager",

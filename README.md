@@ -82,11 +82,12 @@ More on each panel: [docs/panels.md](docs/panels.md). All screenshots below use 
 | Key | Does |
 |-----|------|
 | `0`–`9`, `tab` | Switch panels |
-| `[` `]` | Show the previous / next running session |
+| `[` `]` | Step through the session tabs: `↻ Auto`, then each running session |
 | `↑` `↓` / `j` `k` | Move |
 | `enter` / `esc` | Open / go back |
 | `s` | Open Sessions to pick which session to show (`a` there goes back to following the latest) |
-| `P` | Pin the session on screen so it stays put, or unpin it |
+| `P` | Pin the session on screen so it stays put, or go back to `↻ Auto` |
+| `N` | In tmux: open a new Claude Code in the folder of the session on screen (or click `+ claude`) |
 | `c` | Copy a command (Context, Skills, Cheatsheet) |
 | `y` | Copy an ID (a commit in Changes, a session in Sessions), or an action's command in Changes |
 | `g` | Go to the session's tmux pane (Sessions) |
@@ -104,7 +105,7 @@ The mouse works too: click a tab or an item, scroll what's under the pointer, an
 
 ### Several sessions at once
 
-Lookout follows the session you last sent a message to, so a session busy in the background doesn't pull the view away, but it switches to any session that stops on a permission prompt or question until you answer. The line under the tabs always names the session on screen, highlighted like the active tab, and lists the other running sessions beside it: `●` working, `▲` needs you, `✓` finished while you were elsewhere, `○` idle. `[` and `]` (or a click) switch between them, `0` opens the Sessions panel with all of them side by side, and `g` there jumps to a session's tmux pane. `lookout --session ID` opens on one session, e.g. one dashboard per tmux pane. [More](docs/panels.md#which-session-is-on-screen).
+Lookout follows the session you last sent a message to, so a session busy in the background doesn't pull the view away, but it switches to any session that stops on a permission prompt or question until you answer. The line under the panel tabs has a tab per session. The first, `↻ Auto`, is lit while Lookout follows, and the session it follows is marked with a blue `↻`. Click any other session (or pick one in Sessions, closed ones too) and it gets its own tab, pinned with `◆` (or `◷` for a closed session), while Auto keeps following in the background; click `↻ Auto` to go back. Each tab shows the session's state: `●` working, `▲` needs you, `✓` finished while you were elsewhere, `○` idle. `[` and `]` step through the tabs, `0` opens the Sessions panel with all of them side by side, and `g` there jumps to a session's tmux pane. In tmux, `+ claude` at the right end (or `N`) opens a new Claude Code next to the session on screen, in its folder. `lookout --session ID` opens on one session, e.g. one dashboard per tmux pane. [More](docs/panels.md#which-session-is-on-screen).
 
 **Updates while running.** If the `lookout` binary is replaced while it runs (say, after `make build`), the header shows `↻ R restart`. Press `R` to switch to the new build.
 
@@ -222,6 +223,8 @@ The settings you're most likely to change:
 | `[files]` | `extra_files` | More files to show in Config, e.g. `["~/.claude/keybindings.json"]`. |
 | `[updates]` | `check = true` | Checks GitHub once a day for a new release and shows it in the header (e.g. `↑ v0.6.4`). Off by default. |
 | `[ui]` | `theme` | `auto`, `dark` or `light`. Inside tmux, dark is assumed. `LOOKOUT_THEME` overrides it. |
+| | `colors` | `auto`, `16`, `256` or `truecolor`. `auto` treats plain `TERM=xterm` (XQuartz) as 256 colors and keeps Terminal.app at 256. Set it if colors look wrong. `LOOKOUT_COLOR` overrides it. |
+| | `new_claude` | Where `N` opens a new Claude Code in tmux: `split` (the default) splits the pane of the session on screen, side by side when it's wide; `window` opens a new window. |
 | `[models]` | thresholds, `model_tiers`, `effort_levels`, `default_effort`, `log_days` | When the Models panel suggests a change. Tiers default to `["haiku", "sonnet", "opus", "fable"]`; effort levels to `["low", "medium", "high", "xhigh"]`, with `"medium"` as the default. The suggestion log keeps 90 days. |
 | `[usage]` | `history_days`, `burn_window_minutes`, `block_hours` | How far back the first scan reads (30 days), the tokens-per-minute window (10 min), and the estimated usage block length (5 h). |
 | `[usage.price_weights]` | one entry per model | Override the model prices (dollars per million tokens) used to estimate each session's share of a limit and, on pay-as-you-go accounts, the dollar estimates, e.g. `"opus-5-5" = { input = 4, output = 20, cache_write = 5, cache_read = 0.20 }`. Keys match part of the model ID; the longest match wins. |

@@ -152,43 +152,54 @@ func (m Model) shownID() string {
 	return ""
 }
 
-// show puts session id on screen. The session Lookout would follow anyway
-// is followed rather than pinned, so prompting another one still moves
-// the view.
-func (m *Model) show(id, label string) {
-	latest, ok := m.o.Core.Followed()
-	_, starting := m.o.Core.Starting()
-	if ok && latest.ID == id && !starting {
-		m.o.Core.Pinned = ""
-		m.setFlash("showing "+label+" · following the session you last prompted", sMuted, 3*time.Second)
-	} else {
-		m.o.Core.Pinned = id
-		m.setFlash("showing "+label+" · pinned · P to follow the latest again", sGreen, 4*time.Second)
-	}
-	delete(m.unseen, id)
-	m.refresh()
-}
-
-// cycle shows the next (dir 1) or previous (dir -1) running session.
+// cycle steps through the strip's tabs: Auto (follow), then each running
+// session (pin it). dir is 1 for the next, -1 for the previous.
 func (m Model) cycle(dir int) Model {
 	run := m.running()
-	cur := m.shownID()
-	i := -1
-	for j, o := range run {
-		if o.ID == cur {
-			i = j
-		}
-	}
-	if len(run) == 0 || (len(run) == 1 && i == 0) {
-		m.setFlash("no other Claude Code session is running", sMuted, 3*time.Second)
+	if len(run) == 0 {
+		m.setFlash("no Claude Code session is running", sMuted, 3*time.Second)
 		return m
 	}
-	if i < 0 && dir < 0 {
-		i = 0
+	i := 0 // Auto
+	if p := m.o.Core.Pinned; p != "" {
+		for j, o := range run {
+			if o.ID == p {
+				i = j + 1
+			}
+		}
 	}
-	n := len(run)
-	next := run[((i+dir)%n+n)%n]
-	m.show(next.ID, next.Label())
+	n := len(run) + 1
+	j := ((i+dir)%n + n) % n
+	if j == 0 {
+		return m.follow()
+	}
+	return m.pin(run[j-1])
+}
+
+// closed reports whether session o has ended, as far as Lookout can tell.
+func (m Model) closed(o app.Overview) bool {
+	return !o.Running && m.o.Core.LiveKnown()
+}
+
+// follow goes back to showing the session you last prompted (or one that
+// needs you): the Auto tab.
+func (m Model) follow() Model {
+	m.o.Core.Pinned = ""
+	m.setFlash("↻ Auto: following the session you last prompted", sMuted, 3*time.Second)
+	m.refresh()
+	return m
+}
+
+// pin keeps session o on screen until you pick Auto again.
+func (m Model) pin(o app.Overview) Model {
+	m.o.Core.Pinned = o.ID
+	if !m.closed(o) {
+		m.setFlash("◆ pinned "+o.Label()+" · ↻ Auto (or P) to follow the latest again", sGreen, 4*time.Second)
+	} else {
+		m.setFlash("◷ viewing closed session "+o.Label()+" · ↻ Auto (or P) to go back", sMuted, 4*time.Second)
+	}
+	delete(m.unseen, o.ID)
+	m.refresh()
 	return m
 }
 
@@ -263,10 +274,22 @@ type stripItem struct {
 func (m Model) stripName(o app.Overview, current bool) string {
 	label := clip(o.Label(), 26)
 	if current {
-		// A shaded button: the state mark in its color, the name in bold.
 		glyph := plainText(m.stateGlyph(o))
-		return sChip.Foreground(m.stateColor(o)).Bold(true).Render(" "+glyph) +
-			sChip.Foreground(cText).Bold(true).Render(" "+label+" ")
+		if m.o.Core.Pinned != "" && m.closed(o) {
+			// A closed session you opened: ◷, no state mark.
+			return sChip.Foreground(cMuted).Bold(true).Render(" ◷") +
+				sChip.Foreground(cText).Bold(true).Render(" "+label+" ")
+		}
+		if m.o.Core.Pinned != "" {
+			// Pinned: a bold button with ◆.
+			return sChip.Foreground(m.stateColor(o)).Bold(true).Render(" "+glyph) +
+				sChip.Foreground(cYellow).Bold(true).Render(" ◆") +
+				sChip.Foreground(cText).Bold(true).Render(" "+label+" ")
+		}
+		// The session Auto is following: shaded, with Auto's ↻ in blue.
+		return sChip.Foreground(m.stateColor(o)).Render(" "+glyph) +
+			sChip.Foreground(cBlue).Bold(true).Render(" ↻") +
+			sChip.Foreground(cText).Render(" "+label+" ")
 	}
 	if o.ID == m.hoverStrip {
 		glyph := plainText(m.stateGlyph(o))
@@ -294,27 +317,53 @@ func (m Model) shownOverview() (app.Overview, bool) {
 	return app.Overview{}, false
 }
 
-// strip lays out the line under the tabs: the session on screen, and the
-// other running sessions. more counts running sessions left out for
-// lack of room; detail is drawn after the items when only the session on
-// screen is listed.
+// Special tabs in the strip, alongside session IDs.
+const (
+	stripAuto = "\x00auto" // follow the session you last prompted
+	stripNew  = "\x00new"  // open a new Claude Code in tmux
+)
+
+// autoChip is the strip's first tab: lit while Lookout follows the
+// session you last prompted, grey while a session is pinned.
+func (m Model) autoChip() string {
+	const text = " ↻ Auto "
+	switch {
+	case m.o.Core.Pinned == "":
+		return lipgloss.NewStyle().Background(cAccent).Foreground(cOnAccent).Bold(true).Render(text)
+	case m.hoverStrip == stripAuto:
+		return sChip.Foreground(cText).Render(text)
+	}
+	return sMuted.Render(text)
+}
+
+// strip lays out the line under the tabs: Auto, then the session on
+// screen and the other running sessions. more counts running sessions
+// left out for lack of room; detail is drawn after the items when only
+// the session on screen is listed.
 func (m Model) strip() (items []stripItem, more int, detail string) {
 	cur, hasCur := m.shownOverview()
 	run := m.running()
+	if !hasCur && len(run) == 0 {
+		return nil, 0, ""
+	}
 	curRunning := false
 	for _, o := range run {
 		if o.ID == cur.ID {
 			curRunning = true
 		}
 	}
+	limit := m.ruleWidth()
 	x := 2 // after "━ "
-	add := func(o app.Overview, pre string) {
-		text := m.stripName(o, hasCur && o.ID == cur.ID)
+	addText := func(id, text, pre string) {
 		x += lipgloss.Width(pre)
 		w := lipgloss.Width(text)
-		items = append(items, stripItem{id: o.ID, text: text, pre: pre, x: x, w: w})
+		items = append(items, stripItem{id: id, text: text, pre: pre, x: x, w: w})
 		x += w
 	}
+	add := func(o app.Overview, pre string) {
+		addText(o.ID, m.stripName(o, hasCur && o.ID == cur.ID), pre)
+	}
+	addText(stripAuto, m.autoChip(), "")
 	// Room kept for the session on screen while the others are laid out,
 	// and for "  +N ━" at the end.
 	reserve := 0
@@ -322,27 +371,28 @@ func (m Model) strip() (items []stripItem, more int, detail string) {
 		reserve = lipgloss.Width(m.stripName(cur, true)) + 2
 	}
 	if hasCur && !curRunning {
-		add(cur, "")
+		add(cur, " ")
 	}
-	for _, o := range run {
+	for i, o := range run {
 		pre := "  "
-		if len(items) == 0 {
-			pre = ""
-		} else if hasCur && !curRunning && len(items) == 1 {
-			pre = sFaint.Render("  │  ")
+		if i == 0 {
+			pre = " "
+			if hasCur && !curRunning {
+				pre = sFaint.Render("  │  ")
+			}
 		}
 		if o.ID == cur.ID {
 			add(o, pre)
 			reserve = 0
 			continue
 		}
-		if x+lipgloss.Width(pre)+lipgloss.Width(m.stripName(o, false))+reserve+7 > m.width {
+		if x+lipgloss.Width(pre)+lipgloss.Width(m.stripName(o, false))+reserve+7 > limit {
 			more++
 			continue
 		}
 		add(o, pre)
 	}
-	if len(items) == 1 && hasCur {
+	if len(items) == 2 && hasCur {
 		state, st := m.stateText(cur)
 		if !cur.Running {
 			state = "closed"
@@ -361,17 +411,48 @@ func (m Model) strip() (items []stripItem, more int, detail string) {
 			s += sMuted.Render(" · " + rest)
 		}
 		parts = append(parts, s)
-		detail = clip("  "+strings.Join(parts, sMuted.Render(" · ")), max(0, m.width-x-4))
+		detail = clip("  "+strings.Join(parts, sMuted.Render(" · ")), max(0, limit-x-4))
 	}
 	return items, more, detail
+}
+
+// newButton is the "+ claude" button at the right end of the strip, shown
+// when Lookout runs in tmux; "" otherwise.
+func (m Model) newButton() string {
+	if !canNewClaude() {
+		return ""
+	}
+	const text = " + claude "
+	if m.hoverStrip == stripNew {
+		return lipgloss.NewStyle().Background(cAccent).Foreground(cOnAccent).Bold(true).Render(text)
+	}
+	return sChip.Foreground(cText).Render(text)
+}
+
+// ruleWidth is the room on the strip's line left of the "+ claude" button.
+func (m Model) ruleWidth() int {
+	if b := m.newButton(); b != "" {
+		return max(0, m.width-lipgloss.Width(b)-1)
+	}
+	return m.width
 }
 
 // viewRule is the line under the tabs: the session strip, or a plain rule
 // when there is no session yet.
 func (m Model) viewRule() string {
+	line := m.ruleLine()
+	if b := m.newButton(); b != "" {
+		line += strings.Repeat(" ", max(0, m.ruleWidth()-lipgloss.Width(line))) + " " + b
+	}
+	return line
+}
+
+// ruleLine is the strip without the "+ claude" button, ruleWidth wide.
+func (m Model) ruleLine() string {
+	width := m.ruleWidth()
 	items, more, detail := m.strip()
 	if len(items) == 0 {
-		return sMuted.Render(strings.Repeat("━", max(0, m.width)))
+		return sMuted.Render(strings.Repeat("━", max(0, width)))
 	}
 	line := sMuted.Render("━ ")
 	for _, it := range items {
@@ -385,11 +466,11 @@ func (m Model) viewRule() string {
 	hint := ""
 	if len(m.running()) >= 2 {
 		hint = footerKeys("[ ] switch · 0 all")
-		if m.width-lipgloss.Width(line)-lipgloss.Width(hint)-6 < 0 {
+		if width-lipgloss.Width(line)-lipgloss.Width(hint)-6 < 0 {
 			hint = ""
 		}
 	}
-	if rest := m.width - lipgloss.Width(line) - 1 - lipgloss.Width(hint); rest > 0 {
+	if rest := width - lipgloss.Width(line) - 1 - lipgloss.Width(hint); rest > 0 {
 		fill := strings.Repeat("━", rest)
 		if hint != "" {
 			fill = strings.Repeat("━", max(0, rest-3))
@@ -415,6 +496,9 @@ func (m Model) stripRow() int {
 
 // stripAt is the session under column x of the strip, or "".
 func (m Model) stripAt(x int) string {
+	if b := m.newButton(); b != "" && x >= m.width-lipgloss.Width(b) {
+		return stripNew
+	}
 	items, _, _ := m.strip()
 	for _, it := range items {
 		if x >= it.x && x < it.x+it.w {
@@ -474,20 +558,17 @@ func ctxText(o app.Overview) string {
 // or, when already pinned, goes back to following the latest.
 func (m Model) togglePin() Model {
 	if m.o.Core.Pinned != "" {
-		m.o.Core.Pinned = ""
-		m.setFlash("unpinned · following the session you last prompted", sMuted, 3*time.Second)
-		m.refresh()
-		return m
+		return m.follow()
 	}
 	cur, ok := m.o.Core.Current()
 	if !ok {
 		m.setFlash("no session to pin yet", sMuted, 3*time.Second)
 		return m
 	}
-	m.o.Core.Pinned = cur.ID
-	m.setFlash("pinned session "+ShortID(cur.ID)+" · P to unpin", sGreen, 4*time.Second)
-	m.refresh()
-	return m
+	if o, ok := m.overviewOf(cur.ID); ok {
+		return m.pin(o)
+	}
+	return m.pin(app.Overview{Session: cur})
 }
 
 // ---- Going to a session's tmux pane ----
@@ -830,8 +911,7 @@ func (m Model) sessionsKey(key string) (tea.Model, tea.Cmd) {
 			return m, copyText("claude --resume " + m.ovs[m.svSel].ID)
 		}
 	case "a":
-		m.o.Core.Pinned = ""
-		m.setFlash("following the session you last prompted", sMuted, 3*time.Second)
+		m = m.follow()
 		m.tab = m.backTab()
 		m.refresh()
 	case "esc", "left", "h":
@@ -840,7 +920,8 @@ func (m Model) sessionsKey(key string) (tea.Model, tea.Cmd) {
 	case "enter", "right", "l":
 		if m.svSel < n {
 			o := m.ovs[m.svSel]
-			m.show(o.ID, o.Label())
+			// Its own tab, pinned; Auto keeps following and is a click away.
+			m = m.pin(o)
 			m.tab = tabUsage
 			m.refresh()
 		}

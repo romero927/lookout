@@ -319,16 +319,21 @@ func TestActivityDetailAndSessionPicker(t *testing.T) {
 	if v := plain(m.View()); m.(Model).tab != tabSessions || !strings.Contains(v, "SESSIONS") || !strings.Contains(v, "Following the session you last prompted") {
 		t.Fatalf("s should open Sessions:\n%s", v)
 	}
-	// Picking the latest session keeps following, not pinning, and opens
-	// Usage.
+	// Picking any session, even the latest, gives it its own pinned tab
+	// and opens Usage; Auto stays a click away.
 	m = drive(m, key("enter"))
-	if core.Pinned != "" || m.(Model).tab != tabUsage {
-		t.Errorf("enter on the latest session should follow it, not pin it (pinned=%q, tab %d)", core.Pinned, m.(Model).tab)
+	if core.Pinned != "sess-ui" || m.(Model).tab != tabUsage {
+		t.Errorf("enter should pin the session (pinned=%q, tab %d)", core.Pinned, m.(Model).tab)
 	}
+	// Claude Code lists its running sessions (none here), so sess-old is
+	// known to be closed.
+	_ = os.MkdirAll(core.LiveDir, 0o755)
 	m = drive(m, key("s"), key("down"), key("enter"))
-	if v := plain(m.View()); !strings.Contains(v, "pinned") || core.Pinned != "sess-old" {
-		t.Errorf("enter should pin an older session (pinned=%q)\n%s", core.Pinned, v)
+	if v := plain(m.View()); !strings.Contains(v, "◷ closed") || strings.Contains(v, "◆") || core.Pinned != "sess-old" {
+		t.Errorf("enter on a closed session should show it as closed, not pinned (pinned=%q)\n%s", core.Pinned, v)
 	}
+	// Without that list, Lookout can't tell, so a pin is just a pin.
+	_ = os.RemoveAll(core.LiveDir)
 	m = drive(m, key("s"), tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("a")})
 	if core.Pinned != "" || strings.Contains(plain(m.View()), "◆ pinned") || m.(Model).tab != tabActivity {
 		t.Error("a should go back to following the latest session")
@@ -365,8 +370,8 @@ func TestActivityDetailAndSessionPicker(t *testing.T) {
 	}
 	m = drive(m, key("s"))
 	m = drive(m, click(10, rowOf("this still doesn't work"))...)
-	if core.Pinned != "" {
-		t.Errorf("clicking the latest session should follow it (pinned=%q)", core.Pinned)
+	if core.Pinned != "sess-ui" {
+		t.Errorf("clicking the latest session should pin it (pinned=%q)", core.Pinned)
 	}
 }
 

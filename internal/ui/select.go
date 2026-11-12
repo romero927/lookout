@@ -191,9 +191,17 @@ func (m Model) click(x, y int) (tea.Model, tea.Cmd) {
 	}
 	if y == m.stripRow() {
 		// The session strip under the tabs.
-		if id := m.stripAt(x); id != "" {
+		switch id := m.stripAt(x); id {
+		case "":
+		case stripAuto:
+			if m.o.Core.Pinned != "" {
+				m = m.follow()
+			}
+		case stripNew:
+			return m, m.newClaude()
+		default:
 			if o, ok := m.overviewOf(id); ok {
-				m.show(id, o.Label())
+				m = m.pin(o)
 			}
 		}
 		return m, nil

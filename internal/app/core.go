@@ -3,6 +3,7 @@
 package app
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -116,6 +117,17 @@ func (c *Core) Followed() (usage.Session, bool) {
 		return s, true
 	}
 	return c.Latest()
+}
+
+// LiveKnown reports whether Claude Code lists its running sessions, so a
+// session missing from that list has ended. Older versions don't, and then
+// Lookout can't tell a closed session from a running one.
+func (c *Core) LiveKnown() bool {
+	if c.LiveDir == "" {
+		return false
+	}
+	st, err := os.Stat(c.LiveDir)
+	return err == nil && st.IsDir()
 }
 
 // NeedsYou returns the running session (in the --cwd folder, when set)

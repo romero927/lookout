@@ -34,6 +34,14 @@ type UI struct {
 	// Theme is "auto" (ask the terminal; inside tmux/screen dark is
 	// assumed), "dark" or "light".
 	Theme string `toml:"theme"`
+	// Colors is "auto" (guess from TERM, COLORTERM and TERM_PROGRAM),
+	// "16", "256" or "truecolor".
+	Colors string `toml:"colors"`
+	// NewClaude is where N (or the "+ claude" button) opens a new Claude
+	// Code in tmux: "split" splits the pane of the session on screen (or
+	// opens a window when it isn't in tmux); "window" always opens a new
+	// window.
+	NewClaude string `toml:"new_claude"`
 }
 
 // Usage controls how token usage is windowed.
@@ -136,7 +144,7 @@ type Models struct {
 // Default returns the built-in configuration.
 func Default() Config {
 	return Config{
-		UI:     UI{Theme: "auto"},
+		UI:     UI{Theme: "auto", Colors: "auto", NewClaude: "split"},
 		Usage:  Usage{HistoryDays: 30, BurnWindowMinutes: 10, BlockHours: 5},
 		Files:  Files{AllowEdit: false, ExtraFiles: []string{}},
 		Alerts: Alerts{Bell: true, Desktop: true, Thresholds: []float64{80, 95}, Pace: true, Sessions: true},
@@ -191,6 +199,16 @@ func (c *Config) fill() {
 	case "auto", "dark", "light":
 	default:
 		c.UI.Theme = d.UI.Theme
+	}
+	switch c.UI.Colors {
+	case "auto", "16", "256", "truecolor":
+	default:
+		c.UI.Colors = d.UI.Colors
+	}
+	switch c.UI.NewClaude {
+	case "split", "window":
+	default:
+		c.UI.NewClaude = d.UI.NewClaude
 	}
 	pos := func(v *int, def int) {
 		if *v <= 0 {
@@ -252,6 +270,8 @@ const DefaultTOML = `# Lookout configuration. Every value shown is the default.
 
 [ui]
 theme = "auto"             # "auto" asks the terminal (inside tmux, dark is assumed); or "dark" / "light"
+colors = "auto"            # "auto" guesses from TERM/COLORTERM; or "16" / "256" / "truecolor" if colors look wrong
+new_claude = "split"       # N in tmux: "split" the pane of the session on screen, or open a new "window"
 
 [usage]
 history_days = 30          # only scan transcripts modified in the last N days
