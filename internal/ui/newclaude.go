@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -10,6 +11,8 @@ import (
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
+
+	"github.com/romero927/lookout/internal/app"
 )
 
 // newClaudeMsg reports how opening a new Claude Code went.
@@ -56,15 +59,15 @@ func (m Model) newClaude() tea.Cmd {
 		switch {
 		case !o.Running:
 			why = o.Label() + " is closed"
-		case o.Tmux == "":
+		case app.TmuxPane(o.Tmux) == "":
 			why = o.Label() + " isn't in tmux"
 		default:
-			shown = paneOf(o.Tmux)
+			shown = app.TmuxPane(o.Tmux)
 		}
 	}
 	var others []string
 	for _, o := range m.running() {
-		if p := paneOf(o.Tmux); o.Tmux != "" && p != shown {
+		if p := app.TmuxPane(o.Tmux); p != "" && p != shown {
 			others = append(others, p)
 		}
 	}
@@ -80,7 +83,8 @@ func (m Model) newClaude() tea.Cmd {
 		}
 		target, flag, note := "", "", ""
 		if split {
-			info := func(pane string) (paneInfo, bool) { return tmuxPaneInfo(tmux, pane) }
+			panes := tmuxPanes(tmux)
+			info := func(pane string) (paneInfo, bool) { p, ok := panes[pane]; return p, ok }
 			var p paneInfo
 			var ok bool
 			p, ok, note = chooseSplit(shown, why, others, own, info)
@@ -109,22 +113,31 @@ type paneInfo struct {
 	w, h       int
 }
 
-// tmuxPaneInfo asks tmux about pane; false when it is gone.
-func tmuxPaneInfo(tmux, pane string) (paneInfo, bool) {
-	if pane == "" {
-		return paneInfo{}, false
-	}
-	out, err := exec.Command(tmux, "display-message", "-p", "-t", pane, "#{pane_id} #{window_id} #{pane_width} #{pane_height}").Output()
+// tmuxPanes asks tmux about every pane, in one call, by pane ID; empty
+// when tmux doesn't answer within a second.
+func tmuxPanes(tmux string) map[string]paneInfo {
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, tmux, "list-panes", "-a", "-F", "#{pane_id} #{window_id} #{pane_width} #{pane_height}").Output()
 	if err != nil {
-		return paneInfo{}, false
+		return nil
 	}
-	f := strings.Fields(string(out))
-	if len(f) != 4 || f[0] != pane {
-		return paneInfo{}, false
+	return parsePanes(string(out))
+}
+
+// parsePanes reads list-panes lines of "<pane> <window> <width> <height>".
+func parsePanes(out string) map[string]paneInfo {
+	panes := map[string]paneInfo{}
+	for _, line := range strings.Split(out, "\n") {
+		f := strings.Fields(line)
+		if len(f) != 4 || !strings.HasPrefix(f[0], "%") {
+			continue
+		}
+		w, _ := strconv.Atoi(f[2])
+		h, _ := strconv.Atoi(f[3])
+		panes[f[0]] = paneInfo{id: f[0], window: f[1], w: w, h: h}
 	}
-	w, _ := strconv.Atoi(f[2])
-	h, _ := strconv.Atoi(f[3])
-	return paneInfo{id: f[0], window: f[1], w: w, h: h}, true
+	return panes
 }
 
 // chooseSplit picks the pane a new Claude Code splits: the session on
@@ -181,15 +194,6 @@ func splitFlag(w, h int) string {
 		return "-h"
 	}
 	return "-v"
-}
-
-// paneOf is the pane ID in a reference like "main:@2.%7", or the whole
-// reference when it has none.
-func paneOf(ref string) string {
-	if i := strings.LastIndex(ref, "."); i >= 0 && strings.HasPrefix(ref[i+1:], "%") {
-		return ref[i+1:]
-	}
-	return ref
 }
 
 // onNewClaude says how opening a new Claude Code went.

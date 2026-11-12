@@ -177,6 +177,11 @@ func TestCurrentShowsSessionThatNeedsYou(t *testing.T) {
 	if s, _ := c.Current(); s.ID != "bg" {
 		t.Fatalf("Current() = %q, want bg (it needs you)", s.ID)
 	}
+	// talk working on its own afterwards doesn't hide bg.
+	feed(c, reply("talk", now.Add(45*time.Second)))
+	if s, _ := c.Current(); s.ID != "bg" {
+		t.Fatalf("Current() = %q after talk kept working, want bg", s.ID)
+	}
 	// A pin still wins.
 	c.Pinned = "talk"
 	if s, _ := c.Current(); s.ID != "talk" {

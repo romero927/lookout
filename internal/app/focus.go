@@ -12,35 +12,58 @@ import (
 
 // focusTracker notes when you switch to a session's tmux pane, so Auto
 // follows the session you click into as well as the one you last sent a
-// message to. It asks tmux for the active pane at most once a second.
+// message to. tmux is asked for the active pane at most once a second, in
+// the background: callers get the last answer and never wait on tmux.
 type focusTracker struct {
-	mu    sync.Mutex
-	at    time.Time            // last time tmux was asked
-	pane  string               // the active pane then, e.g. "%3"
-	seen  bool                 // pane holds a real answer
-	since map[string]time.Time // pane -> when you switched to it
+	mu      sync.Mutex
+	at      time.Time            // when tmux was last asked
+	polling bool                 // a background poll is running
+	pane    string               // the active pane then, e.g. "%3"
+	seen    bool                 // pane holds a real answer
+	since   map[string]time.Time // pane -> when you switched to it
 	// query returns the active pane; nil asks tmux (see activeTmuxPane).
 	query func() (string, bool)
 }
 
-// get returns when you last switched to each pane, polling tmux when the
-// last answer is over a second old.
-func (f *focusTracker) get(now time.Time) map[string]time.Time {
+// get returns when you last switched to each pane in live (a copy), and
+// starts a background poll of tmux when the last one is over a second old.
+// Panes not in live are forgotten once their switch is a minute old.
+func (f *focusTracker) get(now time.Time, live map[string]bool) map[string]time.Time {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	if !f.at.IsZero() && now.Sub(f.at) <= time.Second && !now.Before(f.at) {
-		return f.since
+	if !f.polling && (f.at.IsZero() || now.Sub(f.at) > time.Second || now.Before(f.at)) {
+		f.at, f.polling = now, true
+		q := f.query
+		if q == nil {
+			q = activeTmuxPane
+		}
+		go func() {
+			pane, ok := q()
+			f.update(pane, ok, time.Now())
+		}()
 	}
-	f.at = now
-	q := f.query
-	if q == nil {
-		q = activeTmuxPane
+	out := map[string]time.Time{}
+	for p, at := range f.since {
+		switch {
+		case live[p]:
+			out[p] = at
+		case now.Sub(at) > time.Minute:
+			delete(f.since, p)
+		}
 	}
-	pane, ok := q()
+	return out
+}
+
+// update records tmux's answer: the active pane, or ok false when tmux
+// gave none.
+func (f *focusTracker) update(pane string, ok bool, now time.Time) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.polling = false
 	if !ok || pane == "" || pane == os.Getenv("TMUX_PANE") {
 		// No answer, or Lookout's own pane: going from a session to
 		// Lookout and back isn't a switch.
-		return f.since
+		return
 	}
 	if f.seen && pane != f.pane {
 		if f.since == nil {
@@ -51,7 +74,6 @@ func (f *focusTracker) get(now time.Time) map[string]time.Time {
 	// The pane active when Lookout starts doesn't count as a switch: you
 	// may have been there for a while.
 	f.pane, f.seen = pane, true
-	return f.since
 }
 
 // activeTmuxPane asks tmux for the active pane of the client you used
@@ -83,11 +105,13 @@ func lastActiveClientPane(out string) (string, bool) {
 	return best, best != ""
 }
 
-// paneID is the pane part of Claude Code's tmux field, e.g. "%3" from
-// "main:@0.%3".
-func paneID(tmux string) string {
-	if i := strings.LastIndex(tmux, "%"); i >= 0 {
-		return tmux[i:]
+// TmuxPane is the pane ID in Claude Code's tmux field, e.g. "%3" from
+// "main:@0.%3", or "" when it names none.
+func TmuxPane(ref string) string {
+	if i := strings.LastIndex(ref, "%"); i >= 0 {
+		if _, err := strconv.Atoi(ref[i+1:]); err == nil {
+			return ref[i:]
+		}
 	}
 	return ""
 }
@@ -100,17 +124,18 @@ func (c *Core) focusTimes(now time.Time) map[string]time.Time {
 		return nil
 	}
 	panes := map[string]string{} // pane -> session
+	live := map[string]bool{}
 	for _, l := range c.live.get(c.LiveDir, now) {
-		if p := paneID(l.Tmux); p != "" {
-			panes[p] = l.ID
+		if p := TmuxPane(l.Tmux); p != "" {
+			panes[p], live[p] = l.ID, true
 		}
 	}
 	if len(panes) == 0 {
 		return nil
 	}
 	out := map[string]time.Time{}
-	for p, at := range c.focus.get(now) {
-		if id, ok := panes[p]; ok && at.After(out[id]) {
+	for p, at := range c.focus.get(now, live) {
+		if id := panes[p]; at.After(out[id]) {
 			out[id] = at
 		}
 	}

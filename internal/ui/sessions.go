@@ -78,7 +78,7 @@ func (m *Model) noteAutoSwitch() {
 		return
 	}
 	if o, ok := m.overviewOf(cur); ok && o.NeedsYou() {
-		m.setFlash("▲ showing "+o.Label()+": it needs you ("+o.Detail+") · back to the latest once you answer · P to stay", sYellow.Bold(true), 10*time.Second)
+		m.setFlash("▲ showing "+o.Label()+": it needs you ("+o.Detail+") · back to the latest once you answer or turn to another session · P to stay", sYellow.Bold(true), 10*time.Second)
 		return
 	}
 	if prev, ok := m.overviewOf(m.prevShown); ok && m.ovLast[prev.ID] == app.StateWaiting && !prev.NeedsYou() {

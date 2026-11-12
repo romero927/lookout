@@ -100,11 +100,12 @@ func (c *Core) Current() (usage.Session, bool) {
 			return usage.Session{}, false
 		}
 	}
-	if s, ok := c.needsYouNow(); ok {
-		return s, true
+	focus := c.focusTimes(time.Now())
+	s, ok := c.latest(focus)
+	if w, wok := c.needsYouNow(s, ok, focus); wok {
+		return w, true
 	}
-	s, ok := c.Latest()
-	if _, waiting := c.Starting(); waiting {
+	if _, waiting := c.starting(s, ok, focus); waiting {
 		return usage.Session{}, false
 	}
 	return s, ok
@@ -114,25 +115,28 @@ func (c *Core) Current() (usage.Session, bool) {
 // needs you (see needsYouNow), else the latest (see Latest). It doesn't
 // wait for newly started sessions as Current does.
 func (c *Core) Followed() (usage.Session, bool) {
-	if s, ok := c.needsYouNow(); ok {
-		return s, true
+	focus := c.focusTimes(time.Now())
+	s, ok := c.latest(focus)
+	if w, wok := c.needsYouNow(s, ok, focus); wok {
+		return w, true
 	}
-	return c.Latest()
+	return s, ok
 }
 
-// needsYouNow is the session that needs you (see NeedsYou) when it should
-// take over the view: it started waiting after you last turned to the
-// latest session. Once you prompt or switch to another session while it
-// waits, you stay there; its tab still shows ▲.
-func (c *Core) needsYouNow() (usage.Session, bool) {
-	s, at, ok := c.needsYou()
-	if !ok {
+// needsYouNow is the session that needs you (see needsYou) when it should
+// take over the view from latest: it started waiting after you last sent
+// latest a message or switched to its pane. Once you do either while it
+// waits, you stay there; its tab still shows ▲. latest working on its own
+// doesn't count.
+func (c *Core) needsYouNow(latest usage.Session, ok bool, focus map[string]time.Time) (usage.Session, bool) {
+	s, at, wok := c.needsYou()
+	if !wok {
 		return s, false
 	}
-	if at.IsZero() {
-		return s, true // when it started waiting isn't known
+	if at.IsZero() || !ok || latest.ID == s.ID {
+		return s, true // when it started waiting isn't known, or nothing else to show
 	}
-	if l, lok := c.Latest(); lok && l.ID != s.ID && c.attention(l, c.focusTimes(time.Now())).After(at) {
+	if c.turnedTo(latest, focus).After(at) {
 		return usage.Session{}, false
 	}
 	return s, true
@@ -149,16 +153,10 @@ func (c *Core) LiveKnown() bool {
 	return err == nil && st.IsDir()
 }
 
-// NeedsYou returns the running session (in the --cwd folder, when set)
-// that most recently stopped on a permission prompt or a question for you.
-// Lookout shows it until you answer (or turn to another session; see
-// needsYouNow), then goes back to the latest.
-func (c *Core) NeedsYou() (usage.Session, bool) {
-	s, _, ok := c.needsYou()
-	return s, ok
-}
-
-// needsYou is NeedsYou, plus when that session started waiting.
+// needsYou returns the running session (in the --cwd folder, when set)
+// that most recently stopped on a permission prompt or a question for you,
+// and when it did. Lookout shows it until you answer (or turn to another
+// session; see needsYouNow), then goes back to the latest.
 func (c *Core) needsYou() (usage.Session, time.Time, bool) {
 	if c.LiveDir == "" {
 		return usage.Session{}, time.Time{}, false
@@ -192,6 +190,11 @@ func (c *Core) needsYou() (usage.Session, time.Time, bool) {
 // moves on to a running one; it falls back to closed sessions only when
 // none is running.
 func (c *Core) Latest() (usage.Session, bool) {
+	return c.latest(c.focusTimes(time.Now()))
+}
+
+// latest is Latest, with focus from focusTimes.
+func (c *Core) latest(focus map[string]time.Time) (usage.Session, bool) {
 	var running map[string]bool
 	if c.LiveKnown() {
 		running = map[string]bool{}
@@ -204,7 +207,6 @@ func (c *Core) Latest() (usage.Session, bool) {
 			running = nil
 		}
 	}
-	focus := c.focusTimes(time.Now())
 	var best usage.Session
 	var bestAt time.Time
 	bestRank := 0
@@ -221,15 +223,21 @@ func (c *Core) Latest() (usage.Session, bool) {
 	return best, bestRank > 0
 }
 
-// attention is when you last turned to s: your last message to it (or
-// its last activity when no message is known), or when you last switched
-// to its tmux pane, whichever is later. focus is from focusTimes.
+// attention is when you last turned to s (see turnedTo), or its last
+// activity when that isn't known. focus is from focusTimes.
 func (c *Core) attention(s usage.Session, focus map[string]time.Time) time.Time {
-	at := s.LastActivity
+	if at := c.turnedTo(s, focus); !at.IsZero() {
+		return at
+	}
+	return s.LastActivity
+}
+
+// turnedTo is when you last sent s a message or switched to its tmux
+// pane, whichever is later; zero when neither is known.
+func (c *Core) turnedTo(s usage.Session, focus map[string]time.Time) time.Time {
+	var at time.Time
 	if c.Activity != nil {
-		if t := c.Activity.Brief(s.ID).Prompted; !t.IsZero() {
-			at = t
-		}
+		at = c.Activity.Brief(s.ID).Prompted
 	}
 	if f := focus[s.ID]; f.After(at) {
 		at = f
@@ -242,11 +250,16 @@ func (c *Core) attention(s usage.Session, focus map[string]time.Time) time.Time 
 // to the followed session (or is a closer folder match), so it is the one
 // to show once it gets going. It ignores Pinned.
 func (c *Core) Starting() (LiveSession, bool) {
+	focus := c.focusTimes(time.Now())
+	cur, ok := c.latest(focus)
+	return c.starting(cur, ok, focus)
+}
+
+// starting is Starting, given the latest session (cur, ok) and focus.
+func (c *Core) starting(cur usage.Session, ok bool, focus map[string]time.Time) (LiveSession, bool) {
 	if c.LiveDir == "" {
 		return LiveSession{}, false
 	}
-	cur, ok := c.Latest()
-	focus := c.focusTimes(time.Now())
 	curRank := 0
 	var curAt time.Time
 	if ok {

@@ -126,8 +126,9 @@ func TestNewClaudeArgs(t *testing.T) {
 	if got != "new-window -P -F #{session_name}:#{window_id}.#{pane_id} -c /w '/my bin/claude'" {
 		t.Errorf("window: %s", got)
 	}
-	if paneOf("main:@2.%7") != "%7" || paneOf("%3") != "%3" {
-		t.Error("paneOf")
+	panes := parsePanes("%1 @0 100 40\n%2 @1 80 20\nbad\n")
+	if len(panes) != 2 || panes["%2"] != (paneInfo{id: "%2", window: "@1", w: 80, h: 20}) {
+		t.Errorf("parsePanes = %v", panes)
 	}
 	if splitFlag(200, 50) != "-h" || splitFlag(120, 40) != "-v" || splitFlag(170, 100) != "-v" {
 		t.Error("splitFlag")
