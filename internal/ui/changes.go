@@ -522,7 +522,31 @@ func (m *Model) applyWork(msg workMsg) {
 		m.work, m.committed, m.workTops = nil, nil, nil
 		return
 	}
+	key := m.changeKey()
 	m.work, m.committed, m.workTops = msg.items, msg.committed, msg.tops
+	m.keepChange(key)
+}
+
+// changeKey names the selected Changes row, to find it again after the
+// list is rebuilt and reordered.
+func (m Model) changeKey() string {
+	if it, ok := m.selectedChange(); ok {
+		return it.Path
+	}
+	return ""
+}
+
+// keepChange selects the row named key again, if it is still listed.
+func (m *Model) keepChange(key string) {
+	if key == "" {
+		return
+	}
+	for i, it := range m.changeItems() {
+		if it.Path == key {
+			m.cSel = i
+			return
+		}
+	}
 }
 
 // maxWorkDirs caps how many folders Changes checks with git.
@@ -593,7 +617,7 @@ func (m Model) inWorkTree(p string) bool {
 func colorDiff(d string) string {
 	lines := strings.Split(strings.TrimRight(d, "\n"), "\n")
 	for i, l := range lines {
-		l = strings.ReplaceAll(l, "\t", "    ")
+		l = cleanText(l) // tabs, and \r from CRLF files, would break the layout
 		switch {
 		case strings.HasPrefix(l, "commit "):
 			lines[i] = sBold.Render(l)

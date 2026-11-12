@@ -126,7 +126,12 @@ func (m *Model) checkSessionAlerts() tea.Cmd {
 	}
 	_ = limits.SaveFired(paths.AlertsFile(), m.fired, m.now)
 	text := strings.Join(show, " · ")
-	m.setFlash("◆ "+text+" · ] next session · 0 all sessions", sYellow.Bold(true), 10*time.Second)
+	if time.Now().Before(m.limitFlashUntil) && m.flashUntil.Equal(m.limitFlashUntil) {
+		// A limit warning is showing: add to it rather than hide it.
+		m.flash += " · ◆ " + text
+	} else {
+		m.setFlash("◆ "+text+" · ] next session · 0 all sessions", sYellow.Bold(true), 10*time.Second)
+	}
 	return notify(text, cfg.Bell, cfg.Desktop)
 }
 
@@ -272,7 +277,12 @@ type stripItem struct {
 
 // stripName draws one session in the strip.
 func (m Model) stripName(o app.Overview, current bool) string {
-	label := clip(o.Label(), 26)
+	return m.stripNameIn(o, current, 26)
+}
+
+// stripNameIn is stripName with the label clipped to n cells.
+func (m Model) stripNameIn(o app.Overview, current bool, n int) string {
+	label := clip(o.Label(), n)
 	if current {
 		glyph := plainText(m.stateGlyph(o))
 		if m.o.Core.Pinned != "" && m.closed(o) {
@@ -361,7 +371,17 @@ func (m Model) strip() (items []stripItem, more int, detail string) {
 		x += w
 	}
 	add := func(o app.Overview, pre string) {
-		addText(o.ID, m.stripName(o, hasCur && o.ID == cur.ID), pre)
+		current := hasCur && o.ID == cur.ID
+		text := m.stripName(o, current)
+		// The session on screen is always listed: shorten its name to fit
+		// rather than run past the "+ claude" button.
+		for n := 25; n >= 4 && x+lipgloss.Width(pre)+lipgloss.Width(text) > limit; n-- {
+			text = m.stripNameIn(o, current, n)
+		}
+		if x+lipgloss.Width(pre)+lipgloss.Width(text) > limit {
+			return
+		}
+		addText(o.ID, text, pre)
 	}
 	addText(stripAuto, m.autoChip(), "")
 	// Room kept for the session on screen while the others are laid out,
@@ -392,7 +412,7 @@ func (m Model) strip() (items []stripItem, more int, detail string) {
 		}
 		add(o, pre)
 	}
-	if len(items) == 2 && hasCur {
+	if len(items) == 2 && hasCur && more == 0 {
 		state, st := m.stateText(cur)
 		if !cur.Running {
 			state = "closed"

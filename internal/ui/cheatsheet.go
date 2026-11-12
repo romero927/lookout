@@ -130,8 +130,25 @@ func (m Model) cheatsheetKey(key string) (tea.Model, tea.Cmd) {
 		m.kSel = max(0, len(items)-1)
 	case "enter", "c":
 		if m.kSel < len(items) {
-			return m, copyText(items[m.kSel].Cmd)
+			m.kCmd = items[m.kSel].Cmd
+			return m, copyText(m.kCmd)
 		}
 	}
+	if m.kSel < len(items) {
+		m.kCmd = items[m.kSel].Cmd
+	}
 	return m, nil
+}
+
+// keepCheat selects the chosen command again after the list changes.
+func (m *Model) keepCheat() {
+	if m.kCmd == "" {
+		return
+	}
+	for i, c := range m.cheats() {
+		if c.Cmd == m.kCmd {
+			m.kSel = i
+			return
+		}
+	}
 }

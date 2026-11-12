@@ -156,7 +156,7 @@ func TestModelsLogsSuggestion(t *testing.T) {
 }
 
 func TestFormat(t *testing.T) {
-	tests := map[int64]string{0: "0", 999: "999", 1000: "1k", 1234: "1.2k", 999_999: "1000k", 1_500_000: "1.5M", 12_345_678: "12.35M", 2_000_000_000: "2B"}
+	tests := map[int64]string{0: "0", 999: "999", 1000: "1k", 1234: "1.2k", 999_949: "999.9k", 999_999: "1M", 999_999_999: "1B", 1_500_000: "1.5M", 12_345_678: "12.35M", 2_000_000_000: "2B"}
 	for n, want := range tests {
 		if got := Tokens(n); got != want {
 			t.Errorf("Tokens(%d) = %s, want %s", n, got, want)
@@ -571,12 +571,20 @@ func TestMouseSelectCopies(t *testing.T) {
 	core, db := setup(t)
 	var m tea.Model = New(Options{Core: core, Store: db, Version: "test"})
 	m = drive(m, tea.WindowSizeMsg{Width: 120, Height: 40}, LoadedMsg{})
+	// A drag that starts on the tabs is a click, not a selection.
 	m = drive(m, tea.MouseMsg{X: 0, Y: 0, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft},
-		tea.MouseMsg{X: 8, Y: 0, Action: tea.MouseActionMotion, Button: tea.MouseButtonLeft})
+		tea.MouseMsg{X: 2, Y: 0, Action: tea.MouseActionMotion, Button: tea.MouseButtonLeft})
+	m, cmd := m.Update(tea.MouseMsg{X: 2, Y: 0, Action: tea.MouseActionRelease})
+	if cmd != nil {
+		t.Error("a drag on the tabs shouldn't copy anything")
+	}
+	y := lipgloss.Height(m.(Model).viewHeader()) + 1
+	m = drive(m, tea.MouseMsg{X: 0, Y: y, Action: tea.MouseActionPress, Button: tea.MouseButtonLeft},
+		tea.MouseMsg{X: 60, Y: y + 6, Action: tea.MouseActionMotion, Button: tea.MouseButtonLeft})
 	if !strings.Contains(m.View(), "\x1b[0;7m") {
 		t.Error("drag should highlight the selection")
 	}
-	m, cmd := m.Update(tea.MouseMsg{X: 8, Y: 0, Action: tea.MouseActionRelease})
+	m, cmd = m.Update(tea.MouseMsg{X: 60, Y: y + 6, Action: tea.MouseActionRelease})
 	if cmd == nil {
 		t.Fatal("release should copy the selection")
 	}

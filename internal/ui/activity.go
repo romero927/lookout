@@ -389,7 +389,7 @@ func (m Model) renderTurn(t activity.Turn, prev string, w int) (string, []string
 				continue // the output above includes any error
 			}
 			if c.Fail && c.Error != "" {
-				for _, l := range strings.Split(c.Error, "\n") {
+				for _, l := range strings.Split(cleanText(c.Error), "\n") {
 					b = append(b, indent+"     "+sRed.Render(clip(l, max(10, w-len(indent)-5))))
 				}
 			}
@@ -526,8 +526,8 @@ func (m Model) searchKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case tea.KeyRunes, tea.KeySpace:
 		m.aFilter += string(k.Runes)
-		if k.Type == tea.KeySpace {
-			m.aFilter += " "
+		if k.Type == tea.KeySpace && len(k.Runes) == 0 {
+			m.aFilter += " " // bubbletea gives the space as a rune; older events may not
 		}
 	default:
 		return m, nil

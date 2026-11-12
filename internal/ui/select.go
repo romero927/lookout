@@ -49,6 +49,10 @@ func (m Model) mouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 	case msg.Button == tea.MouseButtonWheelDown:
 		return m.wheel(msg.X, 1)
 	case msg.Action == tea.MouseActionPress && msg.Button == tea.MouseButtonLeft:
+		if box := m.pane(msg.X); msg.Y < box[2] {
+			m.sel, m.hdrPress = selection{}, true
+			return m, nil
+		}
 		m.sel = selection{on: true, box: m.pane(msg.X)}
 		m.sel.from = m.sel.clamp(msg.X, msg.Y)
 		m.sel.to = m.sel.from
@@ -58,6 +62,9 @@ func (m Model) mouse(msg tea.MouseMsg) (tea.Model, tea.Cmd) {
 		// The pointer moved with no button down: highlight the tab or
 		// session under it.
 		m.hoverTab, m.hoverStrip = m.hoverAt(msg.X, msg.Y)
+	case msg.Action == tea.MouseActionRelease && m.hdrPress:
+		m.hdrPress = false
+		return m.click(msg.X, msg.Y)
 	case msg.Action == tea.MouseActionRelease && m.sel.on:
 		m.sel.to = m.sel.clamp(msg.X, msg.Y)
 		if m.sel.from == m.sel.to {
@@ -156,6 +163,9 @@ func (m *Model) split() (splitPane, bool) {
 // wheel scrolls what's under the pointer: the list moves the selection,
 // the reader scrolls its text.
 func (m Model) wheel(x, dir int) (tea.Model, tea.Cmd) {
+	if m.help {
+		return m, nil // any key closes help; scrolling shouldn't
+	}
 	key := tea.KeyMsg{Type: tea.KeyDown}
 	if dir < 0 {
 		key = tea.KeyMsg{Type: tea.KeyUp}

@@ -13,6 +13,7 @@ import (
 
 	"github.com/romero927/lookout/internal/activity"
 	"github.com/romero927/lookout/internal/app"
+	"github.com/romero927/lookout/internal/config"
 	"github.com/romero927/lookout/internal/configfiles"
 	"github.com/romero927/lookout/internal/limits"
 	"github.com/romero927/lookout/internal/paths"
@@ -98,8 +99,16 @@ type Model struct {
 	tab    int
 	help   bool
 	sel    selection // mouse drag in progress
-	loaded bool
-	now    time.Time
+	// limitFlashUntil is when the limit warning on show expires, so a
+	// session alert in the same moment joins it instead of replacing it.
+	limitFlashUntil time.Time
+	// headerH is the header's height when the readers were last sized.
+	headerH int
+	// hdrPress is a press above the panel body (tabs, session strip): its
+	// release is a click, never a text selection.
+	hdrPress bool
+	loaded   bool
+	now      time.Time
 
 	// Usage
 	snap    usage.Snapshot
@@ -154,10 +163,11 @@ type Model struct {
 	shareFive, shareWeek float64
 
 	ctxView activity.ContextView
-	xSel    int  // selected context item
-	xAll    bool // list every item, not just the largest
-	xFocus  bool // showing one item's details
-	kSel    int  // selected cheatsheet command
+	xSel    int    // selected context item
+	xAll    bool   // list every item, not just the largest
+	xFocus  bool   // showing one item's details
+	kSel    int    // selected cheatsheet command
+	kCmd    string // its text: suggestions come and go above it, so find it again
 
 	// Tools
 	tools      []toolStat
@@ -195,10 +205,13 @@ type Model struct {
 
 	// Skills
 	skills []skills.Item
-	sSel   int
-	sFocus bool
-	sView  viewport.Model
-	sShown string
+	// skillsFor is the project folder skills were last scanned for, so
+	// they are rescanned when the session on screen moves to another.
+	skillsFor string
+	sSel      int
+	sFocus    bool
+	sView     viewport.Model
+	sShown    string
 
 	// Files
 	files    []configfiles.File
@@ -242,7 +255,9 @@ func New(o Options) Model {
 	m.refreshLimits(true)
 	m.fired = limits.LoadFired(paths.AlertsFile())
 	m.checkBuild()
-	if o.ConfigErr != nil {
+	if config.IsWarning(o.ConfigErr) {
+		m.setFlash("config: "+o.ConfigErr.Error(), sYellow, 10*time.Second)
+	} else if o.ConfigErr != nil {
 		m.setFlash("config error: "+o.ConfigErr.Error()+" — using defaults", sRed, 10*time.Second)
 	}
 	return m
@@ -575,6 +590,12 @@ func (m Model) editSelected() (tea.Model, tea.Cmd) {
 func (m *Model) refresh() {
 	now := time.Now()
 	m.prevShown = m.shownID()
+	if p := m.o.Core.Pinned; p != "" && !m.o.Core.Agg.Known(p) && !m.o.Core.IsLive(p) {
+		// Pinned before it sent anything, and closed since: nothing left
+		// to show, so don't keep saying it's pinned.
+		m.o.Core.Pinned = ""
+		m.setFlash("the pinned session closed before it sent anything · back on ↻ Auto", sMuted, 5*time.Second)
+	}
 	m.snap, m.sess, m.hasSess = m.o.Core.Snapshot(now)
 	m.refreshSessions(now)
 	m.noteAutoSwitch()
@@ -582,6 +603,9 @@ func (m *Model) refresh() {
 		m.prevTab = m.tab
 	}
 	m.health = m.o.Core.Watcher.Health()
+	if m.width > 0 && lipgloss.Height(m.viewHeader()) != m.headerH {
+		m.layoutViewports() // a warning line came or went: resize the readers
+	}
 	m.refreshShare(now)
 	raw, st := m.o.Core.Suggest(now, SuggestExtra(m.limits, m.limitsExact(), now))
 	m.sstate = st
@@ -590,6 +614,13 @@ func (m *Model) refresh() {
 		m.shownKey, m.shownSince = k, now
 	}
 	prev := m.act.ID
+	// Lists are rebuilt below, newest first: note what is selected so a
+	// new turn or file doesn't move the selection to another one.
+	var turnKey time.Time
+	if m.aSel < len(m.act.Turns) {
+		turnKey = m.act.Turns[m.aSel].Start
+	}
+	changeKey := m.changeKey()
 	m.act = activity.Session{}
 	if m.hasSess {
 		m.act = m.o.Core.Activity.Session(m.sess.ID)
@@ -601,6 +632,9 @@ func (m *Model) refresh() {
 		}
 		m.refreshContext()
 	}
+	if m.loaded && m.hasSess && m.sess.Cwd != m.skillsFor {
+		m.refreshSkills()
+	}
 	if m.act.ID != prev {
 		// Another session: start the lists at the top.
 		m.cSel, m.aSel, m.cFocus, m.aFocus = 0, 0, false, false
@@ -609,6 +643,15 @@ func (m *Model) refresh() {
 		m.diffPath, m.diffText, m.aShown = "", "", ""
 		m.aOpen, m.aDetail = nil, nil
 		m.showDiff()
+	}
+	if m.act.ID == prev {
+		for i, t := range m.act.Turns {
+			if !turnKey.IsZero() && t.Start.Equal(turnKey) {
+				m.aSel = i
+				break
+			}
+		}
+		m.keepChange(changeKey)
 	}
 	if n := len(m.act.Turns); m.aSel >= n {
 		m.aSel = max(0, n-1)
@@ -634,6 +677,9 @@ func (m *Model) refresh() {
 			m.resolved, m.followed, m.smooth, _ = db.Adherence()
 			m.lastLogAt = now
 		}
+	}
+	if m.tab == tabCheatsheet {
+		m.keepCheat()
 	}
 }
 
@@ -684,7 +730,7 @@ func (m *Model) loadSelectedFile() {
 }
 
 func numbered(path, s string) string {
-	s = strings.ReplaceAll(s, "\t", "    ")
+	s = cleanText(s)
 	lines := strings.Split(strings.TrimRight(s, "\n"), "\n")
 	w := len(fmt.Sprint(len(lines)))
 	var b strings.Builder
@@ -699,7 +745,8 @@ func numbered(path, s string) string {
 
 // layoutViewports sizes the viewers for the current window.
 func (m *Model) layoutViewports() {
-	bodyH := max(5, m.height-3-lipgloss.Height(m.viewHeader()))
+	m.headerH = lipgloss.Height(m.viewHeader())
+	bodyH := max(5, m.height-3-m.headerH)
 	listW := m.listWidth()
 	viewW := max(20, m.width-listW-3)
 	for _, v := range []*viewport.Model{&m.gView, &m.cView, &m.aView, &m.sView, &m.tlView} {

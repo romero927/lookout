@@ -248,13 +248,20 @@ func (m *Model) loadTool() {
 		return
 	}
 	st := m.tools[m.tlSel]
-	key := fmt.Sprintf("%s|%d|%d|%d|%d|%d|%d|%d|%t|%t", st.Name, st.Calls, st.Errors+st.Denied, st.Last.UnixNano(),
+	// Total changes when a running call finishes, so its result shows.
+	key := fmt.Sprintf("%s|%d|%d|%d|%d|%d|%d|%d|%d|%t|%t", st.Name, st.Calls, st.Errors+st.Denied, st.Last.UnixNano(), st.Total,
 		m.tlView.Width, m.aRev, m.tlRev, m.tlCur, m.tlFocus, m.tlFailOnly)
 	if key == m.tlShown {
 		return
 	}
 	sameTool := strings.HasPrefix(m.tlShown, st.Name+"|")
 	m.tlShown = key
+	// Calls are newest first, so a new call moves the rest down: keep the
+	// cursor on the call it was on.
+	curID := ""
+	if sameTool && m.tlCur < len(m.tlCalls) {
+		curID = m.tlCalls[m.tlCur].id
+	}
 
 	w := max(20, m.tlView.Width)
 	var b []string
@@ -337,7 +344,7 @@ func (m *Model) loadTool() {
 				continue
 			}
 			if c.Fail && c.Error != "" {
-				first, _, _ := strings.Cut(c.Error, "\n")
+				first, _, _ := strings.Cut(cleanText(c.Error), "\n")
 				st := sRed
 				if denied {
 					st = sYellow
@@ -354,6 +361,15 @@ func (m *Model) loadTool() {
 		push(sMuted.Render(msg), -1)
 	}
 	m.tlCalls, m.tlAt = refs, at
+	if curID != "" && len(m.tlCalls) > 0 && m.tlCalls[min(m.tlCur, len(m.tlCalls)-1)].id != curID {
+		for i, r := range m.tlCalls {
+			if r.id == curID {
+				m.tlCur, m.tlShown = i, ""
+				m.loadTool() // draw the cursor where the call now is
+				return
+			}
+		}
+	}
 	m.tlView.SetContent(strings.Join(b, "\n"))
 	switch {
 	case !sameTool:

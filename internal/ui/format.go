@@ -19,9 +19,9 @@ func Tokens(n int64) string {
 		return "-" + Tokens(-n)
 	case n < 1000:
 		return fmt.Sprintf("%d", n)
-	case n < 1_000_000:
+	case n < 999_950: // rounds to under 1000.0k
 		return trim(fmt.Sprintf("%.1f", f/1e3)) + "k"
-	case n < 1_000_000_000:
+	case n < 999_995_000: // rounds to under 1000.00M
 		return trim(fmt.Sprintf("%.2f", f/1e6)) + "M"
 	default:
 		return trim(fmt.Sprintf("%.2f", f/1e9)) + "B"

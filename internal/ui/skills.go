@@ -17,8 +17,10 @@ import (
 // project and the user's ~/.claude.
 func (m *Model) refreshSkills() {
 	var projects []string
+	m.skillsFor = ""
 	if m.hasSess {
 		projects = append(projects, m.sess.Cwd)
+		m.skillsFor = m.sess.Cwd
 	}
 	m.skills = skills.Discover(paths.ClaudeDir(), projects)
 	if m.sSel >= len(m.skills) {

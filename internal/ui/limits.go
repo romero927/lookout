@@ -49,8 +49,16 @@ func resetText(p limits.Pace, now time.Time) string {
 	return fmt.Sprintf("%s (in %s)", at.Format("15:04"), Dur(left))
 }
 
+// longDur is Dur, with days for a day or more ("3d 4h").
+func longDur(d time.Duration) string {
+	if d >= 24*time.Hour {
+		return fmt.Sprintf("%dd %dh", int(d.Hours())/24, int(d.Hours())%24)
+	}
+	return Dur(d)
+}
+
 // paceText describes where the window is heading.
-func paceText(p limits.Pace) string {
+func paceText(p limits.Pace, now time.Time) string {
 	if !p.Known {
 		return "pace: not enough history yet"
 	}
@@ -63,8 +71,12 @@ func paceText(p limits.Pace) string {
 		rate = fmt.Sprintf("%.0f%%/day", p.RatePerHour*24)
 	}
 	if !p.HitsAt.IsZero() {
+		at := p.HitsAt.Local().Format("15:04")
+		if p.HitsAt.Local().Format("2006-01-02") != now.Local().Format("2006-01-02") {
+			at = p.HitsAt.Local().Format("Mon 15:04")
+		}
 		return fmt.Sprintf("%s %s → hits the limit at %s, %s before reset",
-			kind, rate, p.HitsAt.Local().Format("15:04"), Dur(p.ResetsAt.Sub(p.HitsAt)))
+			kind, rate, at, longDur(p.ResetsAt.Sub(p.HitsAt)))
 	}
 	return fmt.Sprintf("%s %s → ~%.0f%% by reset", kind, rate, min(p.Projected, 100))
 }
@@ -75,7 +87,7 @@ func PaceSummary(p limits.Pace, now time.Time) string {
 		return fmt.Sprintf("reset at %s; new figures arrive with Claude's next reply", p.ResetsAt.Local().Format("Mon 15:04"))
 	}
 	return fmt.Sprintf("%.0f%% used, %.0f%% left · resets %s · %s",
-		p.Used, max(0, 100-p.Used), resetText(p, now), paceText(p))
+		p.Used, max(0, 100-p.Used), resetText(p, now), paceText(p, now))
 }
 
 func levelStyle(l limits.Level) lipgloss.Style {
@@ -137,7 +149,7 @@ func (m Model) viewLimits(w int) []string {
 				st.Bold(true).Render(fmt.Sprintf("%3.0f%% used", p.Used)),
 				sMuted.Render(fmt.Sprintf("· %.0f%% left", max(0, 100-p.Used)))),
 			indent+sMuted.Render("resets ")+sText.Render(resetText(p, m.now)),
-			indent+st.Render(clip(paceText(p), w-8)))
+			indent+st.Render(clip(paceText(p, m.now), w-8)))
 		share := m.shareFive
 		if isWeekly(p) {
 			share = m.shareWeek
@@ -265,6 +277,7 @@ func (m *Model) checkAlerts() tea.Cmd {
 		}
 	}
 	m.setFlash("⚠ "+top.Text, levelStyle(top.Level).Bold(true), 15*time.Second)
+	m.limitFlashUntil = m.flashUntil
 	return notify(top.Text, cfg.Bell, cfg.Desktop)
 }
 
