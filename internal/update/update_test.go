@@ -22,6 +22,11 @@ func TestNewer(t *testing.T) {
 		{"v0.6.3-2-gabc1234", "v0.6.3", false}, // past the tag already
 		{"v0.6.3-2-gabc1234", "v0.6.4", true},
 		{"v0.6.3-2-gabc1234-dirty", "v0.6.4", true},
+		{"v0.6.3-dirty", "v0.6.3", false},
+		{"0.9.5-0.20261112194312-cde033955423", "v0.9.5", true}, // a build before 0.9.5
+		{"0.9.5-0.20261112194312-cde033955423", "v0.9.4", false},
+		{"0.9.5-rc1", "v0.9.5", true},
+		{"0.9.5", "v0.9.5-rc1", false},
 		{"dev", "v0.6.4", false},
 		{"0.6.3", "nightly", false},
 		{"", "v0.6.4", false},
@@ -51,5 +56,16 @@ func TestLatestUsesFreshCache(t *testing.T) {
 	// A stale cache goes to the network (which fails here).
 	if _, err := Latest(ctx, f, now.Add(2*Every)); err == nil {
 		t.Error("stale cache should not be used")
+	}
+}
+
+func TestFromSource(t *testing.T) {
+	for v, want := range map[string]bool{
+		"dev": true, "0.9.4-3-gabc1234": true, "0.9.5-0.20261112194312-cde033955423": true,
+		"0.9.4-dirty": true, "0.9.4": false, "v0.9.4": false, "0.9.5-rc1": false,
+	} {
+		if got := FromSource(v); got != want {
+			t.Errorf("FromSource(%q) = %v, want %v", v, got, want)
+		}
 	}
 }

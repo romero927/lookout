@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -97,8 +98,8 @@ func fetch(ctx context.Context) (string, error) {
 // v0.6.3 but older than v0.6.4. An unknown version ("dev") is never
 // reported as out of date.
 func Newer(current, latest string) bool {
-	cur, ok1 := parse(current)
-	lat, ok2 := parse(latest)
+	cur, curPre, ok1 := parseVersion(current)
+	lat, latPre, ok2 := parseVersion(latest)
 	if !ok1 || !ok2 {
 		return false
 	}
@@ -107,25 +108,50 @@ func Newer(current, latest string) bool {
 			return lat[i] > cur[i]
 		}
 	}
-	return false
+	// Same numbers: a release is newer than a pre-release or a build
+	// made before it.
+	return curPre && !latPre
 }
 
-// parse reads the major, minor and patch numbers at the start of v.
+// parse reads the major, minor and patch numbers at the start of v. A
+// pre-release ("0.9.5-rc1") or Go pseudo-version ("0.9.5-0.20261112194312-
+// cde033955423", a build before 0.9.5) comes before its numbers; a git
+// describe version ("0.9.4-3-gabc1234", after 0.9.4) and "-dirty" don't.
 func parse(v string) ([3]int, bool) {
+	n, _, ok := parseVersion(v)
+	return n, ok
+}
+
+// gitDescribeRe matches what git describe adds after a tag.
+var gitDescribeRe = regexp.MustCompile(`^(\d+-g[0-9a-f]+)?(-?dirty)?$`)
+
+// parseVersion is parse, plus whether v comes before its numbers.
+func parseVersion(v string) ([3]int, bool, bool) {
 	var out [3]int
 	v = strings.TrimPrefix(strings.TrimSpace(v), "v")
-	v, _, _ = strings.Cut(v, "-")
+	v, _, _ = strings.Cut(v, "+")
+	v, suffix, _ := strings.Cut(v, "-")
+	pre := suffix != "" && !gitDescribeRe.MatchString(suffix)
 	v, _, _ = strings.Cut(v, "+")
 	parts := strings.Split(v, ".")
 	if len(parts) != 3 {
-		return out, false
+		return out, false, false
 	}
 	for i, p := range parts {
 		n, err := strconv.Atoi(p)
 		if err != nil || n < 0 {
-			return out, false
+			return out, false, false
 		}
 		out[i] = n
 	}
-	return out, true
+	return out, pre, true
+}
+
+// pseudoRe matches a Go pseudo-version's suffix.
+var pseudoRe = regexp.MustCompile(`-(0\.)?\d{14}-[0-9a-f]{12}$`)
+
+// FromSource reports whether version v is a build from a source checkout
+// (git describe or a Go pseudo-version) rather than a release.
+func FromSource(v string) bool {
+	return v == "dev" || strings.Contains(v, "-g") || pseudoRe.MatchString(v) || strings.HasSuffix(v, "dirty")
 }

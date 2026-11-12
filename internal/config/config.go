@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/BurntSushi/toml"
 )
@@ -185,11 +186,37 @@ func Load(path string) (Config, error) {
 	if err != nil {
 		return cfg, err
 	}
-	if _, err := toml.Decode(string(b), &cfg); err != nil {
+	md, err := toml.Decode(string(b), &cfg)
+	if err != nil {
 		return Default(), fmt.Errorf("%s: %w", path, err)
 	}
 	cfg.fill()
+	if keys := md.Undecoded(); len(keys) > 0 {
+		names := make([]string, len(keys))
+		for i, k := range keys {
+			names[i] = k.String()
+		}
+		return cfg, &UnknownKeysError{Path: path, Keys: names}
+	}
 	return cfg, nil
+}
+
+// UnknownKeysError reports settings Lookout doesn't know, often typos. The
+// rest of the file still applies.
+type UnknownKeysError struct {
+	Path string
+	Keys []string
+}
+
+func (e *UnknownKeysError) Error() string {
+	return fmt.Sprintf("%s: unknown setting %s (ignored)", e.Path, strings.Join(e.Keys, ", "))
+}
+
+// IsWarning reports whether err from Load still left the file's settings
+// in place (unknown keys), rather than falling back to the defaults.
+func IsWarning(err error) bool {
+	var u *UnknownKeysError
+	return errors.As(err, &u)
 }
 
 // fill replaces nonsensical zero values with defaults.
@@ -200,8 +227,9 @@ func (c *Config) fill() {
 	default:
 		c.UI.Theme = d.UI.Theme
 	}
+	c.UI.Colors = strings.ToLower(strings.TrimSpace(c.UI.Colors))
 	switch c.UI.Colors {
-	case "auto", "16", "256", "truecolor", "none":
+	case "auto", "16", "256", "truecolor", "24bit", "none", "0":
 	default:
 		c.UI.Colors = d.UI.Colors
 	}

@@ -85,6 +85,10 @@ func TestMask(t *testing.T) {
 		{`"CLAUDE_CODE_OAUTH_TOKEN": "abc"`, `"CLAUDE_CODE_OAUTH_TOKEN": "••••••"`},
 		{`"apiKeyHelper": ""`, `"apiKeyHelper": ""`},
 		{"password: abc # comment", "password: •••••• # comment"},
+		{`"Authorization": "Bearer ghp_abcdef"`, `"Authorization": "••••••"`},
+		{`"ANTHROPIC_CUSTOM_HEADERS": "X-Key: 1"`, `"ANTHROPIC_CUSTOM_HEADERS": "••••••"`},
+		{`curl -H 'x: Bearer sk-live-123'`, `curl -H 'x: Bearer ••••••'`},
+		{`"GITHUB_PERSONAL_ACCESS_TOKEN": "ghp_x\"y"`, `"GITHUB_PERSONAL_ACCESS_TOKEN": "••••••"`},
 	}
 	for _, tt := range tests {
 		if got := Mask(tt.in); got != tt.want {

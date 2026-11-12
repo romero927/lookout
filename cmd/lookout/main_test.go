@@ -187,3 +187,12 @@ func TestUpdateCommand(t *testing.T) {
 		t.Errorf("a failed check should exit 1 with a message (code %d, %q)", code, errOut.String())
 	}
 }
+
+func TestUnknownArgumentsDontOpenTheDashboard(t *testing.T) {
+	for _, args := range [][]string{{"stat"}, {"stats", "extra"}, {"--here", "--cwd", "/tmp"}} {
+		var out, errb strings.Builder
+		if code := run(args, strings.NewReader(""), &out, &errb); code == 0 {
+			t.Errorf("run(%q) = 0, want an error", args)
+		}
+	}
+}

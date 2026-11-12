@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/BurntSushi/toml"
@@ -90,3 +91,17 @@ func TestDefaultTOMLMatchesDefault(t *testing.T) {
 }
 
 func ptr(s string) *string { return &s }
+
+func TestLoadWarnsAboutUnknownKeysAndKeepsTheRest(t *testing.T) {
+	p := filepath.Join(t.TempDir(), "config.toml")
+	if err := os.WriteFile(p, []byte("[ui]\ncolors = \"24BIT\"\n[updates]\ncheck = true\n[update]\ncheck = true\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(p)
+	if !IsWarning(err) || !strings.Contains(err.Error(), "update.check") {
+		t.Fatalf("err = %v, want a warning naming update.check", err)
+	}
+	if cfg.UI.Colors != "24bit" || !cfg.Updates.Check {
+		t.Fatalf("settings lost: colors=%q check=%v", cfg.UI.Colors, cfg.Updates.Check)
+	}
+}

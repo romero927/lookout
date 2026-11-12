@@ -118,7 +118,10 @@ func run(args []string, stdin io.Reader, stdout, stderr io.Writer) int {
 
 func loadConfig(stderr io.Writer) config.Config {
 	cfg, err := config.Load(paths.ConfigFile())
-	if err != nil {
+	switch {
+	case config.IsWarning(err):
+		fmt.Fprintf(stderr, "lookout: config: %v\n", err)
+	case err != nil:
 		fmt.Fprintf(stderr, "lookout: config: %v (using defaults)\n", err)
 	}
 	return cfg
@@ -140,9 +143,22 @@ func focusFlags(name string, args []string, stderr io.Writer) (focus, bool) {
 	if err := fs.Parse(args); err != nil {
 		return focus{}, false
 	}
+	if fs.NArg() > 0 {
+		fmt.Fprintf(stderr, "lookout: unknown command or argument %q (see lookout help)\n", fs.Arg(0))
+		return focus{}, false
+	}
+	if *here && *cwd != "" {
+		fmt.Fprintln(stderr, "lookout: use --here or --cwd, not both")
+		return focus{}, false
+	}
 	dir := *cwd
 	if *here {
-		dir, _ = os.Getwd()
+		wd, err := os.Getwd()
+		if err != nil {
+			fmt.Fprintf(stderr, "lookout: --here: %v\n", err)
+			return focus{}, false
+		}
+		dir = wd
 	}
 	if dir != "" {
 		if abs, err := filepath.Abs(dir); err == nil {
@@ -606,7 +622,7 @@ func cmdUpdate(args []string, stdout, stderr io.Writer) int {
 	switch {
 	case update.Newer(cur, latest):
 		fmt.Fprintf(stdout, "Lookout %s is out (you have %s).\n\nUpdate:    %s\nBinaries:  %s\n", latest, cur, update.InstallCmd, update.ReleasesURL)
-		if strings.Contains(cur, "-g") || version == "dev" {
+		if update.FromSource(cur) {
 			fmt.Fprintln(stdout, "\nThis copy was built from source: pull and rebuild instead (make build or make install).")
 		}
 	case strings.TrimPrefix(cur, "v") == strings.TrimPrefix(latest, "v"):

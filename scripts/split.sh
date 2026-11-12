@@ -20,7 +20,8 @@ if ! tmux has-session -t "=$session" 2>/dev/null; then
 	tmux new-session -d -s "$session" -c "$dir" \
 		-x "${size#* }" -y "${size% *}" claude
 	tmux set-option -t "$session" mouse on
-	tmux split-window -h -l 50% -t "$session" -c "$dir" "'$lookout' --here"
+	q=$(printf '%s' "$lookout" | sed "s/'/'\\\\''/g") # quote for the pane's shell
+	tmux split-window -h -l 50% -t "$session" -c "$dir" "'$q' --here"
 	tmux select-pane -t "$session" -L
 fi
 

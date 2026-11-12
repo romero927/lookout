@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"sort"
 	"strings"
 	"time"
@@ -154,11 +155,15 @@ func Read(p string) (string, error) {
 	return Mask(s), nil
 }
 
-var secretRe = regexp.MustCompile(`(?i)("?[A-Za-z0-9_.-]*(?:token|secret|password|passwd|api[_-]?key|apikey|auth[_-]?key|credential|bearer)[A-Za-z0-9_.-]*"?\s*[:=]\s*)("[^"\n]*"|'[^'\n]*'|[^\s,#\n]+)`)
+var secretRe = regexp.MustCompile(`(?i)("?[A-Za-z0-9_.-]*(?:token|secret|password|passwd|api[_-]?key|apikey|auth[_-]?key|authorization|credential|bearer|custom[_-]?headers)[A-Za-z0-9_.-]*"?\s*[:=]\s*)("(?:[^"\\\n]|\\.)*"|'[^'\n]*'|[^\s,#\n]+)`)
+
+// bearerRe matches an HTTP credential wherever it appears, whatever the key.
+var bearerRe = regexp.MustCompile(`(?i)\b(Bearer|Basic)\s+[A-Za-z0-9._~+/=-]{4,}`)
 
 // Mask hides values whose key looks like a secret. Display only; files on
 // disk are never changed by this.
 func Mask(s string) string {
+	s = bearerRe.ReplaceAllString(s, "$1 ••••••")
 	return secretRe.ReplaceAllStringFunc(s, func(m string) string {
 		sub := secretRe.FindStringSubmatch(m)
 		if strings.Contains(strings.ToLower(sub[1]), "tokens") {
@@ -205,10 +210,15 @@ func Backup(p, dir string, now time.Time) (string, error) {
 }
 
 // Editor returns the command to edit files with ($VISUAL, $EDITOR, vi).
+// The file to edit goes after it. On Unix the setting runs through the
+// shell, as git does, so a quoted path with spaces and flags both work.
 func Editor() []string {
 	for _, v := range []string{"VISUAL", "EDITOR"} {
 		if e := strings.TrimSpace(os.Getenv(v)); e != "" {
-			return strings.Fields(e)
+			if runtime.GOOS == "windows" {
+				return strings.Fields(e)
+			}
+			return []string{"sh", "-c", e + ` "$1"`, "sh"}
 		}
 	}
 	return []string{"vi"}
