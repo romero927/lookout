@@ -133,8 +133,16 @@ func (c *Core) needsYouNow(latest usage.Session, ok bool, focus map[string]time.
 	if !wok {
 		return s, false
 	}
-	if at.IsZero() || !ok || latest.ID == s.ID {
-		return s, true // when it started waiting isn't known, or nothing else to show
+	if !ok || latest.ID == s.ID {
+		return s, true // nothing else to show
+	}
+	if usage.DirMatch(latest.Cwd, c.CwdFilter) > usage.DirMatch(s.Cwd, c.CwdFilter) {
+		// With --cwd/--here, a session further from the folder (one
+		// started in ~, say) doesn't take over from one in it.
+		return usage.Session{}, false
+	}
+	if at.IsZero() {
+		return s, true // when it started waiting isn't known
 	}
 	if c.turnedTo(latest, focus).After(at) {
 		return usage.Session{}, false
@@ -162,15 +170,17 @@ func (c *Core) needsYou() (usage.Session, time.Time, bool) {
 		return usage.Session{}, time.Time{}, false
 	}
 	var best LiveSession
-	found := false
+	bestRank := 0
 	for _, l := range c.live.get(c.LiveDir, time.Now()) {
-		if l.Status != "waiting" || usage.DirMatch(l.Cwd, c.CwdFilter) == 0 || !c.Agg.Known(l.ID) {
+		r := usage.DirMatch(l.Cwd, c.CwdFilter)
+		if l.Status != "waiting" || r == 0 || !c.Agg.Known(l.ID) {
 			continue
 		}
-		if !found || l.StatusAt.After(best.StatusAt) {
-			best, found = l, true
+		if r > bestRank || (r == bestRank && l.StatusAt.After(best.StatusAt)) {
+			best, bestRank = l, r
 		}
 	}
+	found := bestRank > 0
 	if !found {
 		return usage.Session{}, time.Time{}, false
 	}

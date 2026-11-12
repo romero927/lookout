@@ -143,3 +143,20 @@ func TestAlertFiresOnceWhenResetTimeJitters(t *testing.T) {
 		t.Fatalf("keys differ for one window: %s vs %s", a, b)
 	}
 }
+
+func TestUpdateHistoryDoesNotLoseConcurrentReadings(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "history.json")
+	done := make(chan struct{})
+	for range 20 {
+		go func() {
+			_ = UpdateHistory(path, func(h *History) { h.Days = append(h.Days, DayUse{}) })
+			done <- struct{}{}
+		}()
+	}
+	for range 20 {
+		<-done
+	}
+	if n := len(LoadHistory(path).Days); n != 20 {
+		t.Fatalf("%d of 20 updates kept", n)
+	}
+}

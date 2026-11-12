@@ -328,7 +328,13 @@ func TestTailerIncremental(t *testing.T) {
 	var got []string
 	read := func() {
 		t.Helper()
-		if _, err := tl.Read(p, Source{}, func(r Record, _ Source) { got = append(got, r.MessageID) }); err != nil {
+		if _, err := tl.Read(p, Source{}, func(r Record, _ Source) {
+			if r.Kind == KindReset {
+				got = append(got, "reset")
+				return
+			}
+			got = append(got, r.MessageID)
+		}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -342,7 +348,7 @@ func TestTailerIncremental(t *testing.T) {
 		{"partial line is held back", line("b")[:20], true, []string{"a"}},
 		{"rest of partial line arrives", line("b")[20:] + "\n", true, []string{"a", "b"}},
 		{"malformed line skipped", "{{{\n" + line("c") + "\n", true, []string{"a", "b", "c"}},
-		{"truncation restarts from zero", line("z") + "\n", false, []string{"a", "b", "c", "z"}},
+		{"truncation restarts from zero", line("z") + "\n", false, []string{"a", "b", "c", "reset", "z"}},
 	}
 	for _, s := range steps {
 		flag := os.O_CREATE | os.O_WRONLY | os.O_TRUNC
@@ -431,5 +437,36 @@ func TestParseInterrupt(t *testing.T) {
 	r, _ := ParseLine([]byte(`{"type":"user","sessionId":"s","timestamp":"2026-11-09T10:00:00Z","message":{"role":"user","content":[{"type":"text","text":"[Request interrupted by user for tool use]"}]}}`))
 	if !r.Interrupt || r.Prompt != "" || r.IsHumanPrompt() {
 		t.Fatalf("interrupt parsed as %+v", r)
+	}
+}
+
+func TestTailerNoticesReplacedFile(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "s.jsonl")
+	line := `{"type":"user","sessionId":"s","timestamp":"2026-01-10T10:00:00Z","message":{"role":"user","content":"hi"}}` + "\n"
+	if err := os.WriteFile(p, []byte(line), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	tl := NewTailer()
+	resets := 0
+	read := func() int {
+		n, _ := tl.Read(p, Source{SessionID: "s"}, func(r Record, _ Source) {
+			if r.Kind == KindReset {
+				resets++
+			}
+		})
+		return n
+	}
+	read()
+	// Replaced by a different, longer file (a new inode), not appended to.
+	tmp := filepath.Join(dir, "new.jsonl")
+	if err := os.WriteFile(tmp, []byte(line+line+line), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Rename(tmp, p); err != nil {
+		t.Fatal(err)
+	}
+	if n := read(); resets != 1 || n != 3 {
+		t.Fatalf("replaced file: %d resets, %d records; want 1 reset and all 3 records", resets, n)
 	}
 }

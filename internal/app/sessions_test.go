@@ -202,3 +202,24 @@ func TestCurrentShowsSessionThatNeedsYou(t *testing.T) {
 		t.Fatalf("Current() = %q after bg stopped again, want bg", s.ID)
 	}
 }
+
+func TestHereKeepsAHomeSessionFromTakingOver(t *testing.T) {
+	now := time.Now()
+	dir := t.TempDir()
+	c := &Core{Agg: usage.New(), Activity: activity.New(), LiveDir: dir, CwdFilter: "/home/u/proj"}
+	for id, cwd := range map[string]string{"proj": "/home/u/proj", "home": "/home/u"} {
+		feed(c, transcript.Record{Kind: transcript.KindUser, Type: "user", SessionID: id, Cwd: cwd, Timestamp: now.Add(-10 * time.Minute), Prompt: "hi"})
+	}
+	write := func(id, cwd, status string) {
+		b := fmt.Sprintf(`{"pid":%d,"sessionId":%q,"cwd":%q,"startedAt":%d,"status":%q,"statusUpdatedAt":%d}`,
+			os.Getpid(), id, cwd, now.Add(-time.Hour).UnixMilli(), status, now.UnixMilli())
+		if err := os.WriteFile(filepath.Join(dir, id+".json"), []byte(b), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	write("proj", "/home/u/proj", "idle")
+	write("home", "/home/u", "waiting") // a Claude in ~ stops on a question
+	if s, _ := c.Current(); s.ID != "proj" {
+		t.Fatalf("Current() = %q: a session started in ~ shouldn't take over --here in a project", s.ID)
+	}
+}

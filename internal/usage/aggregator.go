@@ -32,8 +32,11 @@ type Entry struct {
 
 // Session is what Lookout knows about one Claude Code session.
 type Session struct {
-	ID           string
-	Project      string
+	ID      string
+	Project string
+	// Cwd is the folder the session started in: what --cwd/--here match
+	// and Claude Code's own session file gives. Claude may cd elsewhere
+	// for a command; that doesn't move the session to another project.
 	Cwd          string
 	FirstSeen    time.Time
 	LastActivity time.Time
@@ -44,6 +47,7 @@ type Session struct {
 	// one Claude Code generated. Empty until Claude Code names it.
 	Title       string
 	titleCustom bool
+	compacts    map[string]bool // compactions counted, so a re-read doesn't count them again
 }
 
 // Aggregator collects usage entries. It is safe for concurrent use.
@@ -72,8 +76,8 @@ func (a *Aggregator) Add(r transcript.Record, src transcript.Source) {
 	if sid == "" {
 		sid = src.SessionID
 	}
-	if sid == "" {
-		return
+	if sid == "" || r.Kind == transcript.KindReset {
+		return // usage is deduplicated, so a re-read adds nothing twice
 	}
 	a.mu.Lock()
 	defer a.mu.Unlock()
@@ -90,12 +94,12 @@ func (a *Aggregator) Add(r transcript.Record, src transcript.Source) {
 	if !r.Timestamp.IsZero() && !sub {
 		if s.FirstSeen.IsZero() || r.Timestamp.Before(s.FirstSeen) {
 			s.FirstSeen = r.Timestamp
-		}
-		if r.Timestamp.After(s.LastActivity) {
-			s.LastActivity = r.Timestamp
 			if r.Cwd != "" {
 				s.Cwd = r.Cwd
 			}
+		}
+		if r.Timestamp.After(s.LastActivity) {
+			s.LastActivity = r.Timestamp
 		}
 	}
 	if s.Cwd == "" && r.Cwd != "" && !sub {
@@ -104,7 +108,18 @@ func (a *Aggregator) Add(r transcript.Record, src transcript.Source) {
 
 	switch r.Kind {
 	case transcript.KindCompact:
-		s.Compactions++
+		// The session's own compactions: a subagent's are its own context.
+		key := r.UUID
+		if key == "" {
+			key = r.Timestamp.String()
+		}
+		if !sub && !s.compacts[key] {
+			if s.compacts == nil {
+				s.compacts = map[string]bool{}
+			}
+			s.compacts[key] = true
+			s.Compactions++
+		}
 		if !sub && !r.Timestamp.Before(s.LastActivity) {
 			s.Context = r.CompactPost
 		}
@@ -187,13 +202,16 @@ func (a *Aggregator) Known(id string) bool {
 }
 
 // DirMatch ranks how well a session started in sessCwd matches the folder
-// filter cwd, following Current: 2 for the same folder (or no filter), 1
-// for a folder inside it or one it is inside, 0 for no match.
+// filter cwd, following Current: 3 for the same folder (or no filter), 2
+// for a folder inside it, 1 for a folder it is inside (a session started
+// in ~ is near every project, so it ranks last), 0 for no match.
 func DirMatch(sessCwd, cwd string) int {
 	switch {
 	case cwd == "" || sameDir(sessCwd, cwd):
+		return 3
+	case sessCwd != "" && within(sessCwd, cwd):
 		return 2
-	case sessCwd != "" && (within(sessCwd, cwd) || within(cwd, sessCwd)):
+	case sessCwd != "" && within(cwd, sessCwd):
 		return 1
 	}
 	return 0

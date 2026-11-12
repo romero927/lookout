@@ -297,3 +297,19 @@ func TestInterruptIsNotAPrompt(t *testing.T) {
 		t.Fatalf("clip cut a character in half: %q", got)
 	}
 }
+
+func TestResetStartsTheSessionOver(t *testing.T) {
+	e := New()
+	at := time.Date(2026, 11, 9, 10, 0, 0, 0, time.UTC)
+	src := transcript.Source{SessionID: "q", Path: "/p/q.jsonl"}
+	feed := func() {
+		e.Observe(transcript.Record{Kind: transcript.KindUser, SessionID: "q", Timestamp: at, Prompt: "one"}, src)
+		e.Observe(transcript.Record{Kind: transcript.KindUser, SessionID: "q", Timestamp: at.Add(time.Minute), Prompt: "two"}, src)
+	}
+	feed()
+	e.Observe(transcript.Record{Kind: transcript.KindReset, SessionID: "q"}, src)
+	feed() // the file read again from the start
+	if s := e.Session("q"); len(s.Turns) != 2 || e.Brief("q").Prompts != 2 {
+		t.Fatalf("after a re-read: %d turns, %d prompts; want 2 and 2", len(s.Turns), e.Brief("q").Prompts)
+	}
+}

@@ -52,13 +52,14 @@ func SourceFor(root, path string) Source {
 type Tailer struct {
 	mu      sync.Mutex
 	offsets map[string]int64
+	files   map[string]os.FileInfo // what each path was when last read
 	locks   map[string]*sync.Mutex
 	health  Health
 }
 
 // NewTailer returns an empty Tailer.
 func NewTailer() *Tailer {
-	return &Tailer{offsets: make(map[string]int64), locks: make(map[string]*sync.Mutex)}
+	return &Tailer{offsets: make(map[string]int64), files: make(map[string]os.FileInfo), locks: make(map[string]*sync.Mutex)}
 }
 
 func (t *Tailer) fileLock(path string) *sync.Mutex {
@@ -93,10 +94,17 @@ func (t *Tailer) Read(path string, src Source, fn func(Record, Source)) (int, er
 	}
 	t.mu.Lock()
 	off := t.offsets[path]
+	prev := t.files[path]
+	t.files[path] = st
 	t.mu.Unlock()
-	if st.Size() < off {
-		// Truncated or replaced: start over. Usage dedupe makes re-reads safe.
+	if off > 0 && (st.Size() < off || (prev != nil && !os.SameFile(prev, st))) {
+		// Truncated or replaced: start over. Usage dedupe makes re-reads
+		// safe; the other consumers start the session over on KindReset.
 		off = 0
+		fn(Record{Kind: KindReset, SessionID: src.SessionID}, src)
+		if !src.IsSubagent {
+			t.rewindSubagents(path)
+		}
 	}
 	if st.Size() == off {
 		return 0, nil
@@ -154,6 +162,20 @@ func (t *Tailer) Read(path string, src Source, fn func(Record, Source)) (int, er
 }
 
 // Offset returns how far path has been read (-1 if never).
+// rewindSubagents makes a main transcript's subagent files read again from
+// the start, since a reset drops what was learned from them too.
+func (t *Tailer) rewindSubagents(mainPath string) {
+	dir := strings.TrimSuffix(mainPath, ".jsonl") + string(filepath.Separator) + "subagents" + string(filepath.Separator)
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	for p := range t.offsets {
+		if strings.HasPrefix(p, dir) {
+			t.offsets[p] = 0
+			delete(t.files, p)
+		}
+	}
+}
+
 func (t *Tailer) Offset(path string) int64 {
 	t.mu.Lock()
 	defer t.mu.Unlock()

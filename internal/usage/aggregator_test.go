@@ -239,3 +239,32 @@ func TestCurrentMatchesRelatedFolders(t *testing.T) {
 		}
 	}
 }
+
+func TestSessionKeepsItsStartingFolder(t *testing.T) {
+	a := New()
+	at := time.Now()
+	for i, cwd := range []string{"/w/proj", "/tmp", "/w/proj/sub"} { // Claude cd'd for a command
+		a.Add(transcript.Record{Kind: transcript.KindUser, SessionID: "s", Cwd: cwd, Timestamp: at.Add(time.Duration(i) * time.Minute)}, transcript.Source{SessionID: "s"})
+	}
+	if s := a.Sessions()[0]; s.Cwd != "/w/proj" {
+		t.Fatalf("Cwd = %q, want the starting folder", s.Cwd)
+	}
+}
+
+func TestDirMatchRanksParentFoldersLast(t *testing.T) {
+	if !(DirMatch("/w/p", "/w/p") > DirMatch("/w/p/sub", "/w/p") && DirMatch("/w/p/sub", "/w/p") > DirMatch("/w", "/w/p") && DirMatch("/w", "/w/p") > DirMatch("/x", "/w/p")) {
+		t.Fatal("want same folder > subfolder > parent folder > elsewhere")
+	}
+}
+
+func TestCompactionsCountedOnce(t *testing.T) {
+	a := New()
+	at := time.Now()
+	c := transcript.Record{Kind: transcript.KindCompact, SessionID: "s", UUID: "u1", Timestamp: at}
+	a.Add(c, transcript.Source{SessionID: "s"})
+	a.Add(c, transcript.Source{SessionID: "s"}) // read again
+	a.Add(transcript.Record{Kind: transcript.KindCompact, SessionID: "s", UUID: "u2", Sidechain: true, Timestamp: at}, transcript.Source{SessionID: "s", IsSubagent: true})
+	if n := a.Sessions()[0].Compactions; n != 1 {
+		t.Fatalf("Compactions = %d, want 1", n)
+	}
+}

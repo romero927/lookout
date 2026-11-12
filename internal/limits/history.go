@@ -3,6 +3,7 @@ package limits
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"sort"
 	"time"
 )
@@ -57,6 +58,41 @@ func LoadHistory(path string) History {
 
 // SaveHistory writes the history atomically.
 func SaveHistory(path string, h History) error { return writeJSON(path, h) }
+
+// UpdateHistory loads the history, applies f and saves it, holding a lock
+// file so status line runs from several sessions at once don't overwrite
+// each other's readings.
+func UpdateHistory(path string, f func(*History)) error {
+	unlock := lockFile(path+".lock", 500*time.Millisecond)
+	defer unlock()
+	h := LoadHistory(path)
+	f(&h)
+	return SaveHistory(path, h)
+}
+
+// lockFile takes path as a lock, waiting up to wait for another holder.
+// A lock older than a few seconds was left by a process that died, and
+// is taken over. Past wait it goes ahead unlocked: a status line must
+// not hang, and a lost reading is picked up by the next one.
+func lockFile(path string, wait time.Duration) (unlock func()) {
+	_ = os.MkdirAll(filepath.Dir(path), 0o700)
+	deadline := time.Now().Add(wait)
+	for {
+		f, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o600)
+		if err == nil {
+			f.Close()
+			return func() { os.Remove(path) }
+		}
+		if st, serr := os.Stat(path); serr == nil && time.Since(st.ModTime()) > 5*time.Second {
+			os.Remove(path)
+			continue
+		}
+		if time.Now().After(deadline) {
+			return func() {}
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
 
 // Record adds a status line reading. Usage counts towards today when a
 // window's figure rises, and when a new window appears after the previous

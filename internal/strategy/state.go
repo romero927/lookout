@@ -130,6 +130,10 @@ func (e *Engine) Observe(r transcript.Record, src transcript.Source) {
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	if r.Kind == transcript.KindReset {
+		delete(e.sessions, sid) // its transcript is read again from the start
+		return
+	}
 	s := e.sessions[sid]
 	if s == nil {
 		s = &SessionState{ID: sid}

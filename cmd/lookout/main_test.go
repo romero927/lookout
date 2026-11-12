@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -194,5 +195,18 @@ func TestUnknownArgumentsDontOpenTheDashboard(t *testing.T) {
 		if code := run(args, strings.NewReader(""), &out, &errb); code == 0 {
 			t.Errorf("run(%q) = 0, want an error", args)
 		}
+	}
+}
+
+func TestFocusFlagsResolveSymlinks(t *testing.T) {
+	real := t.TempDir()
+	link := filepath.Join(t.TempDir(), "link")
+	if err := os.Symlink(real, link); err != nil {
+		t.Skip(err)
+	}
+	want, _ := filepath.EvalSymlinks(real)
+	f, ok := focusFlags("lookout", []string{"--cwd", link}, io.Discard)
+	if !ok || f.dir != want {
+		t.Fatalf("dir = %q, want %q (Claude Code records the resolved folder)", f.dir, want)
 	}
 }

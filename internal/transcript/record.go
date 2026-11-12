@@ -31,6 +31,10 @@ const (
 	KindUser                  // a human prompt or a tool result
 	KindCompact               // a compaction boundary
 	KindQueued                // a message you sent while Claude was working
+	// KindReset comes before the records of a file read again from the
+	// start (it shrank, or was replaced): what was learned from it before
+	// is out of date.
+	KindReset
 )
 
 func (k Kind) String() string {
@@ -43,6 +47,8 @@ func (k Kind) String() string {
 		return "compact"
 	case KindQueued:
 		return "queued"
+	case KindReset:
+		return "reset"
 	default:
 		return "other"
 	}

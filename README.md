@@ -126,7 +126,7 @@ Building needs Go 1.26 or newer. (That comes from the SQLite library it uses; wi
 | Command | Does |
 |---------|------|
 | `lookout` | Open the dashboard, following your most recently active session |
-| `lookout --here` | Open it focused on the session in this folder (or a parent or subfolder) |
+| `lookout --here` | Open it focused on the session started in this folder (else a subfolder, else a parent folder) |
 | `lookout --session ID` | Open it on one session (the start of its ID is enough) |
 | `lookout stats` | Print a one-off text summary instead of the dashboard |
 | `lookout statusline install --print` | Print the `settings.json` snippet that connects your limits |

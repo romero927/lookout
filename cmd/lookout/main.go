@@ -164,6 +164,11 @@ func focusFlags(name string, args []string, stderr io.Writer) (focus, bool) {
 		if abs, err := filepath.Abs(dir); err == nil {
 			dir = abs
 		}
+		// Claude Code records the resolved folder: through a symlink (or
+		// macOS's /tmp → /private/tmp), match that.
+		if real, err := filepath.EvalSymlinks(dir); err == nil {
+			dir = real
+		}
 	}
 	return focus{dir: dir, session: strings.TrimSpace(*session)}, true
 }
@@ -550,9 +555,7 @@ func cmdStatusLine(args []string, stdin io.Reader, stdout, stderr io.Writer) int
 			hookLog("statusline save: %v", err)
 		}
 		limits.Prune(paths.LimitsDir(), now)
-		h := limits.LoadHistory(paths.HistoryFile())
-		h.Record(in, now)
-		if err := limits.SaveHistory(paths.HistoryFile(), h); err != nil {
+		if err := limits.UpdateHistory(paths.HistoryFile(), func(h *limits.History) { h.Record(in, now) }); err != nil {
 			hookLog("statusline history: %v", err)
 		}
 	}

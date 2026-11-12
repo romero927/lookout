@@ -138,6 +138,14 @@ func (e *Engine) Observe(r transcript.Record, src transcript.Source) {
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	if r.Kind == transcript.KindReset {
+		if !src.IsSubagent {
+			// The transcript is read again from the start (its subagent
+			// files too): start over rather than add every turn twice.
+			delete(e.sessions, sid)
+		}
+		return
+	}
 	s := e.sessions[sid]
 	if s == nil {
 		s = &session{files: map[string]*FileChange{}, pending: map[string]pending{}, tools: map[string]bool{}, agents: map[string]string{}}
