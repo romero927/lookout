@@ -830,7 +830,13 @@ func (m Model) render() string {
 // headerParts are the header's pieces: the brand, the tabs (full names,
 // or numbers when space is short) and the badges on the right.
 func (m Model) headerParts() (brand string, tabs, right []string) {
-	// Right side, most important first; trimmed from the end to fit.
+	// Right side, trimmed from the end to fit. The first limit badge (5h,
+	// or today's cost) comes first so it stays on every panel; the rest
+	// follow the other badges.
+	badges := m.limitBadges()
+	if len(badges) > 0 {
+		right = append(right, badges[0])
+	}
 	if w := m.health.Warning(); w != "" {
 		right = append(right, sWarn.Render("! PARSER"))
 	}
@@ -847,7 +853,9 @@ func (m Model) headerParts() (brand string, tabs, right []string) {
 	if m.updNew != "" {
 		right = append(right, sGreen.Render("↑ "+m.updNew))
 	}
-	right = append(right, m.limitBadges()...)
+	if len(badges) > 1 {
+		right = append(right, badges[1:]...)
+	}
 
 	fits := func(b string, t, r []string) bool {
 		return lipgloss.Width(b+"  "+strings.Join(t, ""))+lipgloss.Width(strings.Join(r, "  "))+1 <= m.width

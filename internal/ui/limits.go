@@ -100,8 +100,14 @@ func levelStyle(l limits.Level) lipgloss.Style {
 	return sGreen
 }
 
-// limitBadges are the compact header badges, e.g. "5h 42%".
+// limitBadges are the compact header badges, shown on every panel: the
+// 5-hour and weekly limits ("5h 42%", "wk 12%") on a subscription, or
+// today's estimated cost ("today ~$4.10") on a pay-as-you-go account. The
+// first is the one to keep when space is short.
 func (m Model) limitBadges() []string {
+	if m.showCost() {
+		return []string{sGreen.Bold(true).Render("today " + estMoney(m.snap.Today.Cost))}
+	}
 	five, week := m.limits.Paces(m.now)
 	var out []string
 	for _, x := range []struct {

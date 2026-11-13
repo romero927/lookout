@@ -67,7 +67,7 @@ func (m Model) viewUsage() string {
 		return estMoney(usd)
 	}
 	sessCost := cost(m.snap.Session.Cost)
-	if showCost && m.limits.CostUSD != nil {
+	if showCost && m.limitsExact() && m.limits.CostUSD != nil {
 		sessCost = limits.Money(*m.limits.CostUSD) // Claude Code's own figure
 	}
 	cards := []struct {
@@ -152,11 +152,13 @@ func (m Model) viewUsage() string {
 	return strings.Join(out, "\n")
 }
 
-// showCost reports whether to show dollars: the session in view is
-// pay-as-you-go, so its usage is billed in dollars rather than counted
-// against subscription limits.
+// showCost reports whether to show dollars: the account is pay-as-you-go,
+// so its usage is billed in dollars rather than counted against
+// subscription limits. Until the session in view gets its first reply it
+// has no limits file of its own, and m.limits is the latest session's, so
+// today's and the week's figures still show.
 func (m Model) showCost() bool {
-	return m.slOurs && m.limitsExact() && m.limits.PayAsYouGo()
+	return m.slOurs && m.limits.PayAsYouGo()
 }
 
 // estMoney is an estimated dollar amount, e.g. "~$1.24".

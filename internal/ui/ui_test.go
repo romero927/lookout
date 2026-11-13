@@ -434,6 +434,34 @@ func TestLimitsForAPIKeyAccount(t *testing.T) {
 	}
 }
 
+// A pay-as-you-go session that hasn't had a reply yet has no limits file of
+// its own: the day and week dollars still show (from the latest session's
+// file), and the header carries today's cost on every panel.
+func TestCostsBeforeFirstReply(t *testing.T) {
+	core, db := setup(t)
+	settings := filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "settings.json")
+	if err := os.WriteFile(settings, []byte(`{"statusLine":{"type":"command","command":"/x/lookout statusline"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cost := 3.5
+	st := limits.State{ContextAt: time.Now().Unix(), CostUSD: &cost}
+	if err := limits.Save(limits.FileFor(paths.LimitsDir(), "other-session"), st); err != nil {
+		t.Fatal(err)
+	}
+	var m tea.Model = New(Options{Core: core, Store: db, Version: "test"})
+	m = drive(m, tea.WindowSizeMsg{Width: 120, Height: 40}, LoadedMsg{})
+	v := plain(m.View())
+	if !strings.Contains(v, "cost") || strings.Contains(v, "$3.50") {
+		t.Errorf("want estimated costs, not another session's reported cost\n%s", v)
+	}
+	for _, k := range []string{"1", "2", "4"} {
+		if v := plain(drive(m, key(k)).View()); !strings.Contains(strings.SplitN(v, "\n", 2)[0], "today $") &&
+			!strings.Contains(strings.SplitN(v, "\n", 2)[0], "today ~$") {
+			t.Errorf("panel %s: header has no cost badge\n%s", k, v)
+		}
+	}
+}
+
 func TestNoCostsForSubscribers(t *testing.T) {
 	core, db := setup(t)
 	settings := filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "settings.json")
@@ -450,6 +478,9 @@ func TestNoCostsForSubscribers(t *testing.T) {
 	v := plain(drive(m, tea.WindowSizeMsg{Width: 120, Height: 40}, LoadedMsg{}).View())
 	if strings.Contains(v, "$") {
 		t.Errorf("subscriber view shows dollars\n%s", v)
+	}
+	if !strings.Contains(strings.SplitN(v, "\n", 2)[0], "5h 20%") {
+		t.Errorf("header has no 5h badge\n%s", v)
 	}
 	if !strings.Contains(v, UsagePageURL) || !strings.Contains(v, "o open usage on claude.ai") {
 		t.Errorf("usage link missing for subscribers\n%s", v)

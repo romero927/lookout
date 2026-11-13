@@ -310,7 +310,8 @@ func cmdStats(args []string, stdout, stderr io.Writer) int {
 	}
 	printLimits(stdout, st, now)
 	// Pay-as-you-go: show dollars too (estimated, except the session's).
-	showCost := exact && st.PayAsYouGo()
+	// Without its own file yet, st is the latest session's.
+	showCost := st.PayAsYouGo()
 	est := func(usd float64) string {
 		if usd <= 0 {
 			return "$0.00"
@@ -334,7 +335,11 @@ func cmdStats(args []string, stdout, stderr io.Writer) int {
 	}
 	tw.Flush()
 	if showCost {
-		fmt.Fprintf(stdout, "\nCost: session %s (Claude Code) · today %s · last %dh %s\n", limits.Money(*st.CostUSD),
+		sessCost := est(snap.Session.Cost)
+		if exact {
+			sessCost = limits.Money(*st.CostUSD) + " (Claude Code)"
+		}
+		fmt.Fprintf(stdout, "\nCost: session %s · today %s · last %dh %s\n", sessCost,
 			est(snap.Today.Cost), cfg.Usage.BlockHours, est(snap.Rolling.Cost))
 		fmt.Fprintln(stdout, "  ~ = estimated: pay-as-you-go sessions' tokens at Anthropic's API list prices, scaled to Claude Code's per-session cost")
 	}
