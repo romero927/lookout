@@ -145,6 +145,11 @@ func TestAlertFiresOnceWhenResetTimeJitters(t *testing.T) {
 }
 
 func TestUpdateHistoryDoesNotLoseConcurrentReadings(t *testing.T) {
+	// The real wait gives up after 500ms so a status line never hangs; 20
+	// writers on a busy CI runner can take longer than that. This test is
+	// about the lock, not the timeout.
+	defer func(w time.Duration) { historyLockWait = w }(historyLockWait)
+	historyLockWait = 30 * time.Second
 	path := filepath.Join(t.TempDir(), "history.json")
 	done := make(chan struct{})
 	for range 20 {

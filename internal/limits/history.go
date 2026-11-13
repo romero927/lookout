@@ -63,12 +63,16 @@ func SaveHistory(path string, h History) error { return writeJSON(path, h) }
 // file so status line runs from several sessions at once don't overwrite
 // each other's readings.
 func UpdateHistory(path string, f func(*History)) error {
-	unlock := lockFile(path+".lock", 500*time.Millisecond)
+	unlock := lockFile(path+".lock", historyLockWait)
 	defer unlock()
 	h := LoadHistory(path)
 	f(&h)
 	return SaveHistory(path, h)
 }
+
+// historyLockWait is how long UpdateHistory waits for the lock (a variable
+// so tests on a slow machine can wait longer).
+var historyLockWait = 500 * time.Millisecond
 
 // lockFile takes path as a lock, waiting up to wait for another holder.
 // A lock older than a few seconds was left by a process that died, and
