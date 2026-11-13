@@ -154,11 +154,10 @@ func (m Model) viewUsage() string {
 
 // showCost reports whether to show dollars: the account is pay-as-you-go,
 // so its usage is billed in dollars rather than counted against
-// subscription limits. Until the session in view gets its first reply it
-// has no limits file of its own, and m.limits is the latest session's, so
-// today's and the week's figures still show.
+// subscription limits. Before the session in view gets its first reply, the
+// account type comes from the latest session that had one (see m.acct).
 func (m Model) showCost() bool {
-	return m.slOurs && m.limits.PayAsYouGo()
+	return m.slOurs && m.acct.PayAsYouGo()
 }
 
 // estMoney is an estimated dollar amount, e.g. "~$1.24".

@@ -3,6 +3,7 @@ package limits
 import (
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"time"
 )
@@ -56,6 +57,38 @@ func Pick(dir, sessionID string) (path string, mod time.Time, ok bool) {
 		}
 	}
 	return path, mod, ok
+}
+
+// Informative reports whether s says what kind of account its session is
+// on: it has limits, or a pay-as-you-go cost. A session Claude hasn't
+// replied to yet has a file with neither.
+func (s State) Informative() bool { return s.HasData() || s.PayAsYouGo() }
+
+// Account returns the newest saved state that is Informative, with its path
+// and time. Limits belong to the account, not the session, so a session with
+// no reply yet can show them from another session's file.
+func Account(dir string) (path string, mod time.Time, st State, ok bool) {
+	type file struct {
+		path string
+		mod  time.Time
+	}
+	var files []file
+	entries, _ := os.ReadDir(dir)
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".json") || strings.HasPrefix(e.Name(), ".") {
+			continue
+		}
+		if info, err := e.Info(); err == nil {
+			files = append(files, file{filepath.Join(dir, e.Name()), info.ModTime()})
+		}
+	}
+	sort.Slice(files, func(i, j int) bool { return files[i].mod.After(files[j].mod) })
+	for _, f := range files {
+		if st := Load(f.path); st.Informative() {
+			return f.path, f.mod, st, true
+		}
+	}
+	return "", time.Time{}, State{}, false
 }
 
 // Prune removes files for sessions idle longer than keepFiles.

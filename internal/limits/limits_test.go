@@ -320,3 +320,33 @@ func TestCostOnlyReadingKeepsContextAge(t *testing.T) {
 		t.Fatalf("CostAt = %d", s.CostAt)
 	}
 }
+
+// A session Claude hasn't replied to yet has a file with no limits and a
+// zero cost; Account skips it for the newest one that has the account's.
+func TestAccountSkipsSessionsWithNoReply(t *testing.T) {
+	dir := t.TempDir()
+	if _, _, _, ok := Account(dir); ok {
+		t.Fatal("empty dir should have nothing")
+	}
+	write := func(id string, st State, age time.Duration) {
+		p := FileFor(dir, id)
+		if err := Save(p, st); err != nil {
+			t.Fatal(err)
+		}
+		mt := time.Now().Add(-age)
+		if err := os.Chtimes(p, mt, mt); err != nil {
+			t.Fatal(err)
+		}
+	}
+	zero, cost := 0.0, 2.5
+	write("older", State{UpdatedAt: t0.Unix(), FiveHour: &Window{12, t0.Unix()}}, time.Hour)
+	write("limits", State{UpdatedAt: t0.Unix(), FiveHour: &Window{20, t0.Unix()}}, 10*time.Minute)
+	write("new", State{ContextAt: t0.Unix(), CostUSD: &zero}, time.Minute)
+	if p, _, st, ok := Account(dir); !ok || st.FiveHour == nil || st.FiveHour.UsedPercent != 20 {
+		t.Fatalf("Account = %s %+v", p, st)
+	}
+	write("payg", State{ContextAt: t0.Unix(), CostUSD: &cost}, 0)
+	if _, _, st, _ := Account(dir); !st.PayAsYouGo() {
+		t.Fatalf("pay-as-you-go file not picked: %+v", st)
+	}
+}

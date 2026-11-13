@@ -17,21 +17,35 @@ import (
 )
 
 // refreshLimits loads the focused session's limits (or the latest session's)
-// when they changed on disk, and re-checks the status line setting.
+// when they changed on disk, and re-checks the status line setting. Limits
+// are per account: when the session's file doesn't have them yet (Claude
+// hasn't replied to it), m.acct comes from the newest file that does.
 func (m *Model) refreshLimits(force bool) {
 	sid := ""
 	if m.hasSess {
 		sid = m.sess.ID
 	}
-	path, mod, ok := limits.Pick(paths.LimitsDir(), sid)
-	if !force && path == m.limitsPath && mod.Equal(m.limitsMod) {
+	dir := paths.LimitsDir()
+	path, mod, ok := limits.Pick(dir, sid)
+	changed := force || path != m.limitsPath || !mod.Equal(m.limitsMod)
+	if changed {
+		m.limitsPath, m.limitsMod = path, mod
+		m.limits = limits.State{}
+		if ok {
+			m.limits = limits.Load(path)
+		}
+	}
+	acctPath, acctMod, acct := m.limitsPath, m.limitsMod, m.limits
+	if !m.limits.Informative() {
+		var found bool
+		if acctPath, acctMod, acct, found = limits.Account(dir); !found {
+			acctPath, acctMod, acct = m.limitsPath, m.limitsMod, m.limits
+		}
+	}
+	if !changed && acctPath == m.acctPath && acctMod.Equal(m.acctMod) {
 		return
 	}
-	m.limitsPath, m.limitsMod = path, mod
-	m.limits = limits.State{}
-	if ok {
-		m.limits = limits.Load(path)
-	}
+	m.acctPath, m.acctMod, m.acct = acctPath, acctMod, acct
 	m.slConfigured, m.slOurs = limits.StatusLineSetting(filepath.Join(paths.ClaudeDir(), "settings.json"))
 	m.refreshHistory()
 }
@@ -108,7 +122,7 @@ func (m Model) limitBadges() []string {
 	if m.showCost() {
 		return []string{sGreen.Bold(true).Render("today " + estMoney(m.snap.Today.Cost))}
 	}
-	five, week := m.limits.Paces(m.now)
+	five, week := m.acct.Paces(m.now)
 	var out []string
 	for _, x := range []struct {
 		name string
@@ -124,7 +138,7 @@ func (m Model) limitBadges() []string {
 
 // viewLimits is the top of the Usage panel.
 func (m Model) viewLimits(w int) []string {
-	five, week := m.limits.Paces(m.now)
+	five, week := m.acct.Paces(m.now)
 	if five == nil && week == nil {
 		return m.viewLimitsMissing(w)
 	}
@@ -166,9 +180,9 @@ func (m Model) viewLimits(w int) []string {
 				sMuted.Render(" (estimate)"))
 		}
 	}
-	note := "limits updated " + Ago(m.limits.Updated(), m.now) + " · they count your Claude usage on every device"
-	if m.now.Sub(m.limits.Updated()) > 15*time.Minute {
-		note = "limits last updated " + Ago(m.limits.Updated(), m.now) + " · they refresh when Claude Code replies"
+	note := "limits updated " + Ago(m.acct.Updated(), m.now) + " · they count your Claude usage on every device"
+	if m.now.Sub(m.acct.Updated()) > 15*time.Minute {
+		note = "limits last updated " + Ago(m.acct.Updated(), m.now) + " · they refresh when Claude Code replies"
 	}
 	out = append(out, "", sMuted.Render(clip(note, w)))
 	return out
@@ -192,7 +206,7 @@ func limitsHeading(w int) string {
 func (m Model) viewLimitsMissing(w int) []string {
 	out := []string{limitsHeading(w)}
 	switch {
-	case m.slOurs && m.limits.PayAsYouGo():
+	case m.slOurs && m.acct.PayAsYouGo():
 		if c := m.limits.CostUSD; c != nil && m.limitsExact() {
 			out = append(out, sLabel.Render("COST    ")+sBold.Render(limits.Money(*c))+
 				sMuted.Render(clip(" this session, as reported by Claude Code", max(0, w-18))))
@@ -253,7 +267,7 @@ func DayNote(d limits.DayUse) string {
 // checkAlerts fires limit alerts that haven't been shown yet.
 func (m *Model) checkAlerts() tea.Cmd {
 	cfg := m.o.Core.Cfg.Alerts
-	alerts := limits.Alerts(m.limits, m.now, cfg.Thresholds, cfg.Pace)
+	alerts := limits.Alerts(m.acct, m.now, cfg.Thresholds, cfg.Pace)
 	var fresh []limits.Alert
 	for _, a := range alerts {
 		if _, ok := m.fired[a.Key]; !ok {
@@ -350,12 +364,13 @@ func (m *Model) pinAtStart() {
 	m.setFlash("no single session matches "+id+" · following the latest · s to pick one", sYellow, 8*time.Second)
 }
 
-// SuggestExtra turns limits into input for the model suggestion. exact says
-// whether st belongs to the session being evaluated (context use is
-// per session; limits are per account).
-func SuggestExtra(st limits.State, exact bool, now time.Time) strategy.Extra {
+// SuggestExtra turns limits into input for the model suggestion. acct has
+// the account's limits; st is the session's own file, and exact says whether
+// it belongs to the session being evaluated (context use is per session;
+// limits are per account).
+func SuggestExtra(acct, st limits.State, exact bool, now time.Time) strategy.Extra {
 	var x strategy.Extra
-	switch lvl, detail := st.Pressure(now); lvl {
+	switch lvl, detail := acct.Pressure(now); lvl {
 	case limits.LevelOver:
 		x.Pressure, x.PressureDetail = strategy.PressureOver, detail
 	case limits.LevelWatch:
@@ -384,7 +399,7 @@ func (m *Model) refreshShare(now time.Time) {
 	if !m.hasSess {
 		return
 	}
-	five, week := m.limits.Paces(now)
+	five, week := m.acct.Paces(now)
 	for _, x := range []struct {
 		p   *limits.Pace
 		out *float64

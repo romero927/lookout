@@ -222,9 +222,14 @@ type Model struct {
 	gReadErr string
 
 	// Limits (from the status line)
-	limits       limits.State
-	limitsMod    time.Time
-	limitsPath   string
+	limits     limits.State
+	limitsMod  time.Time
+	limitsPath string
+	// acct is the account's limits: m.limits, or, until the session's
+	// file has them, the newest file that does.
+	acct         limits.State
+	acctPath     string
+	acctMod      time.Time
 	slConfigured bool
 	slOurs       bool
 	history      limits.History
@@ -607,7 +612,7 @@ func (m *Model) refresh() {
 		m.layoutViewports() // a warning line came or went: resize the readers
 	}
 	m.refreshShare(now)
-	raw, st := m.o.Core.Suggest(now, SuggestExtra(m.limits, m.limitsExact(), now))
+	raw, st := m.o.Core.Suggest(now, SuggestExtra(m.acct, m.limits, m.limitsExact(), now))
 	m.sstate = st
 	m.sugg, m.pending = m.stab.Update(raw, st.TurnCount, now)
 	if k := m.sugg.SessionID + "|" + string(m.sugg.Action) + "|" + m.sugg.Suggested; k != m.shownKey {

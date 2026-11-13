@@ -25,7 +25,7 @@ const (
 func (m *Model) refreshSessions(now time.Time) {
 	m.ovs = m.o.Core.Sessions(now, maxRecent)
 	m.share5h = map[string]float64{}
-	if five, _ := m.limits.Paces(now); five != nil && !five.Expired {
+	if five, _ := m.acct.Paces(now); five != nil && !five.Expired {
 		for _, o := range m.ovs {
 			if !o.Running {
 				continue

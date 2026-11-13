@@ -443,13 +443,21 @@ func TestCostsBeforeFirstReply(t *testing.T) {
 	if err := os.WriteFile(settings, []byte(`{"statusLine":{"type":"command","command":"/x/lookout statusline"}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	cost := 3.5
+	cost, zero := 3.5, 0.0
 	st := limits.State{ContextAt: time.Now().Unix(), CostUSD: &cost}
 	if err := limits.Save(limits.FileFor(paths.LimitsDir(), "other-session"), st); err != nil {
 		t.Fatal(err)
 	}
+	old := time.Now().Add(-time.Minute)
+	if err := os.Chtimes(limits.FileFor(paths.LimitsDir(), "other-session"), old, old); err != nil {
+		t.Fatal(err)
+	}
+	// What the status line saves for a session with no reply yet.
+	if err := limits.Save(limits.FileFor(paths.LimitsDir(), "sess-ui"), limits.State{ContextAt: time.Now().Unix(), CostUSD: &zero}); err != nil {
+		t.Fatal(err)
+	}
 	var m tea.Model = New(Options{Core: core, Store: db, Version: "test"})
-	m = drive(m, tea.WindowSizeMsg{Width: 120, Height: 40}, LoadedMsg{})
+	m = drive(m, tea.WindowSizeMsg{Width: 120, Height: 40}, LoadedMsg{}, tickMsg(time.Now()))
 	v := plain(m.View())
 	if !strings.Contains(v, "cost") || strings.Contains(v, "$3.50") {
 		t.Errorf("want estimated costs, not another session's reported cost\n%s", v)
@@ -459,6 +467,42 @@ func TestCostsBeforeFirstReply(t *testing.T) {
 			!strings.Contains(strings.SplitN(v, "\n", 2)[0], "today ~$") {
 			t.Errorf("panel %s: header has no cost badge\n%s", k, v)
 		}
+	}
+}
+
+// Limits are per account: a session with no reply yet shows them from the
+// newest session that has them, instead of "Waiting for Claude Code".
+func TestLimitsBeforeFirstReply(t *testing.T) {
+	core, db := setup(t)
+	settings := filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "settings.json")
+	if err := os.WriteFile(settings, []byte(`{"statusLine":{"type":"command","command":"/x/lookout statusline"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cost, zero := 3.5, 0.0
+	other := limits.State{ContextAt: time.Now().Unix(), UpdatedAt: time.Now().Unix(), CostUSD: &cost,
+		FiveHour: &limits.Window{UsedPercent: 20, ResetsAt: time.Now().Add(2 * time.Hour).Unix()},
+		SevenDay: &limits.Window{UsedPercent: 30, ResetsAt: time.Now().Add(72 * time.Hour).Unix()}}
+	if err := limits.Save(limits.FileFor(paths.LimitsDir(), "other-session"), other); err != nil {
+		t.Fatal(err)
+	}
+	// The other session replied a minute ago; this one just opened.
+	old := time.Now().Add(-time.Minute)
+	if err := os.Chtimes(limits.FileFor(paths.LimitsDir(), "other-session"), old, old); err != nil {
+		t.Fatal(err)
+	}
+	if err := limits.Save(limits.FileFor(paths.LimitsDir(), "sess-ui"), limits.State{ContextAt: time.Now().Unix(), CostUSD: &zero}); err != nil {
+		t.Fatal(err)
+	}
+	var m tea.Model = New(Options{Core: core, Store: db, Version: "test"})
+	v := plain(drive(m, tea.WindowSizeMsg{Width: 120, Height: 40}, LoadedMsg{}, tickMsg(time.Now())).View())
+	if strings.Contains(v, "Waiting for Claude Code") || !strings.Contains(v, "20% used") || !strings.Contains(v, "30% used") {
+		t.Errorf("account limits not shown before the first reply\n%s", v)
+	}
+	if !strings.Contains(strings.SplitN(v, "\n", 2)[0], "5h 20%") {
+		t.Errorf("header has no 5h badge\n%s", v)
+	}
+	if strings.Contains(v, "$") {
+		t.Errorf("subscriber view shows dollars\n%s", v)
 	}
 }
 

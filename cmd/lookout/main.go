@@ -282,7 +282,8 @@ func cmdStats(args []string, stdout, stderr io.Writer) int {
 	var extra strategy.Extra
 	if hasSess {
 		if p, _, ok := limits.Pick(paths.LimitsDir(), sess.ID); ok {
-			extra = ui.SuggestExtra(limits.Load(p), p == limits.FileFor(paths.LimitsDir(), sess.ID), now)
+			own := limits.Load(p)
+			extra = ui.SuggestExtra(accountOf(own), own, p == limits.FileFor(paths.LimitsDir(), sess.ID), now)
 		}
 	}
 	sg, _ := core.Suggest(now, extra)
@@ -308,10 +309,10 @@ func cmdStats(args []string, stdout, stderr io.Writer) int {
 		st = limits.Load(p)
 		exact = hasSess && p == limits.FileFor(paths.LimitsDir(), sess.ID)
 	}
-	printLimits(stdout, st, now)
+	acct := accountOf(st)
+	printLimits(stdout, acct, now)
 	// Pay-as-you-go: show dollars too (estimated, except the session's).
-	// Without its own file yet, st is the latest session's.
-	showCost := st.PayAsYouGo()
+	showCost := acct.PayAsYouGo()
 	est := func(usd float64) string {
 		if usd <= 0 {
 			return "$0.00"
@@ -336,7 +337,7 @@ func cmdStats(args []string, stdout, stderr io.Writer) int {
 	tw.Flush()
 	if showCost {
 		sessCost := est(snap.Session.Cost)
-		if exact {
+		if exact && st.CostUSD != nil && *st.CostUSD > 0 {
 			sessCost = limits.Money(*st.CostUSD) + " (Claude Code)"
 		}
 		fmt.Fprintf(stdout, "\nCost: session %s · today %s · last %dh %s\n", sessCost,
@@ -399,6 +400,18 @@ func cmdStats(args []string, stdout, stderr io.Writer) int {
 		}
 	}
 	return 0
+}
+
+// accountOf is st, or, when st doesn't have the account's limits yet (Claude
+// hasn't replied to its session), the newest saved state that does.
+func accountOf(st limits.State) limits.State {
+	if st.Informative() {
+		return st
+	}
+	if _, _, a, ok := limits.Account(paths.LimitsDir()); ok {
+		return a
+	}
+	return st
 }
 
 func printLimits(w io.Writer, st limits.State, now time.Time) {
