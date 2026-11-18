@@ -1076,3 +1076,64 @@ func TestLongPagesScroll(t *testing.T) {
 		t.Fatalf("whole page expected:\n%s", v)
 	}
 }
+
+func TestActivityFollowsNewestUnlessPinned(t *testing.T) {
+	core, db := setup(t)
+	proj := filepath.Join(os.Getenv("CLAUDE_CONFIG_DIR"), "projects", "-work-demo")
+	n := 0
+	prompt := func(text string) {
+		n++
+		at := time.Now().UTC().Add(time.Duration(n) * time.Second).Format(time.RFC3339Nano)
+		f, err := os.OpenFile(filepath.Join(proj, "sess-ui.jsonl"), os.O_APPEND|os.O_WRONLY, 0o644)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, _ = f.WriteString(`{"type":"user","sessionId":"sess-ui","cwd":"/work/demo","timestamp":"` + at + `","message":{"content":"` + text + `"}}` + "\n")
+		f.Close()
+		core.Load()
+	}
+	selected := func(m tea.Model) string {
+		mm := m.(Model)
+		return mm.act.Turns[mm.aSel].Prompt
+	}
+	var m tea.Model = New(Options{Core: core, Store: db, Version: "test"})
+	m = drive(m, tea.WindowSizeMsg{Width: 120, Height: 40}, LoadedMsg{}, key("2"))
+
+	// Nothing picked: a new turn takes the selection.
+	prompt("second")
+	m = drive(m, tickMsg(time.Now()))
+	if got := selected(m); got != "second" || m.(Model).aPin {
+		t.Fatalf("should follow the newest turn, on %q (pinned %v)", got, m.(Model).aPin)
+	}
+
+	// Picking an older turn pins it.
+	m = drive(m, key("down"))
+	prompt("third")
+	m = drive(m, tickMsg(time.Now()))
+	if got := selected(m); got != "this still doesn't work" {
+		t.Fatalf("pinned turn lost: on %q", got)
+	}
+	if !strings.Contains(plain(m.View()), "pinned") {
+		t.Error("list header should say it is pinned")
+	}
+
+	// g goes back to following.
+	m = drive(m, key("g"))
+	prompt("fourth")
+	m = drive(m, tickMsg(time.Now()))
+	if got := selected(m); got != "fourth" {
+		t.Fatalf("g should resume following, on %q", got)
+	}
+
+	// Opening the newest turn pins it too; leaving the viewer unpins.
+	m = drive(m, key("enter"))
+	prompt("fifth")
+	m = drive(m, tickMsg(time.Now()))
+	if got := selected(m); got != "fourth" {
+		t.Fatalf("opened turn lost: on %q", got)
+	}
+	m = drive(m, key("esc"), key("g"))
+	if m.(Model).aPin {
+		t.Error("back on the newest with the viewer closed should follow")
+	}
+}

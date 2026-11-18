@@ -147,6 +147,7 @@ type Model struct {
 	workAt    time.Time
 	aSel      int
 	aFocus    bool
+	aPin      bool // a turn was picked or opened: stay on it rather than follow the newest
 	aView     viewport.Model
 	aShown    string
 	aOpen     map[string]bool                // steps opened to show input and output
@@ -388,11 +389,13 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.MouseMsg:
 		nm, cmd := m.mouse(msg)
 		mm := nm.(Model)
+		mm.notePin()
 		return mm, tea.Batch(cmd, mm.changesCmd())
 
 	case tea.KeyMsg:
 		nm, cmd := m.handleKey(msg)
 		mm := nm.(Model)
+		mm.notePin()
 		return mm, tea.Batch(cmd, mm.changesCmd())
 	}
 	return m, nil
@@ -642,7 +645,7 @@ func (m *Model) refresh() {
 	}
 	if m.act.ID != prev {
 		// Another session: start the lists at the top.
-		m.cSel, m.aSel, m.cFocus, m.aFocus = 0, 0, false, false
+		m.cSel, m.aSel, m.cFocus, m.aFocus, m.aPin = 0, 0, false, false, false
 		m.tlSel, m.tlName, m.tlFocus, m.tlShown = 0, "", false, ""
 		m.tlOpen, m.tlCur = nil, 0
 		m.diffPath, m.diffText, m.aShown = "", "", ""
@@ -650,11 +653,16 @@ func (m *Model) refresh() {
 		m.showDiff()
 	}
 	if m.act.ID == prev {
-		for i, t := range m.act.Turns {
-			if !turnKey.IsZero() && t.Start.Equal(turnKey) {
-				m.aSel = i
-				break
+		if m.aPin {
+			for i, t := range m.act.Turns {
+				if !turnKey.IsZero() && t.Start.Equal(turnKey) {
+					m.aSel = i
+					break
+				}
 			}
+		} else if j := m.stepTurn(-1, 1); j >= 0 {
+			// Not pinned: follow the newest turn as it arrives.
+			m.aSel = j
 		}
 		m.keepChange(changeKey)
 	}

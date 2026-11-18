@@ -82,7 +82,11 @@ func (m Model) activityList(lw int) list {
 		}
 		l.add(sSection.Render("ACTIVITY")+" "+sYellow.Render(clip("/"+m.aFilter+cursor, max(4, lw-10))), -1)
 	default:
-		l.add(sSection.Render("ACTIVITY")+" "+sMuted.Render("newest first"), -1)
+		state := "newest first · following"
+		if m.aPin {
+			state = "newest first · pinned (g: follow)"
+		}
+		l.add(sSection.Render("ACTIVITY")+" "+sMuted.Render(clip(state, max(4, lw-10))), -1)
 	}
 	if len(m.act.Turns) == 0 {
 		l.add(sMuted.Render("  nothing yet"), -1)
@@ -187,6 +191,17 @@ func (m Model) activityKey(key string) (tea.Model, tea.Cmd) {
 	}
 	m.loadTurn()
 	return m, nil
+}
+
+// notePin records, after a key or click on Activity, whether the selection
+// is pinned: a turn other than the newest is selected, or one is open in the
+// viewer. Otherwise the list follows the newest turn as new ones arrive.
+func (m *Model) notePin() {
+	if m.tab != tabActivity {
+		return
+	}
+	newest := m.stepTurn(-1, 1)
+	m.aPin = newest >= 0 && (m.aFocus || m.aSel != newest)
 }
 
 // loadTurn renders the selected turn into the viewer when it changed.
