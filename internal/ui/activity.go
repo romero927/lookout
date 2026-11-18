@@ -84,7 +84,7 @@ func (m Model) activityList(lw int) list {
 	default:
 		state := "newest first · following"
 		if m.aPin {
-			state = "newest first · pinned (g: follow)"
+			state = "newest first · pinned (F: follow)"
 		}
 		l.add(sSection.Render("ACTIVITY")+" "+sMuted.Render(clip(state, max(4, lw-10))), -1)
 	}
@@ -193,15 +193,30 @@ func (m Model) activityKey(key string) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// notePin records, after a key or click on Activity, whether the selection
-// is pinned: a turn other than the newest is selected, or one is open in the
-// viewer. Otherwise the list follows the newest turn as new ones arrive.
-func (m *Model) notePin() {
+// notePin updates, after a key or click, whether the Activity selection is
+// pinned. Moving to a turn other than the newest, or opening one, pins it;
+// moving to the newest with the viewer closed, closing the viewer on the
+// newest, or F (which keeps the viewer open) goes back to following the
+// newest turn as new ones arrive. Scrolling the viewer changes nothing.
+func (m *Model) notePin(prevSel int, prevFocus bool) {
+	if m.aResume {
+		m.aResume, m.aPin = false, false
+		return
+	}
 	if m.tab != tabActivity {
 		return
 	}
 	newest := m.stepTurn(-1, 1)
-	m.aPin = newest >= 0 && (m.aFocus || m.aSel != newest)
+	if newest < 0 {
+		m.aPin = false
+		return
+	}
+	switch {
+	case m.aSel != prevSel || (m.aFocus && !prevFocus):
+		m.aPin = m.aFocus || m.aSel != newest
+	case prevFocus && !m.aFocus:
+		m.aPin = m.aSel != newest
+	}
 }
 
 // loadTurn renders the selected turn into the viewer when it changed.

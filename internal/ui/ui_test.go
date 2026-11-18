@@ -1125,15 +1125,42 @@ func TestActivityFollowsNewestUnlessPinned(t *testing.T) {
 		t.Fatalf("g should resume following, on %q", got)
 	}
 
-	// Opening the newest turn pins it too; leaving the viewer unpins.
+	// Opening the newest turn pins it too.
 	m = drive(m, key("enter"))
 	prompt("fifth")
 	m = drive(m, tickMsg(time.Now()))
 	if got := selected(m); got != "fourth" {
 		t.Fatalf("opened turn lost: on %q", got)
 	}
-	m = drive(m, key("esc"), key("g"))
+
+	// F follows again without closing the viewer; g there only scrolls it.
+	m = drive(m, key("g"))
+	if !m.(Model).aPin || !m.(Model).aFocus {
+		t.Fatal("g in the viewer should scroll, not change the pin")
+	}
+	m = drive(m, key("F"))
+	if got := selected(m); got != "fifth" || m.(Model).aPin || !m.(Model).aFocus {
+		t.Fatalf("F should follow with the viewer open: on %q (pinned %v, open %v)", got, m.(Model).aPin, m.(Model).aFocus)
+	}
+	prompt("sixth")
+	m = drive(m, tickMsg(time.Now()))
+	if got := selected(m); got != "sixth" {
+		t.Fatalf("viewer should follow the newest turn, on %q", got)
+	}
+	// Scrolling the viewer keeps following.
+	m = drive(m, key("down"), key("up"))
 	if m.(Model).aPin {
-		t.Error("back on the newest with the viewer closed should follow")
+		t.Error("scrolling the viewer should not pin")
+	}
+
+	// From an older turn in the list, F also resumes.
+	m = drive(m, key("esc"), key("down"), key("F"))
+	if got := selected(m); got != "sixth" || m.(Model).aPin {
+		t.Fatalf("F from the list should follow, on %q", got)
+	}
+	// Closing the viewer on the newest leaves it following.
+	m = drive(m, key("enter"), key("esc"))
+	if m.(Model).aPin {
+		t.Error("closing the viewer on the newest should follow")
 	}
 }

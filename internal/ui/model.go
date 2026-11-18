@@ -148,6 +148,7 @@ type Model struct {
 	aSel      int
 	aFocus    bool
 	aPin      bool // a turn was picked or opened: stay on it rather than follow the newest
+	aResume   bool // F was pressed: follow the newest again, even with the viewer open
 	aView     viewport.Model
 	aShown    string
 	aOpen     map[string]bool                // steps opened to show input and output
@@ -389,13 +390,13 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.MouseMsg:
 		nm, cmd := m.mouse(msg)
 		mm := nm.(Model)
-		mm.notePin()
+		mm.notePin(m.aSel, m.aFocus)
 		return mm, tea.Batch(cmd, mm.changesCmd())
 
 	case tea.KeyMsg:
 		nm, cmd := m.handleKey(msg)
 		mm := nm.(Model)
-		mm.notePin()
+		mm.notePin(m.aSel, m.aFocus)
 		return mm, tea.Batch(cmd, mm.changesCmd())
 	}
 	return m, nil
@@ -433,6 +434,14 @@ func (m Model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		case "x":
 			m.loadTurn()
 			return m.toggleAllSteps()
+		case "F":
+			// Follow the newest turn again, from the list or the viewer.
+			if j := m.stepTurn(-1, 1); j >= 0 {
+				m.aSel = j
+			}
+			m.aResume = true
+			m.loadTurn()
+			return m, nil
 		case "n", "p":
 			// Next / previous turn, even while reading one.
 			dir := 1
@@ -985,7 +994,7 @@ func (m Model) viewFooter() string {
 	case m.tab == tabActivity && m.aTyping:
 		keys = "type to search prompts and replies · enter keep · esc clear"
 	case m.tab == tabActivity && m.aFocus:
-		keys = "↑↓/pgup/pgdn scroll · n/p next/previous turn · click a step to open it · x open all · esc back"
+		keys = "↑↓/pgup/pgdn scroll · n/p next/previous turn · F follow newest · click a step to open it · x open all · esc back"
 	case m.tab == tabChanges && m.cFocus:
 		keys = "↑↓/pgup/pgdn scroll · esc back · q quit"
 	case m.tab == tabChanges:
@@ -994,7 +1003,7 @@ func (m Model) viewFooter() string {
 			keys = "↑↓ select · enter read output · y copy command · s sessions · ? help · q quit"
 		}
 	case m.tab == tabActivity:
-		keys = "↑↓ select · enter details · / search · x open all steps · s sessions · ? help · q quit"
+		keys = "↑↓ select · enter details · / search · F follow newest · x open all steps · s sessions · ? help · q quit"
 	case m.tab == tabSkills && m.sFocus:
 		keys = "↑↓/pgup/pgdn scroll · c copy · esc back · q quit"
 	case m.tab == tabSkills:
