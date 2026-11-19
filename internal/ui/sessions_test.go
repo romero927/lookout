@@ -279,6 +279,22 @@ func TestEvenSizes(t *testing.T) {
 	}
 }
 
+func TestAfterClose(t *testing.T) {
+	// Three Claude panes stacked at 23/22/22; the middle one closes and
+	// tmux gives its rows to the one above.
+	gone := layoutPane{stackPane{"%5", 0, 24, 127, 22}, "@0"}
+	now := parseLayout("%2 @0 0 0 127 46\n%4 @0 0 47 127 22\n%3 @0 128 0 126 69\n%9 @1 0 0 127 69\n")
+	j, ok := afterClose(gone, now)
+	if !ok || j.wide || fmt.Sprint(j.sizes) != "[{%2 34}]" {
+		t.Errorf("column: %v %v", ok, j)
+	}
+	// The last one in its column: nothing left to even out.
+	now = parseLayout("%2 @0 0 0 127 69\n%3 @0 128 0 126 69\n")
+	if _, ok := afterClose(layoutPane{stackPane{"%4", 0, 35, 127, 34}, "@0"}, now); ok {
+		t.Error("alone in its column")
+	}
+}
+
 func TestChooseSplit(t *testing.T) {
 	panes := map[string]paneInfo{
 		"%1": {id: "%1", window: "@0", w: 100, h: 40}, // Lookout

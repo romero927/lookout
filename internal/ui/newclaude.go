@@ -208,30 +208,142 @@ func evenStack(tmux, ref, flag string) {
 	window, pane := ref[:i], ref[i+1:]
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, tmux, "list-panes", "-t", window, "-F",
-		"#{pane_id} #{pane_left} #{pane_top} #{pane_width} #{pane_height}").Output()
+	out, err := exec.CommandContext(ctx, tmux, "list-panes", "-t", window, "-F", layoutFormat).Output()
 	if err != nil {
 		return
 	}
 	var panes []stackPane
-	for _, line := range strings.Split(string(out), "\n") {
+	for _, p := range parseLayout(string(out)) {
+		panes = append(panes, p.stackPane)
+	}
+	resizeEven(tmux, evenSizes(panes, pane, flag == "-h"), flag == "-h")
+}
+
+// resizeEven applies evenSizes' answer: heights, or widths when wide.
+func resizeEven(tmux string, sizes []paneSize, wide bool) {
+	axis := "-y"
+	if wide {
+		axis = "-x"
+	}
+	for _, r := range sizes {
+		_ = exec.Command(tmux, "resize-pane", "-t", r.id, axis, strconv.Itoa(r.size)).Run()
+	}
+}
+
+// layoutFormat is what list-panes prints for parseLayout.
+const layoutFormat = "#{pane_id} #{window_id} #{pane_left} #{pane_top} #{pane_width} #{pane_height}"
+
+// layoutPane is a pane's place on screen and the window it's in.
+type layoutPane struct {
+	stackPane
+	window string
+}
+
+// parseLayout reads list-panes lines in layoutFormat, by pane ID.
+func parseLayout(out string) map[string]layoutPane {
+	panes := map[string]layoutPane{}
+	for _, line := range strings.Split(out, "\n") {
 		f := strings.Fields(line)
-		if len(f) != 5 {
+		if len(f) != 6 || !strings.HasPrefix(f[0], "%") {
 			continue
 		}
 		n := make([]int, 4)
 		for j := range n {
-			n[j], _ = strconv.Atoi(f[j+1])
+			n[j], _ = strconv.Atoi(f[j+2])
 		}
-		panes = append(panes, stackPane{f[0], n[0], n[1], n[2], n[3]})
+		panes[f[0]] = layoutPane{stackPane{f[0], n[0], n[1], n[2], n[3]}, f[1]}
 	}
-	for _, r := range evenSizes(panes, pane, flag == "-h") {
-		axis := "-y"
-		if flag == "-h" {
-			axis = "-x"
+	return panes
+}
+
+// layoutMsg is every tmux pane's place on screen, asked each second so a
+// closed Claude Code pane's stack can be evened out. nil when tmux didn't
+// answer.
+type layoutMsg map[string]layoutPane
+
+// layoutCmd asks tmux where every pane is; nil outside tmux.
+func layoutCmd() tea.Cmd {
+	if !canNewClaude() {
+		return nil
+	}
+	return func() tea.Msg {
+		ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+		defer cancel()
+		out, err := exec.CommandContext(ctx, "tmux", "list-panes", "-a", "-F", layoutFormat).Output()
+		if err != nil {
+			return layoutMsg(nil)
 		}
-		_ = exec.Command(tmux, "resize-pane", "-t", r.id, axis, strconv.Itoa(r.size)).Run()
+		return layoutMsg(parseLayout(string(out)))
 	}
+}
+
+// onLayout compares the panes now with a second ago: when a pane that
+// ran Claude Code has closed, the panes left in its column (or row) share
+// the space evenly, as + claude leaves them when it opens one. Other
+// panes closing (an editor split, a shell) change nothing.
+func (m *Model) onLayout(now layoutMsg) tea.Cmd {
+	if now == nil {
+		return nil
+	}
+	prev, claude := m.layout, m.claudePanes
+	m.layout = now
+	m.claudePanes = map[string]bool{}
+	for _, o := range m.running() {
+		if p := app.TmuxPane(o.Tmux); p != "" {
+			m.claudePanes[p] = true
+		}
+	}
+	var jobs []evenJob
+	for id, gone := range prev {
+		if _, ok := now[id]; ok || !claude[id] {
+			continue
+		}
+		if j, ok := afterClose(gone, now); ok {
+			jobs = append(jobs, j)
+		}
+	}
+	if len(jobs) == 0 {
+		return nil
+	}
+	return func() tea.Msg {
+		if tmux, err := exec.LookPath("tmux"); err == nil {
+			for _, j := range jobs {
+				resizeEven(tmux, j.sizes, j.wide)
+			}
+		}
+		return nil
+	}
+}
+
+// evenJob is the resizes that even out one stack.
+type evenJob struct {
+	sizes []paneSize
+	wide  bool
+}
+
+// afterClose says how to even out the stack a closed pane (gone) was in:
+// its column when panes are left there (same left edge and width, in the
+// same window), else its row.
+func afterClose(gone layoutPane, now map[string]layoutPane) (evenJob, bool) {
+	var col, row []stackPane
+	for _, p := range now {
+		if p.window != gone.window {
+			continue
+		}
+		if p.left == gone.left && p.width == gone.width {
+			col = append(col, p.stackPane)
+		}
+		if p.top == gone.top && p.height == gone.height {
+			row = append(row, p.stackPane)
+		}
+	}
+	if len(col) >= 2 {
+		return evenJob{evenSizes(col, col[0].id, false), false}, true
+	}
+	if len(row) >= 2 {
+		return evenJob{evenSizes(row, row[0].id, true), true}, true
+	}
+	return evenJob{}, false
 }
 
 // paneSize is one resize: pane id to size cells tall (or wide).

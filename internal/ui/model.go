@@ -109,6 +109,10 @@ type Model struct {
 	hdrPress bool
 	loaded   bool
 	now      time.Time
+	// layout is every tmux pane's place a second ago, and claudePanes the
+	// ones running Claude Code then, to even out a closed one's stack.
+	layout      map[string]layoutPane
+	claudePanes map[string]bool
 
 	// Usage
 	snap    usage.Snapshot
@@ -326,7 +330,10 @@ func (m Model) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Run these before the return: they change m, and Go doesn't say
 		// whether a return reads m before or after calls in the same list.
 		alerts, sessAlerts, changes, upd := m.checkAlerts(), m.checkSessionAlerts(), m.changesCmd(), m.updateCheck()
-		return m, tea.Batch(tick(), alerts, sessAlerts, changes, upd)
+		return m, tea.Batch(tick(), alerts, sessAlerts, changes, upd, layoutCmd())
+
+	case layoutMsg:
+		return m, m.onLayout(msg)
 
 	case newClaudeMsg:
 		m.onNewClaude(msg)
