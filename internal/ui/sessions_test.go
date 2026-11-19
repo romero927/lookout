@@ -257,6 +257,28 @@ func TestFollowSwitchesToSessionThatNeedsYou(t *testing.T) {
 	}
 }
 
+func TestEvenSizes(t *testing.T) {
+	// Claude column on the left (69 rows, three panes after a 50/50 split
+	// was halved again), Lookout on the right.
+	panes := []stackPane{
+		{"%0", 0, 0, 126, 34},
+		{"%2", 0, 35, 126, 17},
+		{"%3", 0, 53, 126, 16},
+		{"%1", 127, 0, 127, 69},
+	}
+	got := fmt.Sprint(evenSizes(panes, "%3", false))
+	if got != "[{%0 23} {%2 22}]" {
+		t.Errorf("column: %s", got)
+	}
+	if got := evenSizes(panes, "%1", false); got != nil {
+		t.Errorf("alone in its column: %v", got)
+	}
+	row := []stackPane{{"%0", 0, 0, 100, 40}, {"%2", 101, 0, 49, 40}, {"%3", 151, 0, 49, 40}}
+	if got := fmt.Sprint(evenSizes(row, "%2", true)); got != "[{%0 66} {%2 66}]" {
+		t.Errorf("row: %s", got)
+	}
+}
+
 func TestChooseSplit(t *testing.T) {
 	panes := map[string]paneInfo{
 		"%1": {id: "%1", window: "@0", w: 100, h: 40}, // Lookout
